@@ -44,7 +44,7 @@ sleep 1
 adb_ shell cmd statusbar expand-notifications >/dev/null 2>&1 || true
 sleep 3
 dump_ui || true
-CLEAR_NODE=$(ui_tags | grep -E 'content-desc="Clear all notifications\."|text="Clear all"' | head -1)
+CLEAR_NODE=$(ui_tags | grep -E 'content-desc="Clear all notifications\."|text="Clear all"' | head -1 || true)
 if [ -n "$CLEAR_NODE" ]; then
     C=$(center_of_line "$CLEAR_NODE")
     adb_ shell input tap "${C% *}" "${C# *}"

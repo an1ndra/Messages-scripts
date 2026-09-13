@@ -5,6 +5,30 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## CodeQL alert #3 · implicit PendingIntent (2026-09-13)
+
+✅ ROOT CAUSE: `java/android/implicit-pendingintents` flagged the quick-reply
+notification action (`github.com/an1ndra/Messages/security/code-scanning/3`).
+The reply PendingIntent must be `FLAG_MUTABLE` (RemoteInput needs the system to
+inject reply text; immutable → silently dropped on Android 15+), and CodeQL's
+`ExplicitIntentSanitizer` (`ImplicitPendingIntents.qll`) is intra-procedural
+only. Building the explicit Intent in a helper (`QuickReplyReceiver.createReplyIntent`)
+bypassed the sanitizer — so Copilot's autofix (`setPackage`) did NOT close the
+alert (still `open` on main @ `fd0c6e75`, 2026-09-07).
+FIX: inlined the explicit Intent (`Intent(context, QuickReplyReceiver::class.java)`
++ `setPackage` + extras) into `SmsSupport.show()`, the same method that creates
+`PendingIntent.getBroadcast(...)`; inlined code reads as explicit to the
+receiver → sanitizer blocks the taint. Removed the now-unused helper.
+VERIFIED: `assembleDebug` ✓; `test-notification-posts.sh` ✓ (cold + warm paths,
+"Reply action (RemoteInput) wired"); quick-reply ✓ (reply lands in system Sent
+box, 0 crash-buffer entries).
+ALSO FIXED: `test-quick-reply.sh` `set -o pipefail` crash on a clean device —
+`CLEAR_NODE=$(ui_tags | grep ... | head -1)` exits 1 when no "Clear all" node
+exists (added `|| true`).
+FOLLOW-UP: manual path of `test-quick-reply.sh` tells the user to type+send,
+then the script re-runs `type_text`/send → `input text ''` error if the field is
+already gone (collide between script-driven and human-driven reply).
+
 ## Issue #180 · Search contacts in both the personal and work profile (2026-09-13)
 
 ✅ USER REQUEST: contacts from the work (managed) profile must appear in the
