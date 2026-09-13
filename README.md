@@ -52,18 +52,33 @@ All values default to the Messages-app setup; override via env:
 | `ANDROID_SERIAL` | `emulator-5554` | a different emulator/device |
 | `SHOTS_DIR` | `<app>/screenshots` | custom screenshot output dir |
 
-## Repository layout
+## Usage in the Messages app
 
-This directory is a git **subtree** of `git@github.com:an1ndra/Messages-scripts.git`,
-embedded in the Messages app repo at `scripts/`. The app repo stays
-standalone-cloneable (scripts ship in-tree).
-
-Sync commands (run from the app repo root):
+This repo is attached to the Messages app as a **git submodule** at `scripts/`.
+The app repo stores only a commit pointer — no script files are checked out
+until you pull them during local setup:
 
 ```bash
-git subtree push --prefix=scripts git@github.com:an1ndra/Messages-scripts.git main
-git subtree pull --prefix=scripts git@github.com:an1ndra/Messages-scripts.git main
+git submodule update --init scripts      # from the app repo root
+# or clone the app fresh with scripts included:
+git clone --recurse-submodules <app-url>
 ```
 
-If you work in the scripts repo standalone, point `PROJECT_DIR` at the app
-repo (e.g. `SHOTS_DIR=~/Develop/Messages/screenshots`) for screenshot output.
+Fetch newer scripts into an existing checkout (from the app repo root):
+
+```bash
+git -C scripts pull --ff-only            # fast-forward the submodule
+git add scripts && git commit            # bump the pointer in the app repo
+```
+
+Publish edits you make inside `scripts/`:
+
+```bash
+cd scripts                               # this repo
+git add . && git commit && git push
+# back in the app repo:
+git add scripts && git commit            # bump the pointer
+```
+
+If you work in this repo standalone, point `PROJECT_DIR` at the app repo
+(e.g. `SHOTS_DIR=~/Develop/Messages/screenshots`) for screenshot output.
