@@ -6,9 +6,11 @@ Some scripts save step-by-step PNGs to `screenshots/` so you can verify later.
 ## Quick start
 
 ```bash
-cd ~/Develop/Messages
 scripts/run-all-tests.sh          # full end-to-end sweep (~2 min)
 ```
+
+Scripts self-locate via `dirname "$0"` — run them from anywhere; no need to
+`cd` into the app repo first.
 
 Or run individually:
 
@@ -38,3 +40,30 @@ Or run individually:
 - Deep links used by scripts (implemented in MainActivity):
   - `am start -n com.anindra.messages/.MainActivity --es set_theme dark`
   - `am start -n com.anindra.messages/.MainActivity --ez open_settings true`
+
+## Environment overrides
+
+All values default to the Messages-app setup; override via env:
+
+| Var | Default | Override for |
+|---|---|---|
+| `PKG` | `com.anindra.messages` | a different app package |
+| `ADB` | `$HOME/android/platform-tools/adb` | a custom adb path |
+| `ANDROID_SERIAL` | `emulator-5554` | a different emulator/device |
+| `SHOTS_DIR` | `<app>/screenshots` | custom screenshot output dir |
+
+## Repository layout
+
+This directory is a git **subtree** of `git@github.com:an1ndra/Messages-scripts.git`,
+embedded in the Messages app repo at `scripts/`. The app repo stays
+standalone-cloneable (scripts ship in-tree).
+
+Sync commands (run from the app repo root):
+
+```bash
+git subtree push --prefix=scripts git@github.com:an1ndra/Messages-scripts.git main
+git subtree pull --prefix=scripts git@github.com:an1ndra/Messages-scripts.git main
+```
+
+If you work in the scripts repo standalone, point `PROJECT_DIR` at the app
+repo (e.g. `SHOTS_DIR=~/Develop/Messages/screenshots`) for screenshot output.

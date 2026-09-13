@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source ~/Develop/Messages/scripts/env.sh
+source "$(dirname "$0")/env.sh"
 PASS=0; FAIL=0; SKIP=0
 pass() { echo "  ✅ PASS: $1"; PASS=$((PASS+1)); }
 fail() { echo "  ❌ FAIL: $1"; FAIL=$((FAIL+1)); }
@@ -29,7 +29,7 @@ PY
 )"
 adb_ shell input tap $MX $MY; sleep 1.5
 dump_ui >/dev/null
-NSIMS=$(~/android/platform-tools/adb -s emulator-5554 shell dumpsys isub | grep -oE "id=[0-9]+" | sort -u | wc -l)
+NSIMS=$(adb_ shell dumpsys isub | grep -oE "id=[0-9]+" | sort -u | wc -l)
 if [ "$NSIMS" -lt 2 ]; then
     grep -q 'text="SIM ' "$TMP/ui.xml" && fail "SIM items shown with single SIM" || skip "single-SIM device — menu items correctly hidden (verify on dual-SIM phone)"
 else

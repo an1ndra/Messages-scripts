@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source ~/Develop/Messages/scripts/env.sh
+source "$(dirname "$0")/env.sh"
 PASS=0; FAIL=0
 pass() { echo "  ✅ PASS: $1"; ((PASS++)); }
 fail() { echo "  ❌ FAIL: $1"; ((FAIL++)); }
@@ -38,7 +38,7 @@ dump_ui && grep -q 'Notifications' "$TMP/ui.xml" && pass "Notifications toggle i
 info "=== P2: Quick Reply notification ==="
 info "Send an inbound SMS to trigger a notification"
 adb_ shell emu sms send "+15551230004" "p2-test-reply"; sleep 3
-~/android/platform-tools/adb -s emulator-5554 shell dumpsys notification | grep -q "quick_reply\|Reply" && pass "Quick Reply action on notification" || info "Quick reply check inconclusive (notification may not be visible while app is open)"
+adb_ shell dumpsys notification | grep -q "quick_reply\|Reply" && pass "Quick Reply action on notification" || info "Quick reply check inconclusive (notification may not be visible while app is open)"
 
 echo ""
 echo "=== RESULTS: $PASS passed, $FAIL failed ==="

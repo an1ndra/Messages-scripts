@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source ~/Develop/Messages/scripts/env.sh
+source "$(dirname "$0")/env.sh"
 P=0; F=0
 ok(){ echo "  PASS: $1"; P=$((P+1)); }
 no(){ echo "  FAIL: $1"; F=$((F+1)); }

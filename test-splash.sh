@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-source ~/Develop/Messages/scripts/env.sh
+source "$(dirname "$0")/env.sh"
 snap(){
-  ~/android/platform-tools/adb -s emulator-5554 exec-out screencap -p > /tmp/opencode/s.png
+  adb_ exec-out screencap -p > /tmp/opencode/s.png
   python3 -c "
 from PIL import Image
 im=Image.open('/tmp/opencode/s.png').convert('L')

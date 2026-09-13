@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source ~/Develop/Messages/scripts/env.sh
+source "$(dirname "$0")/env.sh"
 adb_ shell input keyevent 4 >/dev/null; sleep 1
 adb_ shell input keyevent 4 >/dev/null; sleep 1
 R=$(center_of_contains "555-123-0777") || { echo "no row"; exit 1; }

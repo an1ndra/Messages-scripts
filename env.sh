@@ -4,7 +4,7 @@
 
 export ANDROID_SERIAL=${ANDROID_SERIAL:-emulator-5554}
 ADB="${ADB:-$HOME/android/platform-tools/adb}"
-PKG="com.anindra.messages"
+PKG="${PKG:-com.anindra.messages}"
 ACT="$PKG/.MainActivity"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SHOTS_DIR="${SHOTS_DIR:-$PROJECT_DIR/screenshots}"
