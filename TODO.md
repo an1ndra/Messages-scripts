@@ -253,6 +253,22 @@ priority; each has acceptance criteria and file pointers. Verify on
 
 ---
 
+## Phone normalization + display formatting (feature/phone-normalization)
+
+✅ Implemented phone number normalization and display formatting (Material 3 pattern):
+- Added `libphonenumber:8.13.55` dependency
+- New `data/PhoneNumberUtils.kt`: E.164 conversion, locale-aware display formatting, caching, region resolution (SIM → SIM list → locale), NANP fallback for US/CA
+- `data/Repository.kt`: DB v15 with `participants` table, `getOrCreateConversationBlocking` normalization, `runParticipantMigration()` one-shot pass (merges split conversations by canonical E.164, populates participants, normalizes blocked numbers)
+- `data/Models.kt`: `Conversation.display` field (address)
+- All UI screens updated: `ChatScreen`, `ConversationsScreen`, `ContactDetailsScreen`, `TrashScreen`, `NewChatScreen`, `SettingsScreen` — use `display` and formatted numbers
+- ProGuard rules for libphonenumber
+- `regionFor` fixed: handles `null` region codes (fictional 555 numbers)
+- Test: `scripts/test-phone-normalization.sh` (15/15) — seeds 6 mixed-format conversations, verifies merge, E.164 storage, participant table population, display formatting, and idempotent second launch
+
+File: `data/PhoneNumberUtils.kt`, `data/Repository.kt`, `data/Models.kt`, `data/SettingsStore.kt`, `MessagesApplication.kt`, `ui/ChatScreen.kt`, `ui/ConversationsScreen.kt`, `ui/ContactDetailsScreen.kt`, `ui/TrashScreen.kt`, `ui/NewChatScreen.kt`, `ui/SettingsScreen.kt`, `proguard-rules.pro`, `scripts/test-phone-normalization.sh`
+
+---
+
 ## Completed (DO NOT re-implement)
 
 ### Core Architecture
