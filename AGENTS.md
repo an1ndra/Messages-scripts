@@ -60,9 +60,12 @@ Full reference in `Development.md`.
 5. **Tests are self-contained + idempotent**: they seed their own messages with
    unique markers (timestamp+PID), assert, then clean up their rows and restore
    settings to defaults.
-6. **Every app bug fix gets a regression script** `test-<area>.sh` — the
-   developer must be able to re-run it at any time. Run it to green before
-   declaring done.
+6. **Every app change ships with BOTH tests — never miss this.** Any code
+   change (not just bug fixes) needs a **JUnit test** under
+   `app/src/test/java/...` (`./gradlew testDebugUnitTest`, must stay green)
+   **and** a `test-<area>.sh` regression script the developer can re-run on
+   `emulator-5554`. For a bug fix the script must fail before the fix and pass
+   after. A change is not "done" until both exist and pass.
 7. **Always update `TODO.md`** and check off completed tasks — never skip it.
 8. **No comments** unless genuinely non-obvious (repo style).
 9. **Split large work across agents** (new agent per task) so implementation/
