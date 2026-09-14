@@ -37,13 +37,15 @@ raw_id() {
 }
 
 seed_contact() {
+    # Always recreate from scratch: reusing a surviving raw contact while
+    # re-inserting name/phone would leave duplicate rows and stale phone_lookup
+    # entries, which makes PhoneLookup fail and the header fall back to a number.
+    adb_ shell "content delete --uri content://com.android.contacts/raw_contacts \
+        --where \"sourceid='$SID'\"" >/dev/null 2>&1
+    adb_ shell "content insert --uri content://com.android.contacts/raw_contacts \
+        --bind account_name:s:issue203 --bind account_type:s:com.local --bind sourceid:s:$SID" >/dev/null
     local rid
     rid=$(raw_id)
-    [ -z "$rid" ] && {
-        adb_ shell "content insert --uri content://com.android.contacts/raw_contacts \
-            --bind account_name:s:issue203 --bind account_type:s:com.local --bind sourceid:s:$SID" >/dev/null
-        rid=$(raw_id)
-    }
     [ -z "$rid" ] && return 1
     adb_ shell "content insert --uri content://com.android.contacts/data \
         --bind raw_contact_id:l:$rid --bind mimetype:s:vnd.android.cursor.item/name \
@@ -90,10 +92,10 @@ assert_chat_open() {
     else
         ok "$label: home list not shown"
     fi
-    if grep -q "$NAME" "$TMP/ui.xml" || grep -q "123-9977" "$TMP/ui.xml"; then
-        ok "$label: header shows the recipient (name or number)"
+    if grep -q "$NAME" "$TMP/ui.xml"; then
+        ok "$label: header shows the contact name"
     else
-        bad "$label: header missing the recipient"
+        bad "$label: header missing the contact name"
     fi
 }
 
