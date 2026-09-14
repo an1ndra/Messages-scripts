@@ -135,6 +135,21 @@ alerts). Functionality: `assembleDebug` ✓, `testDebugUnitTest` 12/12 ✓,
 `test-notification-posts.sh` ✓, `test-scheduled-send.sh` ✓. The 3 alerts will
 close on the next security scan of `main` (weekly cron or next release tag).
 
+## CodeQL alert #21 · insecure-local-authentication (2026-09-14)
+
+✅ ROOT CAUSE: `java/android/insecure-local-authentication` flagged the
+message-lock unlock callback in `ChatScreen.kt` (`onAuthenticationSucceeded`).
+The query flags any `BiometricPrompt.AuthenticationCallback.onAuthenticationSucceeded`
+that never reads its `result` parameter (i.e. performs no cryptographic
+operation), so the unlock can be bypassed by UI-hooking tools.
+FIX: new `data/MessageLockCrypto.kt` — a Keystore AES key requiring user
+authentication for every use (biometric strong + device credential on API 30+,
+biometric on API 29). `lockUnlockSelection()` now passes a
+`BiometricPrompt.CryptoObject(cipher)` and the callback runs a real crypto
+operation (`cipher.doFinal`) on `result.cryptoObject.cipher` before unlocking.
+VERIFIED: `testDebugUnitTest` 14/14 (`MessageLockCryptoTest` 2/2);
+`scripts/test-message-lock-auth.sh` 3/3 (seed -> lock -> @Lock -> unlock).
+
 ## Issue #180 · Search contacts in both the personal and work profile (2026-09-13)
 
 ✅ USER REQUEST: contacts from the work (managed) profile must appear in the
