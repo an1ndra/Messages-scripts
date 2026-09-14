@@ -5,6 +5,42 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue #203 · Contacts "Text" button opens the list, not the contact's chat (2026-09-14)
+
+✅ USER REPORT: tapping the message/Text button next to a number in Contacts
+launched Messages on the conversation list (no recipient), and a chat opened
+later for a trashed thread showed a blank header and rejected sends with the
+misleading "You can't send messages to alphanumeric senders like """ dialog.
+Root causes (three):
+1. The manifest advertises `SENDTO`/`SEND` for `sms:`/`smsto:`/`mms:`/`mmsto:`,
+   but `MainActivity` only read the internal `open_conversation_address` extra
+   and never parsed `intent.data`, so the recipient in `smsto:<number>` was
+   dropped (`act=android.intent.action.SENDTO dat=smsto:...`, verified via
+   logcat and the real Contacts app on emulator-5554).
+2. `MainActivity` was not `singleTop`: a second `smsto:` intent while the app
+   was already on top returned `START_DELIVERED_TO_TOP` but `onNewIntent` was
+   never called, so warm launches silently did nothing.
+3. `getOrCreateConversationBlocking` / `conversationIdForAddress` reused a
+   trashed conversation row (`deleted_at>0`) by address; `ChatScreen` filters
+   `deleted_at=0`, so it rendered a blank header and `convo?.address ?: ""` made
+   `isPhoneNumber("")` false → the alphanumeric dialog.
+Fix:
+- `MainActivity.kt`: new `recipientFromIntent()` parses `sms/smsto/mms/mmsto`
+  URIs (strips `?body=`, takes the first of `;`/`,` recipients, URL-decodes);
+  `pendingOpenAddress` is now Compose state so warm `onNewIntent` recomposes;
+  a new `"opening"` route holds a neutral surface while the chat resolves —
+  set in BOTH `onCreate` and `onNewIntent` — so the list never flashes before
+  the chat (verified cold + warm: route goes `opening → chat`, never `list`).
+- `AndroidManifest.xml`: `android:launchMode="singleTop"` on `MainActivity`.
+- `data/Repository.kt`: `getOrCreateConversationBlocking` un-trashes the matched
+  thread; `conversationIdForAddress`/`matchConversationId(activeOnly=true)` skip
+  trashed rows; `syncFromSystem` skips blank provider addresses.
+- `ui/ChatScreen.kt`: blank address no longer triggers the alphanumeric dialog.
+Verified on emulator-5554: tapping the Contacts "Text" button lands directly on
+the contact's chat; back returns to the home list; warm `sms:`/`smsto:`, `?body=`
+stripping, multi-recipient, and a trashed thread (restored, header + send) all
+work. Regression: `scripts/test-issue-203-sms-intent.sh` (18/18).
+
 ## CodeQL alerts #1/#2/#3 · implicit PendingIntent (2026-09-13)
 
 (Alert #3 section below; alerts #1/#2 now resolved by the same inline-intent fix in ScheduledMessageSender.)
