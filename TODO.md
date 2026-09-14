@@ -115,6 +115,26 @@ PR #190 (`fix/codeql-pendingintent` from main) carries the alert #3 fix (SmsSupp
 "Security events" for alert dismissal — needs manual merge or extended token,
 then `workflow_dispatch` security.yml on main and re-check alerts #1/#2/#3/#20.
 
+UPDATE (2026-09-14): the inline-intent fix above did **NOT** close the alerts. A
+fresh CodeQL 2.27.0 scan of merged main (v1.0.24 @ `51ad75c`) still reported all
+three — `SmsSupport.kt:240` (`NotificationManagerCompat.notify`),
+`ScheduledMessageSender.kt:86/88` (`setAlarmClock`/`setExact`). Root cause:
+CodeQL's `ExplicitIntentSanitizer` is intra-procedural and the sink lived in a
+separate `notify()` helper; the alarm Intents were also built with a `.apply {}`
+block and had no `setPackage`.
+REAL FIX (Develop commit `1fab96b`):
+- `ScheduledMessageSender.schedule()`: build the alarm + show Intents with plain
+  statements (no apply-block) + `setPackage(context.packageName)`, in the same
+  method as the AlarmManager sink.
+- `SmsSupport.show()`: build the reply/mark-read Intents with plain statements
+  and inline `NotificationManagerCompat.notify()` (removed the `notify()` helper).
+VERIFIED with the CodeQL CLI 2.27.0 bundle CI uses, DB built from the fixed tree:
+`java/android/implicit-pendingintents` = **0 results**; full
+`java-security-and-quality.qls` = 13 (CI's v1.0.24 had 16 = these 13 + the 3 PI
+alerts). Functionality: `assembleDebug` ✓, `testDebugUnitTest` 12/12 ✓,
+`test-notification-posts.sh` ✓, `test-scheduled-send.sh` ✓. The 3 alerts will
+close on the next security scan of `main` (weekly cron or next release tag).
+
 ## Issue #180 · Search contacts in both the personal and work profile (2026-09-13)
 
 ✅ USER REQUEST: contacts from the work (managed) profile must appear in the
