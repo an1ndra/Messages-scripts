@@ -5,6 +5,92 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issues #208 / #192 · SIM label + display-scale diagnostics users can share (2026-09-15)
+
+✅ USER REQUEST: issue #208 reports the Settings SIM card showing a random
+number ("SIM 7" / "SIM 3") instead of the carrier name, and issue #192 reports
+the whole UI changing scale/resolution when the app opens. Both are
+device-specific and hard to reproduce, so add a **Diagnostics** report (device +
+SIM + display) the user can share/save for a GitHub issue.
+Root causes found while wiring the logs:
+- #208: `SettingsScreen` resolved the SIM row label only from an async
+  `SubscriptionManager.activeSubscriptionInfoList` that was still empty on
+  first composition, then fell back to `settings_sim_label` with the raw
+  **subscriptionId** → "SIM 7". Now a `LaunchedEffect` loads the list on entry
+  and the label is resolved by a pure `SimLabels.resolve()` (carrier + slot, or
+  slot, or "Unknown SIM" — never the raw id).
+- #192: `MainActivity.onCreate` forced `preferredDisplayModeId` to the
+  max-refresh display mode, but a `Display.Mode` bundles resolution **and**
+  refresh rate — on panels where the top-refresh mode is a different resolution
+  (OnePlus 8 Pro) the whole UI rescaled. FIXED: new pure
+  `DisplayModeSelector.bestModeId()` only bumps the refresh rate **within the
+  current resolution** (returns null when there is no same-resolution faster
+  mode), so the resolution/scale never changes. The diagnostics still log the
+  current mode, all supported modes and the preferred mode id.
+Implementation:
+- New `diagnostics/DiagnosticsReport.kt`: collects app/device info, **app state**
+  (default-SMS role, granted permissions, locale, time zone, theme, notifications),
+  every active subscription (subscriptionId, simSlotIndex, carrierName,
+  displayName, mccMnc, countryIso, embedded), selected subscriptionId,
+  phoneCount, and the display mode list; pure `format()` is JVM-testable.
+  `saveToDownloads()` writes `Downloads/Messages/messages-diagnostics.txt`.
+- New `diagnostics/DiagnosticsDialog.kt` + a **Diagnostics** row in
+  Settings → Advanced: previews the report with **Close · Save · Copy** in that
+  left-to-right order (no Share — it was removed on request).
+- New `data/DownloadsStore.kt` shared by the crash reporter and diagnostics;
+  `data/SimLabels.kt` (pure label resolution).
+Tests: `testDebugUnitTest` 30/30 (`SimLabelsTest` 4/4, `DiagnosticsReportTest`
+4/4, `DisplayModeSelectorTest` 4/4, plus the crash suite);
+`scripts/test-diagnostics.sh` 8/8 (row → report dialog with app + SIM + display
+sections → Close present, Share absent, button order Close < Save < Copy →
+saved file contains the display modes); `scripts/test-sim-label.sh` 2/2 (select
+the carrier SIM → Settings row shows "T-Mobile (SIM 1)", not a raw id);
+`scripts/test-display-mode.sh` 3/3 (launch does not change resolution/density/
+mode — the AVD has a single mode, so the selection logic is covered by
+`DisplayModeSelectorTest`). All wired into `run-all-tests.sh`.
+
+## Issue #209 · Crash on Android 12 — capture crash logs for GitHub issues (2026-09-15)
+
+✅ USER REQUEST (issue #209 "Crash Android 12"): the app crashed on launch on
+Android 12 with no actionable error and no way for the reporter to capture it.
+Added a self-contained crash reporter so a user can export the crash log as a
+ZIP and attach it to a GitHub issue. The static audit had already ruled out the
+usual Android-12 suspects (every filtered component has `android:exported`,
+all PendingIntents carry a mutability flag, no background service starts), so
+this gives us the actual stack trace instead of guessing.
+Implementation:
+- New `crash/CrashReporter.kt`: `CrashReporter.install()` sets a global
+  `Thread.setDefaultUncaughtExceptionHandler` (chained to the previous handler)
+  from `MessagesApplication.onCreate` — installed before all other init so
+  init-time crashes are captured too. It formats app version (via
+  PackageManager; `BuildConfig` is not generated in this project), Android SDK,
+  manufacturer/model/brand/fingerprint, exception class/message and the full
+  stack trace, then writes synchronously to
+  `filesDir/crash_reports/crash-<stamp>.txt` (capped at the 5 newest to survive
+  crash-loops). Pure `CrashReportFormatter` + `CrashReportStore.buildZip` are
+  JVM-testable.
+- Crash-loop safety: the same report is ALSO published to
+  `Downloads/Messages/messages-crash-report.txt` via MediaStore (API 29+, no
+  permission). If the app crashes on every launch and its UI is unreachable,
+  the log is still retrievable from a file manager — which is exactly the
+  issue #209 case.
+- New `crash/CrashReportDialog.kt`: on the next launch the app shows a
+  "Crash report" M3 dialog — **Save ZIP** (writes
+  `Downloads/Messages/messages-crash-report.zip` containing all reports, then
+  toasts the location), **Copy** (clipboard), **Delete** (clears the internal
+  reports). The original `ACTION_SEND` share of `application/zip` was dropped:
+  on AOSP/Bluetooth-only devices the chooser offered just "Choose Bluetooth
+  device", useless for attaching to a GitHub issue — saving to Downloads lets
+  the user attach it from the GitHub app/web.
+- `MainActivity.kt`: `AppViewModel.pendingCrashReports` (loaded off-main) drives
+  the dialog; `exportCrashReports()` saves the zip. Strings in
+  `strings_main.xml`. No new permissions; `file_paths.xml` untouched.
+Tests: `testDebugUnitTest` 18/18 (`CrashReportFormatterTest` 4/4);
+`scripts/test-crash-reports.sh` 7/7 (launch -> `am crash` -> report captured
+internally AND in Downloads/Messages -> dialog shown -> valid zip saved to
+Downloads -> Delete clears). Wired into `run-all-tests.sh`.
+NOTE: catches JVM exceptions only — native crashes / ANRs are not captured.
+
 ## Issue #203 · Contacts "Text" button opens the list, not the contact's chat (2026-09-14)
 
 ✅ USER REPORT: tapping the message/Text button next to a number in Contacts
