@@ -71,6 +71,17 @@ else
     bad "report missing data/system details"
 fi
 
+if grep -q "Security patch:" "$TMP/ui.xml" && \
+   grep -q "Build ID:" "$TMP/ui.xml" && \
+   grep -q "ABIs:" "$TMP/ui.xml" && \
+   grep -q "CPU cores:" "$TMP/ui.xml" && \
+   grep -q "Kernel:" "$TMP/ui.xml" && \
+   grep -q "Emulator:" "$TMP/ui.xml"; then
+    ok "report includes extended device details"
+else
+    bad "report missing extended device details"
+fi
+
 info "Dialog buttons: Close + Copy, no Save"
 if grep -q 'text="Close"' "$TMP/ui.xml"; then ok "dialog has a Close button"; else bad "no Close button"; fi
 if grep -q 'text="Copy"' "$TMP/ui.xml"; then ok "dialog has a Copy button"; else bad "no Copy button"; fi

@@ -19,7 +19,9 @@
 2. **Diagnostics: drop Save, add detail** — the Diagnostics dialog now has only
    **Close · Copy** (Save removed on request). The report gained sections for
    App (version/package/targetSdk/first-install/last-update/settings),
-   Device (release/device/product/hardware/board/ABIs/tags), System (memory,
+   Device (release/codename/incremental/security-patch/base-OS/device/product/
+   hardware/board/bootloader/build-ID/display/type/tags/host/user/ABIs 32+64/
+   build-time/emulator/kernel/Java-VM/CPU-cores/font-scale), System (memory,
    low-memory, app heap, storage, battery), and Data (conversation/message
    counts, DB size, pending crash reports). `DiagnosticsReport.format` now takes
    a `DiagnosticsData`; counts come from new `Repository.totalConversationCount`
