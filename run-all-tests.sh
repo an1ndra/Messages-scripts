@@ -23,5 +23,6 @@ run bash "$S/test-import-mirrors-provider.sh"
 run bash "$S/test-merge-import.sh"
 run bash "$S/test-import-loading.sh"
 run bash "$S/test-font.sh"
+run bash "$S/test-advanced-move.sh"
 
 info "ALL DONE — screenshots in $SHOTS_DIR"

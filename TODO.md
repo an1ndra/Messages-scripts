@@ -5,6 +5,28 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Settings → Advanced: move toggles + font picker (2026-09-15)
+
+✅ USER REQUEST: move Privacy mode, App lock, Drafts, Send sound and Receive
+sound out of the main Settings screen into Settings → Advanced, and add a Font
+picker there too.
+Implementation:
+- `ui/AdvancedSettingsScreen.kt`: new group with Privacy mode, App lock, Drafts,
+  Send sound, Receive sound (same behaviour as before, incl. the biometric
+  availability check for App lock and `NotificationHelper.ensureChannel` for
+  Receive sound), plus a **Font** row that opens a radio dialog.
+- `ui/SettingsScreen.kt`: the five rows (and their now-unused state) removed.
+- Fonts: `res/font/{dm_sans,inter,figtree}.ttf` (variable, SIL OFL) + licenses
+  in `assets/licenses/`; `ui/theme/Type.kt` gains `AppFonts.familyFor(key)` and
+  `MessagesTheme(font = ...)` applies the chosen family. `SettingsStore` gains
+  `fontFamily` (default `dm_sans`); `AppViewModel.fontFamily` is observable.
+Tests: `testDebugUnitTest` 19/19 (`AppFontsTest` 3/3, `TypeTest` 2/2);
+`scripts/test-advanced-move.sh` 18/18 (moved rows absent from main Settings,
+present in Advanced, font picker switches + persists + restores). Updated
+`test-settings-live.sh` (Drafts), `test-notification-sound.sh` (Receive sound)
+and `test-privacy-features.sh` (App lock / Privacy mode) to reach Advanced.
+Wired into `run-all-tests.sh`.
+
 ## UI font — DM Sans as a Google Sans stand-in (2026-09-15)
 
 ✅ USER REQUEST: make the app text look closer to Google Messages. The earlier

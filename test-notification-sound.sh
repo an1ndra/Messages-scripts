@@ -94,6 +94,19 @@ open_sound_picker() {
     sleep 1.2
 }
 
+# "Receive sound" moved to Settings -> Advanced; scroll to the row and open it.
+open_advanced() {
+    local i
+    for i in 1 2 3 4 5; do
+        dump_ui || true
+        if grep -q 'text="Advanced"' "$TMP/ui.xml"; then
+            tap_text "Advanced" >/dev/null 2>&1 && { sleep 1.5; return 0; }
+        fi
+        adb_ shell input swipe 540 1700 540 900 250 >/dev/null 2>&1; sleep 0.6
+    done
+    return 1
+}
+
 # Channel the incoming-message notification for [body] was posted on.
 notif_channel() {
     local body="$1"
@@ -189,6 +202,7 @@ echo "  active channel: $cs"
 
 info "Receive sound OFF -> silent notification"
 launch_settings
+open_advanced || fail "could not open Advanced settings"
 tap_switch_near "Receive sound" || fail "could not toggle Receive sound"
 wait_pref receive_sound_enabled false && pass "receive sound turned off" || fail "receive sound not turned off"
 adb_ emu sms send +15559990099 "silent check" >/dev/null 2>&1; sleep 2
@@ -245,6 +259,7 @@ tap_text "OK"; sleep 1.5
 if pref_on receive_sound_enabled; then
     pass "receive sound already on"
 else
+    open_advanced || fail "could not open Advanced settings"
     tap_switch_near "Receive sound" || fail "could not re-enable Receive sound"
     wait_pref receive_sound_enabled true &&
         pass "receive sound restored to on" || fail "receive sound not restored"
