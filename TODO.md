@@ -48,10 +48,13 @@ Implementation:
   availability check for App lock and `NotificationHelper.ensureChannel` for
   Receive sound), plus a **Font** row that opens a radio dialog.
 - `ui/SettingsScreen.kt`: the five rows (and their now-unused state) removed.
-- Fonts: `res/font/{dm_sans,inter,figtree}.ttf` (variable, SIL OFL) + licenses
-  in `assets/licenses/`; `ui/theme/Type.kt` gains `AppFonts.familyFor(key)` and
-  `MessagesTheme(font = ...)` applies the chosen family. `SettingsStore` gains
-  `fontFamily` (default `dm_sans`); `AppViewModel.fontFamily` is observable.
+- Fonts: `res/font/{dm_sans,inter,figtree,montserrat,manrope,jost}.ttf`
+  (variable) + `poppins_{regular,medium,semibold,bold}.ttf` (static), all SIL
+  OFL, with licenses in `assets/licenses/`; `ui/theme/Type.kt` gains
+  `AppFonts.familyFor(key)` and `MessagesTheme(font = ...)` applies the chosen
+  family. `SettingsStore` gains `fontFamily` (default `dm_sans`);
+  `AppViewModel.fontFamily` is observable. The picker is a standard radio
+  AlertDialog with compact rows (32dp) and a scrollable list for the 8 options.
 Tests: `testDebugUnitTest` 19/19 (`AppFontsTest` 3/3, `TypeTest` 2/2);
 `scripts/test-advanced-move.sh` 18/18 (moved rows absent from main Settings,
 present in Advanced, font picker switches + persists + restores). Updated

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Regression for the bundled UI font.
+# Regression for the bundled UI fonts.
 #
-# The app uses DM Sans (SIL OFL) as a close, freely-licensed stand-in for Google
-# Sans (proprietary, cannot be redistributed). This checks the installed APK
-# ships the DM Sans variable font + the OFL license, and that the app launches
-# with it.
+# The app ships several free (SIL OFL) fonts as close stand-ins for Google Sans
+# (proprietary). This checks the installed APK contains them + their OFL
+# licenses, and that the app launches.
 source "$(dirname "$0")/env.sh"
 
 PASS=0; FAIL=0
@@ -22,21 +21,27 @@ if [ -z "$APK_PATH" ]; then
 fi
 adb_ pull "$APK_PATH" "$TMP/base.apk" >/dev/null 2>&1
 
-info "DM Sans font file is bundled"
-if unzip -l "$TMP/base.apk" 2>/dev/null | grep -q 'res/font/dm_sans\.ttf'; then
-    ok "bundled res/font/dm_sans.ttf"
-else
-    bad "missing res/font/dm_sans.ttf"
-fi
+info "Font files are bundled"
+LISTING=$(unzip -l "$TMP/base.apk" 2>/dev/null)
+for f in dm_sans inter figtree montserrat manrope jost \
+         poppins_regular poppins_medium poppins_semibold poppins_bold; do
+    if echo "$LISTING" | grep -q "res/font/$f\.ttf"; then
+        ok "bundled res/font/$f.ttf"
+    else
+        bad "missing res/font/$f.ttf"
+    fi
+done
 
-info "OFL license ships with the app"
-if unzip -l "$TMP/base.apk" 2>/dev/null | grep -q 'assets/licenses/DMSans-OFL.txt'; then
-    ok "DM Sans OFL license present"
-else
-    bad "DM Sans OFL license missing"
-fi
+info "OFL licenses ship with the app"
+for l in DMSans Figtree Inter Montserrat Manrope Jost Poppins; do
+    if echo "$LISTING" | grep -q "assets/licenses/$l-OFL.txt"; then
+        ok "license $l-OFL.txt present"
+    else
+        bad "license $l-OFL.txt missing"
+    fi
+done
 
-info "App launches with the bundled font"
+info "App launches with the bundled fonts"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 3
 if [ -n "$(adb_ shell pidof "$PKG" | tr -d '\r')" ]; then
