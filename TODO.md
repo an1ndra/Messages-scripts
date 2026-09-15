@@ -5,6 +5,107 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue #209 · Crash on Android 10–13 (NoSuchFieldError) — FIXED (2026-09-15)
+
+✅ ROOT CAUSE (reproduced on an API 31 emulator, stack trace captured):
+`AppViewModel`'s contact loader referenced
+`ContactsContract.CommonDataKinds.Phone.ENTERPRISE_CONTENT_URI` unconditionally.
+That field was only added in **API 34** (`api-versions.xml`: `since="34"`), so
+on Android 10–13 the field access threw `NoSuchFieldError` — an `Error`, not an
+`Exception`, so the surrounding `catch (_: Exception)` did not catch it and the
+app died on launch (the reporter's "error pops up and the app closes").
+`ENTERPRISE_CONTENT_FILTER_URI` is since API 24, but `ENTERPRISE_CONTENT_URI`
+is the API-34 one that bit us.
+FIX:
+- New `data/EnterpriseContacts.kt` (`MIN_SDK = 34`, `isSupported`, and a
+  `@TargetApi(34) phoneUri()` so the field reference lives in its own method
+  the verifier never resolves on older devices).
+- `MainActivity` guards on `EnterpriseContacts.isSupported(SDK_INT)` and falls
+  back to `Phone.CONTENT_URI` (personal profile) below API 34; the catch is now
+  `Throwable` so a linkage error can never kill the app again.
+Tests: `testDebugUnitTest` 46/46 (`EnterpriseContactsTest` 1/1);
+`scripts/test-android12-launch.sh` 4/4 on an **API 31** emulator
+(`ANDROID_SERIAL=emulator-5556`) — no FATAL, no NoSuchFieldError, home screen
+reached; skips on API ≥ 34. Verified the API 35 build still works too.
+
+## Keyword blocking + diagnostics/avatar improvements (2026-09-15)
+
+✅ USER REQUEST (three parts):
+1. **Block keywords** — a "Blocked keywords" option in Settings → Advanced.
+   A message whose body contains any blocked keyword (case-insensitive) is
+   dropped entirely: not stored, no notification, no sound. Managed with an
+   add/remove dialog.
+   - `data/KeywordFilter.kt` (pure `isBlocked`), `SettingsStore.blockedKeywords`
+     (StringSet) + `isKeywordBlocked`, `sms/SmsReceiver` skips matching messages
+     before persisting/notifying, `ui/BlockedKeywordsDialog.kt`, `AppViewModel`
+     add/remove helpers.
+2. **Diagnostics: drop Save, add detail** — the Diagnostics dialog now has only
+   **Close · Copy** (Save removed on request). The report gained sections for
+   App (version/package/targetSdk/first-install/last-update/settings),
+   Device (release/codename/incremental/security-patch/base-OS/device/product/
+   hardware/board/bootloader/build-ID/display/type/tags/host/user/ABIs 32+64/
+   build-time/emulator/kernel/Java-VM/CPU-cores/font-scale), System (memory,
+   low-memory, app heap, storage, battery), and Data (conversation/message
+   counts, DB size, pending crash reports). `DiagnosticsReport.format` now takes
+   a `DiagnosticsData`; counts come from new `Repository.totalConversationCount`
+   / `totalMessageCount`.
+3. **Contact photo delay** — `PersonAvatar` re-ran the ContactsContract
+   `phone_lookup` query on every composition and never cached the "no photo"
+   result. New `ui/PhotoUriCache` caches the resolved photo URI (incl. a blank
+   entry for contacts with no photo), so only the first load hits the provider.
+4. **Reorganized** the Advanced screen into logical groups (Conversations /
+   Links / Privacy & security / Notifications / Appearance / Support) and moved
+   the main Settings "Advanced" row to the bottom of the list.
+Tests: `testDebugUnitTest` 42/42 (`KeywordFilterTest` 4/4, `PhotoUriCacheTest`
+3/3, `DiagnosticsReportTest` 4/4); `scripts/test-keywords.sh` 7/7 (add keyword →
+message dropped, not stored, no notification; normal message arrives; remove →
+cleared); `scripts/test-diagnostics.sh` 7/7 (sections + Close/Copy, no Save);
+`test-advanced-move.sh` 18/18 still green. Wired into `run-all-tests.sh`.
+
+## Settings → Advanced: move toggles + font picker (2026-09-15)
+
+✅ USER REQUEST: move Privacy mode, App lock, Drafts, Send sound and Receive
+sound out of the main Settings screen into Settings → Advanced, and add a Font
+picker there too.
+Implementation:
+- `ui/AdvancedSettingsScreen.kt`: new group with Privacy mode, App lock, Drafts,
+  Send sound, Receive sound (same behaviour as before, incl. the biometric
+  availability check for App lock and `NotificationHelper.ensureChannel` for
+  Receive sound), plus a **Font** row that opens a radio dialog.
+- `ui/SettingsScreen.kt`: the five rows (and their now-unused state) removed.
+- Fonts: `res/font/{dm_sans,inter,figtree,montserrat,manrope,jost}.ttf`
+  (variable) + `poppins_{regular,medium,semibold,bold}.ttf` (static), all SIL
+  OFL, with licenses in `assets/licenses/`; `ui/theme/Type.kt` gains
+  `AppFonts.familyFor(key)` and `MessagesTheme(font = ...)` applies the chosen
+  family. `SettingsStore` gains `fontFamily` (default `dm_sans`);
+  `AppViewModel.fontFamily` is observable. The picker is a standard radio
+  AlertDialog with compact rows (32dp) and a scrollable list for the 8 options.
+Tests: `testDebugUnitTest` 19/19 (`AppFontsTest` 3/3, `TypeTest` 2/2);
+`scripts/test-advanced-move.sh` 18/18 (moved rows absent from main Settings,
+present in Advanced, font picker switches + persists + restores). Updated
+`test-settings-live.sh` (Drafts), `test-notification-sound.sh` (Receive sound)
+and `test-privacy-features.sh` (App lock / Privacy mode) to reach Advanced.
+Wired into `run-all-tests.sh`.
+
+## UI font — DM Sans as a Google Sans stand-in (2026-09-15)
+
+✅ USER REQUEST: make the app text look closer to Google Messages. The earlier
+Material You + home-search-bar pass was reverted (user did not like it); the
+only kept change is the font. Inter was tried first, then swapped for DM Sans
+(more geometric, closer to Google Sans).
+Why DM Sans: Google Sans (and Product Sans) are proprietary and cannot be
+redistributed in this GPL app. DM Sans is a free/OFL Google Sans alternative.
+Implementation:
+- `res/font/dm_sans.ttf` — the DM Sans variable font (`opsz`/`wght`), plus the
+  SIL OFL text at `assets/licenses/DMSans-OFL.txt`.
+- `ui/theme/Type.kt`: `MessagesFontFamily` maps 400/500/600/700 to the variable
+  font via `FontVariation.Settings`; `messagesTypography()` remaps every
+  Material 3 text style to it, and `MessagesTheme` passes it as the app
+  typography. Colors/shapes unchanged (no dynamic color, search bar restored).
+Tests: `testDebugUnitTest` 16/16 (`TypeTest` 2/2 — every style uses the bundled
+family); `scripts/test-font.sh` 3/3 (APK ships dm_sans.ttf + OFL license, app
+launches). Wired into `run-all-tests.sh`.
+
 ## Issues #208 / #192 · SIM label + display-scale diagnostics users can share (2026-09-15)
 
 ✅ USER REQUEST: issue #208 reports the Settings SIM card showing a random
