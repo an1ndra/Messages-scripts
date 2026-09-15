@@ -24,19 +24,21 @@ Root causes found while wiring the logs:
   resolution → the UI scale jump. The diagnostics log the current mode, all
   supported modes and the preferred mode id so the report pinpoints it.
 Implementation:
-- New `diagnostics/DiagnosticsReport.kt`: collects app/device info, every active
-  subscription (subscriptionId, simSlotIndex, carrierName, displayName, mccMnc,
-  countryIso, embedded), selected subscriptionId, phoneCount, and the display
-  mode list; pure `format()` is JVM-testable. `saveToDownloads()` writes
-  `Downloads/Messages/messages-diagnostics.txt`.
+- New `diagnostics/DiagnosticsReport.kt`: collects app/device info, **app state**
+  (default-SMS role, granted permissions, locale, time zone, theme, notifications),
+  every active subscription (subscriptionId, simSlotIndex, carrierName,
+  displayName, mccMnc, countryIso, embedded), selected subscriptionId,
+  phoneCount, and the display mode list; pure `format()` is JVM-testable.
+  `saveToDownloads()` writes `Downloads/Messages/messages-diagnostics.txt`.
 - New `diagnostics/DiagnosticsDialog.kt` + a **Diagnostics** row in
-  Settings → Advanced: previews the report with **Share** (text/plain),
-  **Save** (Downloads/Messages) and **Copy**.
+  Settings → Advanced: previews the report with **Save** (Downloads/Messages),
+  **Copy** and **Close** (no Share — it was removed on request).
 - New `data/DownloadsStore.kt` shared by the crash reporter and diagnostics;
   `data/SimLabels.kt` (pure label resolution).
-Tests: `testDebugUnitTest` 25/25 (`SimLabelsTest` 4/4, `DiagnosticsReportTest`
-3/3, plus the crash suite); `scripts/test-diagnostics.sh` 5/5 (row → report
-dialog with SIM + display sections → saved file contains the display modes);
+Tests: `testDebugUnitTest` 26/26 (`SimLabelsTest` 4/4, `DiagnosticsReportTest`
+4/4, plus the crash suite); `scripts/test-diagnostics.sh` 7/7 (row → report
+dialog with app + SIM + display sections → Close button present, Share absent →
+saved file contains the display modes);
 `scripts/test-sim-label.sh` 2/2 (select the carrier SIM → Settings row shows
 "T-Mobile (SIM 1)", not a raw id). Both wired into `run-all-tests.sh`.
 

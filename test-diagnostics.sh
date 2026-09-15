@@ -46,11 +46,12 @@ else
 fi
 sleep 2
 
-info "Report dialog shows SIM + display sections"
+info "Report dialog shows app + SIM + display sections"
 SHOWN=0
 for i in 1 2 3; do
     dump_ui || { sleep 1; continue; }
     if grep -q "Messages diagnostics report" "$TMP/ui.xml" && \
+       grep -q -- "--- App ---" "$TMP/ui.xml" && \
        grep -q -- "--- SIM ---" "$TMP/ui.xml" && \
        grep -q -- "--- Display ---" "$TMP/ui.xml"; then
         SHOWN=1; break
@@ -58,15 +59,27 @@ for i in 1 2 3; do
     sleep 1
 done
 if [ "$SHOWN" = "1" ]; then
-    ok "diagnostics dialog shows SIM and display sections"
+    ok "diagnostics dialog shows app, SIM and display sections"
 else
     bad "diagnostics dialog missing sections"
 fi
 
-if grep -q "Selected subscriptionId" "$TMP/ui.xml"; then
-    ok "report includes the selected subscription id"
+if grep -q "Default SMS handler" "$TMP/ui.xml" && \
+   grep -q "Selected subscriptionId" "$TMP/ui.xml"; then
+    ok "report includes app state and the selected subscription id"
 else
-    bad "report missing selected subscription id"
+    bad "report missing app state or selected subscription id"
+fi
+
+if grep -q 'text="Close"' "$TMP/ui.xml"; then
+    ok "dialog has a Close button"
+else
+    bad "dialog has no Close button"
+fi
+if grep -q 'text="Share"' "$TMP/ui.xml"; then
+    bad "dialog still shows the unwanted Share button"
+else
+    ok "dialog has no Share button"
 fi
 
 info "Save writes the report to Downloads/Messages"
