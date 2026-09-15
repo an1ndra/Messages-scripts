@@ -5,23 +5,23 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
-## UI font — Inter as a Google Sans stand-in (2026-09-15)
+## UI font — DM Sans as a Google Sans stand-in (2026-09-15)
 
 ✅ USER REQUEST: make the app text look closer to Google Messages. The earlier
 Material You + home-search-bar pass was reverted (user did not like it); the
-only kept change is the font.
-Why Inter: Google Sans (and Product Sans) are proprietary and cannot be
-redistributed in this GPL app. Inter is the closest free/OFL match
-(FontAlternatives ~85%) and is bundled in the APK.
+only kept change is the font. Inter was tried first, then swapped for DM Sans
+(more geometric, closer to Google Sans).
+Why DM Sans: Google Sans (and Product Sans) are proprietary and cannot be
+redistributed in this GPL app. DM Sans is a free/OFL Google Sans alternative.
 Implementation:
-- `res/font/inter_regular.ttf` / `inter_medium.ttf` / `inter_semibold.ttf` /
-  `inter_bold.ttf` (Inter 4.1 static TTFs), plus the SIL OFL text at
-  `assets/licenses/Inter-OFL.txt`.
-- `ui/theme/Type.kt`: `MessagesFontFamily` + `messagesTypography()` remaps every
-  Material 3 text style to Inter; `MessagesTheme` passes it as the app
+- `res/font/dm_sans.ttf` — the DM Sans variable font (`opsz`/`wght`), plus the
+  SIL OFL text at `assets/licenses/DMSans-OFL.txt`.
+- `ui/theme/Type.kt`: `MessagesFontFamily` maps 400/500/600/700 to the variable
+  font via `FontVariation.Settings`; `messagesTypography()` remaps every
+  Material 3 text style to it, and `MessagesTheme` passes it as the app
   typography. Colors/shapes unchanged (no dynamic color, search bar restored).
 Tests: `testDebugUnitTest` 16/16 (`TypeTest` 2/2 — every style uses the bundled
-family); `scripts/test-font.sh` 6/6 (APK ships the 4 weights + OFL license, app
+family); `scripts/test-font.sh` 3/3 (APK ships dm_sans.ttf + OFL license, app
 launches). Wired into `run-all-tests.sh`.
 
 ## Issue #203 · Contacts "Text" button opens the list, not the contact's chat (2026-09-14)

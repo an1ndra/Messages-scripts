@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Regression for the bundled UI font.
 #
-# The app uses Inter (SIL OFL) as a close, freely-licensed stand-in for Google
+# The app uses DM Sans (SIL OFL) as a close, freely-licensed stand-in for Google
 # Sans (proprietary, cannot be redistributed). This checks the installed APK
-# ships the four Inter weights + the OFL license, and that the app launches
-# with them.
+# ships the DM Sans variable font + the OFL license, and that the app launches
+# with it.
 source "$(dirname "$0")/env.sh"
 
 PASS=0; FAIL=0
@@ -22,21 +22,18 @@ if [ -z "$APK_PATH" ]; then
 fi
 adb_ pull "$APK_PATH" "$TMP/base.apk" >/dev/null 2>&1
 
-info "Inter font files are bundled"
-FONTS=$(unzip -l "$TMP/base.apk" 2>/dev/null | grep -oE 'res/font/inter_[a-z]+\.ttf' | sort -u)
-for f in inter_regular.ttf inter_medium.ttf inter_semibold.ttf inter_bold.ttf; do
-    if echo "$FONTS" | grep -q "$f"; then
-        ok "bundled $f"
-    else
-        bad "missing $f"
-    fi
-done
+info "DM Sans font file is bundled"
+if unzip -l "$TMP/base.apk" 2>/dev/null | grep -q 'res/font/dm_sans\.ttf'; then
+    ok "bundled res/font/dm_sans.ttf"
+else
+    bad "missing res/font/dm_sans.ttf"
+fi
 
 info "OFL license ships with the app"
-if unzip -l "$TMP/base.apk" 2>/dev/null | grep -q 'assets/licenses/Inter-OFL.txt'; then
-    ok "Inter OFL license present"
+if unzip -l "$TMP/base.apk" 2>/dev/null | grep -q 'assets/licenses/DMSans-OFL.txt'; then
+    ok "DM Sans OFL license present"
 else
-    bad "Inter OFL license missing"
+    bad "DM Sans OFL license missing"
 fi
 
 info "App launches with the bundled font"
