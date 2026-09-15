@@ -5,6 +5,29 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue #209 · Crash on Android 10–13 (NoSuchFieldError) — FIXED (2026-09-15)
+
+✅ ROOT CAUSE (reproduced on an API 31 emulator, stack trace captured):
+`AppViewModel`'s contact loader referenced
+`ContactsContract.CommonDataKinds.Phone.ENTERPRISE_CONTENT_URI` unconditionally.
+That field was only added in **API 34** (`api-versions.xml`: `since="34"`), so
+on Android 10–13 the field access threw `NoSuchFieldError` — an `Error`, not an
+`Exception`, so the surrounding `catch (_: Exception)` did not catch it and the
+app died on launch (the reporter's "error pops up and the app closes").
+`ENTERPRISE_CONTENT_FILTER_URI` is since API 24, but `ENTERPRISE_CONTENT_URI`
+is the API-34 one that bit us.
+FIX:
+- New `data/EnterpriseContacts.kt` (`MIN_SDK = 34`, `isSupported`, and a
+  `@TargetApi(34) phoneUri()` so the field reference lives in its own method
+  the verifier never resolves on older devices).
+- `MainActivity` guards on `EnterpriseContacts.isSupported(SDK_INT)` and falls
+  back to `Phone.CONTENT_URI` (personal profile) below API 34; the catch is now
+  `Throwable` so a linkage error can never kill the app again.
+Tests: `testDebugUnitTest` 46/46 (`EnterpriseContactsTest` 1/1);
+`scripts/test-android12-launch.sh` 4/4 on an **API 31** emulator
+(`ANDROID_SERIAL=emulator-5556`) — no FATAL, no NoSuchFieldError, home screen
+reached; skips on API ≥ 34. Verified the API 35 build still works too.
+
 ## Keyword blocking + diagnostics/avatar improvements (2026-09-15)
 
 ✅ USER REQUEST (three parts):

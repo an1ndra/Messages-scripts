@@ -29,5 +29,6 @@ run bash "$S/test-diagnostics.sh"
 run bash "$S/test-sim-label.sh"
 run bash "$S/test-display-mode.sh"
 run bash "$S/test-keywords.sh"
+run bash "$S/test-android12-launch.sh"
 
 info "ALL DONE — screenshots in $SHOTS_DIR"
