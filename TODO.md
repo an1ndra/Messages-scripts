@@ -5,6 +5,38 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Keyword blocking + diagnostics/avatar improvements (2026-09-15)
+
+✅ USER REQUEST (three parts):
+1. **Block keywords** — a "Blocked keywords" option in Settings → Advanced.
+   A message whose body contains any blocked keyword (case-insensitive) is
+   dropped entirely: not stored, no notification, no sound. Managed with an
+   add/remove dialog.
+   - `data/KeywordFilter.kt` (pure `isBlocked`), `SettingsStore.blockedKeywords`
+     (StringSet) + `isKeywordBlocked`, `sms/SmsReceiver` skips matching messages
+     before persisting/notifying, `ui/BlockedKeywordsDialog.kt`, `AppViewModel`
+     add/remove helpers.
+2. **Diagnostics: drop Save, add detail** — the Diagnostics dialog now has only
+   **Close · Copy** (Save removed on request). The report gained sections for
+   App (version/package/targetSdk/first-install/last-update/settings),
+   Device (release/device/product/hardware/board/ABIs/tags), System (memory,
+   low-memory, app heap, storage, battery), and Data (conversation/message
+   counts, DB size, pending crash reports). `DiagnosticsReport.format` now takes
+   a `DiagnosticsData`; counts come from new `Repository.totalConversationCount`
+   / `totalMessageCount`.
+3. **Contact photo delay** — `PersonAvatar` re-ran the ContactsContract
+   `phone_lookup` query on every composition and never cached the "no photo"
+   result. New `ui/PhotoUriCache` caches the resolved photo URI (incl. a blank
+   entry for contacts with no photo), so only the first load hits the provider.
+4. **Reorganized** the Advanced screen into logical groups (Conversations /
+   Links / Privacy & security / Notifications / Appearance / Support) and moved
+   the main Settings "Advanced" row to the bottom of the list.
+Tests: `testDebugUnitTest` 42/42 (`KeywordFilterTest` 4/4, `PhotoUriCacheTest`
+3/3, `DiagnosticsReportTest` 4/4); `scripts/test-keywords.sh` 7/7 (add keyword →
+message dropped, not stored, no notification; normal message arrives; remove →
+cleared); `scripts/test-diagnostics.sh` 7/7 (sections + Close/Copy, no Save);
+`test-advanced-move.sh` 18/18 still green. Wired into `run-all-tests.sh`.
+
 ## Settings → Advanced: move toggles + font picker (2026-09-15)
 
 ✅ USER REQUEST: move Privacy mode, App lock, Drafts, Send sound and Receive
