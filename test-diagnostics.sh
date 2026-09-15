@@ -82,6 +82,18 @@ else
     ok "dialog has no Share button"
 fi
 
+button_x() {
+    grep -oE "text=\"$1\"[^>]*bounds=\"\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]\"" "$TMP/ui.xml" \
+        | grep -oE '\[[0-9]+' | head -1 | tr -d '['
+}
+CLOSE_X=$(button_x Close); SAVE_X=$(button_x Save); COPY_X=$(button_x Copy)
+if [ -n "$CLOSE_X" ] && [ -n "$SAVE_X" ] && [ -n "$COPY_X" ] && \
+   [ "$CLOSE_X" -lt "$SAVE_X" ] && [ "$SAVE_X" -lt "$COPY_X" ]; then
+    ok "buttons ordered left-to-right: Close, Save, Copy"
+else
+    bad "button order wrong (Close=$CLOSE_X Save=$SAVE_X Copy=$COPY_X)"
+fi
+
 info "Save writes the report to Downloads/Messages"
 tap_text "Save" >/dev/null 2>&1
 sleep 3

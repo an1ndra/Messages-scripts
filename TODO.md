@@ -31,14 +31,14 @@ Implementation:
   phoneCount, and the display mode list; pure `format()` is JVM-testable.
   `saveToDownloads()` writes `Downloads/Messages/messages-diagnostics.txt`.
 - New `diagnostics/DiagnosticsDialog.kt` + a **Diagnostics** row in
-  Settings → Advanced: previews the report with **Save** (Downloads/Messages),
-  **Copy** and **Close** (no Share — it was removed on request).
+  Settings → Advanced: previews the report with **Close · Save · Copy** in that
+  left-to-right order (no Share — it was removed on request).
 - New `data/DownloadsStore.kt` shared by the crash reporter and diagnostics;
   `data/SimLabels.kt` (pure label resolution).
 Tests: `testDebugUnitTest` 26/26 (`SimLabelsTest` 4/4, `DiagnosticsReportTest`
-4/4, plus the crash suite); `scripts/test-diagnostics.sh` 7/7 (row → report
-dialog with app + SIM + display sections → Close button present, Share absent →
-saved file contains the display modes);
+4/4, plus the crash suite); `scripts/test-diagnostics.sh` 8/8 (row → report
+dialog with app + SIM + display sections → Close present, Share absent, button
+order Close < Save < Copy → saved file contains the display modes);
 `scripts/test-sim-label.sh` 2/2 (select the carrier SIM → Settings row shows
 "T-Mobile (SIM 1)", not a raw id). Both wired into `run-all-tests.sh`.
 
