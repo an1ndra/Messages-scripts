@@ -5,6 +5,40 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue #209 · Crash on Android 12 — capture crash logs for GitHub issues (2026-09-15)
+
+✅ USER REQUEST (issue #209 "Crash Android 12"): the app crashed on launch on
+Android 12 with no actionable error and no way for the reporter to capture it.
+Added a self-contained crash reporter so a user can export the crash log as a
+ZIP and attach it to a GitHub issue. The static audit had already ruled out the
+usual Android-12 suspects (every filtered component has `android:exported`,
+all PendingIntents carry a mutability flag, no background service starts), so
+this gives us the actual stack trace instead of guessing.
+Implementation:
+- New `crash/CrashReporter.kt`: `CrashReporter.install()` sets a global
+  `Thread.setDefaultUncaughtExceptionHandler` (chained to the previous handler)
+  from `MessagesApplication.onCreate` — installed before all other init so
+  init-time crashes are captured too. It formats app version (via
+  PackageManager; `BuildConfig` is not generated in this project), Android SDK,
+  manufacturer/model/brand/fingerprint, exception class/message and the full
+  stack trace, then writes synchronously to
+  `filesDir/crash_reports/crash-<stamp>.txt` (capped at the 5 newest to survive
+  crash-loops). Pure `CrashReportFormatter` + `CrashReportStore.buildZip` are
+  JVM-testable.
+- New `crash/CrashReportDialog.kt`: on the next launch the app shows a
+  "Crash report" M3 dialog — **Export as ZIP** (bundles the reports into
+  `messages-crash-<stamp>.zip`, shared via the existing FileProvider +
+  ACTION_SEND so the user attaches it to a GitHub issue), **Copy** (clipboard),
+  **Delete** (clears the stored reports).
+- `MainActivity.kt`: `AppViewModel.pendingCrashReports` (loaded off-main) drives
+  the dialog; `shareCrashZip()` shares the archive. `res/xml/file_paths.xml`
+  exposes `crash_reports/`; strings in `strings_main.xml`. No new permissions.
+Tests: `testDebugUnitTest` 18/18 (`CrashReportFormatterTest` 4/4);
+`scripts/test-crash-reports.sh` 6/6 (launch -> `am crash` -> report captured ->
+dialog shown -> valid zip exported -> Delete clears). Wired into
+`run-all-tests.sh`.
+NOTE: catches JVM exceptions only — native crashes / ANRs are not captured.
+
 ## Issue #203 · Contacts "Text" button opens the list, not the contact's chat (2026-09-14)
 
 ✅ USER REPORT: tapping the message/Text button next to a number in Contacts
