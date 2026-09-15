@@ -92,23 +92,31 @@ open_advanced || bad "could not open Advanced"
 scroll_until "Font" >/dev/null 2>&1
 tap_text "Font" >/dev/null 2>&1; sleep 1.2
 dump_ui
-for s in "DM Sans" "Inter" "Figtree" "System default"; do
+for s in "System default" "DM Sans" "Inter" "Figtree" "Poppins"; do
     grep -q "text=\"$s\"" "$TMP/ui.xml" && ok "font option '$s'" || bad "font option '$s' missing"
 done
+grep -q 'text="Cancel"' "$TMP/ui.xml" && ok "font dialog has a Cancel button" || bad "font dialog has no Cancel"
 
-info "Picking Figtree updates the subtitle and persists"
+info "Picking Figtree + OK updates the subtitle and persists"
 tap_text "Figtree" >/dev/null 2>&1; sleep 0.5
 tap_text "OK" >/dev/null 2>&1; sleep 1
 dump_ui
 grep -q 'text="Figtree"' "$TMP/ui.xml" && ok "font subtitle -> Figtree" || bad "font subtitle did not change"
 [ "$(pref_get font_family)" = "figtree" ] && ok "font_family pref persisted" || bad "font_family pref not persisted"
 
-info "Restore the default font (DM Sans)"
+info "Cancel keeps the current font"
 scroll_until "Font" >/dev/null 2>&1
 tap_text "Font" >/dev/null 2>&1; sleep 1.2
-tap_text "DM Sans" >/dev/null 2>&1; sleep 0.5
+tap_text "Poppins" >/dev/null 2>&1; sleep 0.5
+tap_text "Cancel" >/dev/null 2>&1; sleep 1
+[ "$(pref_get font_family)" = "figtree" ] && ok "Cancel kept Figtree" || bad "Cancel changed the font"
+
+info "Restore the default font (System)"
+scroll_until "Font" >/dev/null 2>&1
+tap_text "Font" >/dev/null 2>&1; sleep 1.2
+tap_text "System default" >/dev/null 2>&1; sleep 0.5
 tap_text "OK" >/dev/null 2>&1; sleep 1
-[ "$(pref_get font_family)" = "dm_sans" ] && ok "font restored to DM Sans" || bad "font not restored"
+[ "$(pref_get font_family)" = "system" ] && ok "font restored to System" || bad "font not restored"
 
 echo ""
 info "Results: $PASS passed, $FAIL failed"

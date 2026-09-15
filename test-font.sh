@@ -23,7 +23,7 @@ adb_ pull "$APK_PATH" "$TMP/base.apk" >/dev/null 2>&1
 
 info "Font files are bundled"
 LISTING=$(unzip -l "$TMP/base.apk" 2>/dev/null)
-for f in dm_sans inter figtree montserrat manrope jost \
+for f in dm_sans inter figtree \
          poppins_regular poppins_medium poppins_semibold poppins_bold; do
     if echo "$LISTING" | grep -q "res/font/$f\.ttf"; then
         ok "bundled res/font/$f.ttf"
@@ -33,7 +33,7 @@ for f in dm_sans inter figtree montserrat manrope jost \
 done
 
 info "OFL licenses ship with the app"
-for l in DMSans Figtree Inter Montserrat Manrope Jost Poppins; do
+for l in DMSans Figtree Inter Poppins; do
     if echo "$LISTING" | grep -q "assets/licenses/$l-OFL.txt"; then
         ok "license $l-OFL.txt present"
     else
