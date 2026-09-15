@@ -59,7 +59,7 @@ for i in 1 2 3; do
     sleep 1
 done
 if [ "$SHOWN" = "1" ]; then
-    ok "diagnostics dialog shows app, SIM and display sections"
+    ok "Device and app diagnostics for troubleshooting"
 else
     bad "diagnostics dialog missing sections"
 fi
