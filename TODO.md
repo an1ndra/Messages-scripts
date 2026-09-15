@@ -5,30 +5,6 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
-## Google Messages UI alignment — Material You + search bar (2026-09-15)
-
-✅ USER REQUEST: make the UI closer to Google Messages, explicitly without RCS
-(the app is offline SMS/MMS and stays that way).
-Implementation:
-- **Material You dynamic color** (`ui/theme/Theme.kt`): on Android 12+ the app
-  now follows the wallpaper/system color scheme via `dynamicLightColorScheme`/
-  `dynamicDarkColorScheme`, exactly like Google Messages; on Android 11 and
-  below it falls back to the existing Google Blue (#0B57D0) seed. The M3 role
-  aliases (bubbles, bars, input pill) keep working because they reference
-  color-scheme roles.
-- **Home search bar** (`ui/ConversationsScreen.kt`): the icon-only search
-  button is replaced by a persistent rounded search pill ("Search
-  conversations") under the "Messages" title, matching GM's home layout.
-  Tapping it opens the existing search field; back closes it. The pill's icon
-  keeps `content-desc="Search"` so existing scripts keep working.
-- Typography stays Material 3 / Roboto: Google Sans is proprietary and cannot
-  be bundled, so no font change.
-- New pure `ui/theme/ThemeMode.kt` (`useDynamicColor`, `resolveDark`).
-Tests: `testDebugUnitTest` 17/17 (`ThemeModeTest` 3/3);
-`scripts/test-home-search.sh` 4/4 (pill shown → tap opens search field → back
-restores the list); `test-back-nav.sh` 1-3 still pass. Wired into
-`run-all-tests.sh`.
-
 ## Issue #203 · Contacts "Text" button opens the list, not the contact's chat (2026-09-14)
 
 ✅ USER REPORT: tapping the message/Text button next to a number in Contacts
