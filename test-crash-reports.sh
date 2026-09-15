@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Regression for the in-app crash reporter.
 #
-# A JVM crash in the app must be captured to internal storage
-# (files/crash_reports/crash-<stamp>.txt) by the global
-# Thread.setDefaultUncaughtExceptionHandler installed in MessagesApplication.
-# On the next launch the app must offer the report for a GitHub issue: a
-# "Crash report" dialog with Export as ZIP / Copy / Delete, where Export
-# produces a valid .zip archive containing the report text (attach to a GitHub
-# issue), and Delete clears the stored reports.
+# A JVM crash must be captured by the global uncaught-exception handler
+# installed in MessagesApplication, and written BOTH to internal storage
+# (files/crash_reports/crash-<stamp>.txt) and to Downloads/Messages so the log
+# is reachable even when the app crash-loops and never reaches its UI.
+# On the next launch the app offers a "Crash report" dialog: Save ZIP (writes
+# messages-crash-report.zip to Downloads/Messages — no share chooser, which on
+# many devices only lists Bluetooth), Copy, Delete.
 #
 # Before this feature: `am crash` wrote no report and no dialog appeared ->
-# fails. After: report captured, dialog shown, zip exported, delete clears.
+# fails. After: report captured (internal + Downloads), dialog shown, valid zip
+# saved to Downloads, Delete clears the internal reports.
 source "$(dirname "$0")/env.sh"
 
 CRASH_DIR="files/crash_reports"
+DOWNLOADS_DIR="/sdcard/Download/Messages"
+REPORT_FILE="messages-crash-report.txt"
+ZIP_FILE="messages-crash-report.zip"
 ZIP_OUT="$TMP/crash-report.zip"
 
 PASS=0; FAIL=0
@@ -27,6 +31,7 @@ crash_files() {
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1
     adb_ shell run-as "$PKG" rm -rf "$CRASH_DIR" >/dev/null 2>&1
+    adb_ shell rm -f "$DOWNLOADS_DIR/$REPORT_FILE" "$DOWNLOADS_DIR/$ZIP_FILE" >/dev/null 2>&1
 }
 trap cleanup EXIT
 
@@ -56,6 +61,13 @@ else
     bad "no crash report captured (got: '$REPORTS')"
 fi
 
+DL=$(adb_ shell ls "$DOWNLOADS_DIR" 2>/dev/null | tr -d '\r')
+if echo "$DL" | grep -q "$REPORT_FILE"; then
+    ok "crash log published to Downloads/Messages (reachable if the app can't open)"
+else
+    bad "no crash log in Downloads/Messages (got: '$DL')"
+fi
+
 info "Relaunch: the crash dialog is offered"
 adb_ shell am start -n "$ACT" >/dev/null 2>&1
 SHOWN=0
@@ -63,28 +75,28 @@ for i in 1 2 3; do
     sleep 2
     dump_ui || continue
     if grep -q 'text="Crash report"' "$TMP/ui.xml" && \
-       grep -q 'text="Export as ZIP"' "$TMP/ui.xml"; then
+       grep -q 'text="Save ZIP"' "$TMP/ui.xml"; then
         SHOWN=1; break
     fi
 done
 if [ "$SHOWN" = "1" ]; then
-    ok "crash dialog shown with an export action"
+    ok "crash dialog shown with a save action"
 else
     bad "crash dialog not shown on relaunch"
 fi
 
-info "Export as ZIP produces an attachable archive"
-tap_text "Export as ZIP" >/dev/null 2>&1
+info "Save ZIP writes an attachable archive to Downloads/Messages"
+tap_text "Save ZIP" >/dev/null 2>&1
 sleep 3
-ZIPNAME=$(crash_files | grep '\.zip' | head -1)
-if [ -n "$ZIPNAME" ]; then
-    ok "zip created ($ZIPNAME)"
+DL=$(adb_ shell ls "$DOWNLOADS_DIR" 2>/dev/null | tr -d '\r')
+if echo "$DL" | grep -q "$ZIP_FILE"; then
+    ok "zip saved to Downloads/Messages ($ZIP_FILE)"
 else
-    bad "no zip created by Export"
+    bad "no zip saved to Downloads/Messages (got: '$DL')"
 fi
 
-if [ -n "$ZIPNAME" ]; then
-    adb_ exec-out run-as "$PKG" cat "$CRASH_DIR/$ZIPNAME" > "$ZIP_OUT" 2>/dev/null
+if echo "$DL" | grep -q "$ZIP_FILE"; then
+    adb_ exec-out cat "$DOWNLOADS_DIR/$ZIP_FILE" > "$ZIP_OUT" 2>/dev/null
     if python3 -c "
 import sys, zipfile
 z = zipfile.ZipFile(sys.argv[1])
@@ -93,13 +105,11 @@ assert b'Messages crash report' in z.read(z.namelist()[0])
 " "$ZIP_OUT" 2>/dev/null; then
         ok "zip is a valid archive containing the crash report"
     else
-        bad "exported zip is not a valid crash-report archive"
+        bad "saved zip is not a valid crash-report archive"
     fi
 fi
 
-info "Dismiss the share sheet, then Delete clears the stored reports"
-adb_ shell input keyevent 4 >/dev/null 2>&1
-sleep 2
+info "Delete clears the internal reports"
 tap_text "Delete" >/dev/null 2>&1
 sleep 2
 LEFT=$(crash_files)

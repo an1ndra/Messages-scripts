@@ -25,18 +25,26 @@ Implementation:
   `filesDir/crash_reports/crash-<stamp>.txt` (capped at the 5 newest to survive
   crash-loops). Pure `CrashReportFormatter` + `CrashReportStore.buildZip` are
   JVM-testable.
+- Crash-loop safety: the same report is ALSO published to
+  `Downloads/Messages/messages-crash-report.txt` via MediaStore (API 29+, no
+  permission). If the app crashes on every launch and its UI is unreachable,
+  the log is still retrievable from a file manager — which is exactly the
+  issue #209 case.
 - New `crash/CrashReportDialog.kt`: on the next launch the app shows a
-  "Crash report" M3 dialog — **Export as ZIP** (bundles the reports into
-  `messages-crash-<stamp>.zip`, shared via the existing FileProvider +
-  ACTION_SEND so the user attaches it to a GitHub issue), **Copy** (clipboard),
-  **Delete** (clears the stored reports).
+  "Crash report" M3 dialog — **Save ZIP** (writes
+  `Downloads/Messages/messages-crash-report.zip` containing all reports, then
+  toasts the location), **Copy** (clipboard), **Delete** (clears the internal
+  reports). The original `ACTION_SEND` share of `application/zip` was dropped:
+  on AOSP/Bluetooth-only devices the chooser offered just "Choose Bluetooth
+  device", useless for attaching to a GitHub issue — saving to Downloads lets
+  the user attach it from the GitHub app/web.
 - `MainActivity.kt`: `AppViewModel.pendingCrashReports` (loaded off-main) drives
-  the dialog; `shareCrashZip()` shares the archive. `res/xml/file_paths.xml`
-  exposes `crash_reports/`; strings in `strings_main.xml`. No new permissions.
+  the dialog; `exportCrashReports()` saves the zip. Strings in
+  `strings_main.xml`. No new permissions; `file_paths.xml` untouched.
 Tests: `testDebugUnitTest` 18/18 (`CrashReportFormatterTest` 4/4);
-`scripts/test-crash-reports.sh` 6/6 (launch -> `am crash` -> report captured ->
-dialog shown -> valid zip exported -> Delete clears). Wired into
-`run-all-tests.sh`.
+`scripts/test-crash-reports.sh` 7/7 (launch -> `am crash` -> report captured
+internally AND in Downloads/Messages -> dialog shown -> valid zip saved to
+Downloads -> Delete clears). Wired into `run-all-tests.sh`.
 NOTE: catches JVM exceptions only — native crashes / ANRs are not captured.
 
 ## Issue #203 · Contacts "Text" button opens the list, not the contact's chat (2026-09-14)
