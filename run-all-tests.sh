@@ -25,5 +25,6 @@ run bash "$S/test-import-loading.sh"
 run bash "$S/test-crash-reports.sh"
 run bash "$S/test-diagnostics.sh"
 run bash "$S/test-sim-label.sh"
+run bash "$S/test-display-mode.sh"
 
 info "ALL DONE — screenshots in $SHOTS_DIR"

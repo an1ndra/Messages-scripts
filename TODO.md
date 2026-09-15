@@ -19,10 +19,14 @@ Root causes found while wiring the logs:
   **subscriptionId** → "SIM 7". Now a `LaunchedEffect` loads the list on entry
   and the label is resolved by a pure `SimLabels.resolve()` (carrier + slot, or
   slot, or "Unknown SIM" — never the raw id).
-- #192: `MainActivity.onCreate` forces `preferredDisplayModeId` to the
-  max-refresh display mode, which on some panels also carries a different
-  resolution → the UI scale jump. The diagnostics log the current mode, all
-  supported modes and the preferred mode id so the report pinpoints it.
+- #192: `MainActivity.onCreate` forced `preferredDisplayModeId` to the
+  max-refresh display mode, but a `Display.Mode` bundles resolution **and**
+  refresh rate — on panels where the top-refresh mode is a different resolution
+  (OnePlus 8 Pro) the whole UI rescaled. FIXED: new pure
+  `DisplayModeSelector.bestModeId()` only bumps the refresh rate **within the
+  current resolution** (returns null when there is no same-resolution faster
+  mode), so the resolution/scale never changes. The diagnostics still log the
+  current mode, all supported modes and the preferred mode id.
 Implementation:
 - New `diagnostics/DiagnosticsReport.kt`: collects app/device info, **app state**
   (default-SMS role, granted permissions, locale, time zone, theme, notifications),
@@ -35,12 +39,15 @@ Implementation:
   left-to-right order (no Share — it was removed on request).
 - New `data/DownloadsStore.kt` shared by the crash reporter and diagnostics;
   `data/SimLabels.kt` (pure label resolution).
-Tests: `testDebugUnitTest` 26/26 (`SimLabelsTest` 4/4, `DiagnosticsReportTest`
-4/4, plus the crash suite); `scripts/test-diagnostics.sh` 8/8 (row → report
-dialog with app + SIM + display sections → Close present, Share absent, button
-order Close < Save < Copy → saved file contains the display modes);
-`scripts/test-sim-label.sh` 2/2 (select the carrier SIM → Settings row shows
-"T-Mobile (SIM 1)", not a raw id). Both wired into `run-all-tests.sh`.
+Tests: `testDebugUnitTest` 30/30 (`SimLabelsTest` 4/4, `DiagnosticsReportTest`
+4/4, `DisplayModeSelectorTest` 4/4, plus the crash suite);
+`scripts/test-diagnostics.sh` 8/8 (row → report dialog with app + SIM + display
+sections → Close present, Share absent, button order Close < Save < Copy →
+saved file contains the display modes); `scripts/test-sim-label.sh` 2/2 (select
+the carrier SIM → Settings row shows "T-Mobile (SIM 1)", not a raw id);
+`scripts/test-display-mode.sh` 3/3 (launch does not change resolution/density/
+mode — the AVD has a single mode, so the selection logic is covered by
+`DisplayModeSelectorTest`). All wired into `run-all-tests.sh`.
 
 ## Issue #209 · Crash on Android 12 — capture crash logs for GitHub issues (2026-09-15)
 
