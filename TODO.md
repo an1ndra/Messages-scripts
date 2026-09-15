@@ -5,6 +5,29 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Debug tooling · fake dual-SIM on the single-SIM emulator (2026-09-15)
+
+✅ USER REQUEST: the stock Android emulator is single-SIM (verified: only
+`-no-sim` / `-icc-profile` / `-sim-access-rules-file`; `hw.gsmModem` is the sole
+telephony hardware property; `dumpsys isub` shows one subscription). To exercise
+the dual-SIM UI without a dual-SIM phone, added a **debug-only fake SIM source**.
+Implementation:
+- New `data/SimCard.kt`: `SimCard` data class (decoupled from `SubscriptionInfo`)
+  + `SimCards.load(context)` and `SimCards.setDebugOverride(enabled, debuggable)`.
+  The override is gated on `ApplicationInfo.FLAG_DEBUGGABLE`, so release builds
+  always see the real subscriptions.
+- `SettingsScreen`, `ChatScreen` and `DiagnosticsReport` now read `SimCards.load`
+  instead of `SubscriptionManager.activeSubscriptionInfoList` directly.
+- `MainActivity`: `--ez fake_dual_sim true` applies the override (also via
+  `onNewIntent`). The fake list is T-Mobile (subId 1, slot 0) + Vodafone
+  (subId 7, slot 1) — subId 7 deliberately != slot+1 so the label logic is
+  exercised (renders "Vodafone (SIM 2)", never "SIM 7").
+Usage: `adb shell am start -n com.anindra.messages/.MainActivity --ez fake_dual_sim true`
+Tests: `testDebugUnitTest` 48/48 (`SimCardsTest` 2/2);
+`scripts/test-fake-dual-sim.sh` 7/7 (two SIMs shown, no raw "SIM 7", selecting
+the second updates row+pref, Default restored, no fake SIM without the flag).
+Wired into `run-all-tests.sh`.
+
 ## Issue #209 · Crash on Android 10–13 (NoSuchFieldError) — FIXED (2026-09-15)
 
 ✅ ROOT CAUSE (reproduced on an API 31 emulator, stack trace captured):
