@@ -5,6 +5,41 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issues #208 / #192 · SIM label + display-scale diagnostics users can share (2026-09-15)
+
+✅ USER REQUEST: issue #208 reports the Settings SIM card showing a random
+number ("SIM 7" / "SIM 3") instead of the carrier name, and issue #192 reports
+the whole UI changing scale/resolution when the app opens. Both are
+device-specific and hard to reproduce, so add a **Diagnostics** report (device +
+SIM + display) the user can share/save for a GitHub issue.
+Root causes found while wiring the logs:
+- #208: `SettingsScreen` resolved the SIM row label only from an async
+  `SubscriptionManager.activeSubscriptionInfoList` that was still empty on
+  first composition, then fell back to `settings_sim_label` with the raw
+  **subscriptionId** → "SIM 7". Now a `LaunchedEffect` loads the list on entry
+  and the label is resolved by a pure `SimLabels.resolve()` (carrier + slot, or
+  slot, or "Unknown SIM" — never the raw id).
+- #192: `MainActivity.onCreate` forces `preferredDisplayModeId` to the
+  max-refresh display mode, which on some panels also carries a different
+  resolution → the UI scale jump. The diagnostics log the current mode, all
+  supported modes and the preferred mode id so the report pinpoints it.
+Implementation:
+- New `diagnostics/DiagnosticsReport.kt`: collects app/device info, every active
+  subscription (subscriptionId, simSlotIndex, carrierName, displayName, mccMnc,
+  countryIso, embedded), selected subscriptionId, phoneCount, and the display
+  mode list; pure `format()` is JVM-testable. `saveToDownloads()` writes
+  `Downloads/Messages/messages-diagnostics.txt`.
+- New `diagnostics/DiagnosticsDialog.kt` + a **Diagnostics** row in
+  Settings → Advanced: previews the report with **Share** (text/plain),
+  **Save** (Downloads/Messages) and **Copy**.
+- New `data/DownloadsStore.kt` shared by the crash reporter and diagnostics;
+  `data/SimLabels.kt` (pure label resolution).
+Tests: `testDebugUnitTest` 25/25 (`SimLabelsTest` 4/4, `DiagnosticsReportTest`
+3/3, plus the crash suite); `scripts/test-diagnostics.sh` 5/5 (row → report
+dialog with SIM + display sections → saved file contains the display modes);
+`scripts/test-sim-label.sh` 2/2 (select the carrier SIM → Settings row shows
+"T-Mobile (SIM 1)", not a raw id). Both wired into `run-all-tests.sh`.
+
 ## Issue #209 · Crash on Android 12 — capture crash logs for GitHub issues (2026-09-15)
 
 ✅ USER REQUEST (issue #209 "Crash Android 12"): the app crashed on launch on
