@@ -26,6 +26,14 @@ scroll_until() {
     return 1
 }
 
+# App lock / Privacy mode moved to Settings -> Advanced.
+open_advanced() {
+    scroll_until "Advanced" >/dev/null || return 1
+    tap_text "Advanced" >/dev/null 2>&1 || return 1
+    sleep 1.5
+    return 0
+}
+
 echo "=== Privacy Features Test ==="
 echo ""
 
@@ -36,6 +44,7 @@ adb_ shell am start -n "$ACT" >/dev/null; sleep 3.5
 adb_ shell input tap 976 222; sleep 2
 dump_ui >/dev/null
 if grep -q '"Notifications"' "$TMP/ui.xml"; then
+    open_advanced || fail "could not open Advanced settings"
     if scroll_until "App lock"; then ok "App lock toggle visible"; else fail "App lock toggle not found"; fi
 else
     fail "Settings screen not opened"
@@ -50,6 +59,7 @@ if [ "$CURRENT" = "true" ]; then
 else
     adb_ shell am start -n "$ACT" >/dev/null; sleep 3.5
     adb_ shell input tap 976 222; sleep 2
+    open_advanced || fail "could not open Advanced settings"
     scroll_until "Privacy mode" >/dev/null
     tap_switch_near "Privacy mode"; sleep 1
     adb_ shell am force-stop "$PKG"; sleep 1

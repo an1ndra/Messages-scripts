@@ -43,6 +43,15 @@ ensure_settings() {
     done
     return 1
 }
+# open Settings -> Advanced (some toggles moved there, e.g. Drafts)
+ensure_advanced() {
+    ensure_settings || return 1
+    settings_top
+    await_label "Advanced" || return 1
+    tap_text "Advanced" >/dev/null 2>&1 || return 1
+    sleep 1.5
+    return 0
+}
 home_top() { adb_ shell input swipe 540 500 540 2200 200; sleep 1.2; }
 settings_top() { adb_ shell input swipe 540 600 540 2100 300; sleep 1.2; }
 
@@ -88,7 +97,11 @@ set_switch() {
     local label="$1" want="$2" cur
     ensure_settings || { echo "[warn] settings did not open"; return 1; }
     settings_top
-    await_label "$label" || { echo "[warn] Settings row '$label' not found"; return 1; }
+    if ! await_label "$label"; then
+        # Some toggles (e.g. Drafts) live in Settings -> Advanced now.
+        ensure_advanced || { echo "[warn] could not open Advanced for '$label'"; return 1; }
+        await_label "$label" || { echo "[warn] Settings row '$label' not found"; return 1; }
+    fi
     cur=$(switch_val "$label") || { echo "[warn] no switch for '$label'"; return 1; }
     if [ "$cur" != "$want" ]; then
         tap_switch_near "$label"

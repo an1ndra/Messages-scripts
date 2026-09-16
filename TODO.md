@@ -5,6 +5,218 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Debug tooling · fake dual-SIM on the single-SIM emulator (2026-09-15)
+
+✅ USER REQUEST: the stock Android emulator is single-SIM (verified: only
+`-no-sim` / `-icc-profile` / `-sim-access-rules-file`; `hw.gsmModem` is the sole
+telephony hardware property; `dumpsys isub` shows one subscription). To exercise
+the dual-SIM UI without a dual-SIM phone, added a **debug-only fake SIM source**.
+Implementation:
+- New `data/SimCard.kt`: `SimCard` data class (decoupled from `SubscriptionInfo`)
+  + `SimCards.load(context)` and `SimCards.setDebugOverride(enabled, debuggable)`.
+  The override is gated on `ApplicationInfo.FLAG_DEBUGGABLE`, so release builds
+  always see the real subscriptions.
+- `SettingsScreen`, `ChatScreen` and `DiagnosticsReport` now read `SimCards.load`
+  instead of `SubscriptionManager.activeSubscriptionInfoList` directly.
+- `MainActivity`: `--ez fake_dual_sim true` applies the override (also via
+  `onNewIntent`). The fake list is T-Mobile (subId 1, slot 0) + Vodafone
+  (subId 7, slot 1) — subId 7 deliberately != slot+1 so the label logic is
+  exercised (renders "Vodafone (SIM 2)", never "SIM 7").
+Usage: `adb shell am start -n com.anindra.messages/.MainActivity --ez fake_dual_sim true`
+Tests: `testDebugUnitTest` 48/48 (`SimCardsTest` 2/2);
+`scripts/test-fake-dual-sim.sh` 7/7 (two SIMs shown, no raw "SIM 7", selecting
+the second updates row+pref, Default restored, no fake SIM without the flag).
+Wired into `run-all-tests.sh`.
+
+## Issue #209 · Crash on Android 10–13 (NoSuchFieldError) — FIXED (2026-09-15)
+
+✅ ROOT CAUSE (reproduced on an API 31 emulator, stack trace captured):
+`AppViewModel`'s contact loader referenced
+`ContactsContract.CommonDataKinds.Phone.ENTERPRISE_CONTENT_URI` unconditionally.
+That field was only added in **API 34** (`api-versions.xml`: `since="34"`), so
+on Android 10–13 the field access threw `NoSuchFieldError` — an `Error`, not an
+`Exception`, so the surrounding `catch (_: Exception)` did not catch it and the
+app died on launch (the reporter's "error pops up and the app closes").
+`ENTERPRISE_CONTENT_FILTER_URI` is since API 24, but `ENTERPRISE_CONTENT_URI`
+is the API-34 one that bit us.
+FIX:
+- New `data/EnterpriseContacts.kt` (`MIN_SDK = 34`, `isSupported`, and a
+  `@TargetApi(34) phoneUri()` so the field reference lives in its own method
+  the verifier never resolves on older devices).
+- `MainActivity` guards on `EnterpriseContacts.isSupported(SDK_INT)` and falls
+  back to `Phone.CONTENT_URI` (personal profile) below API 34; the catch is now
+  `Throwable` so a linkage error can never kill the app again.
+Tests: `testDebugUnitTest` 46/46 (`EnterpriseContactsTest` 1/1);
+`scripts/test-android12-launch.sh` 4/4 on an **API 31** emulator
+(`ANDROID_SERIAL=emulator-5556`) — no FATAL, no NoSuchFieldError, home screen
+reached; skips on API ≥ 34. Verified the API 35 build still works too.
+
+## Keyword blocking + diagnostics/avatar improvements (2026-09-15)
+
+✅ USER REQUEST (three parts):
+1. **Block keywords** — a "Blocked keywords" option in Settings → Advanced.
+   A message whose body contains any blocked keyword (case-insensitive) is
+   dropped entirely: not stored, no notification, no sound. Managed with an
+   add/remove dialog.
+   - `data/KeywordFilter.kt` (pure `isBlocked`), `SettingsStore.blockedKeywords`
+     (StringSet) + `isKeywordBlocked`, `sms/SmsReceiver` skips matching messages
+     before persisting/notifying, `ui/BlockedKeywordsDialog.kt`, `AppViewModel`
+     add/remove helpers.
+2. **Diagnostics: drop Save, add detail** — the Diagnostics dialog now has only
+   **Close · Copy** (Save removed on request). The report gained sections for
+   App (version/package/targetSdk/first-install/last-update/settings),
+   Device (release/codename/incremental/security-patch/base-OS/device/product/
+   hardware/board/bootloader/build-ID/display/type/tags/host/user/ABIs 32+64/
+   build-time/emulator/kernel/Java-VM/CPU-cores/font-scale), System (memory,
+   low-memory, app heap, storage, battery), and Data (conversation/message
+   counts, DB size, pending crash reports). `DiagnosticsReport.format` now takes
+   a `DiagnosticsData`; counts come from new `Repository.totalConversationCount`
+   / `totalMessageCount`.
+3. **Contact photo delay** — `PersonAvatar` re-ran the ContactsContract
+   `phone_lookup` query on every composition and never cached the "no photo"
+   result. New `ui/PhotoUriCache` caches the resolved photo URI (incl. a blank
+   entry for contacts with no photo), so only the first load hits the provider.
+4. **Reorganized** the Advanced screen into logical groups (Conversations /
+   Links / Privacy & security / Notifications / Appearance / Support) and moved
+   the main Settings "Advanced" row to the bottom of the list.
+Tests: `testDebugUnitTest` 42/42 (`KeywordFilterTest` 4/4, `PhotoUriCacheTest`
+3/3, `DiagnosticsReportTest` 4/4); `scripts/test-keywords.sh` 7/7 (add keyword →
+message dropped, not stored, no notification; normal message arrives; remove →
+cleared); `scripts/test-diagnostics.sh` 7/7 (sections + Close/Copy, no Save);
+`test-advanced-move.sh` 18/18 still green. Wired into `run-all-tests.sh`.
+
+## Settings → Advanced: move toggles + font picker (2026-09-15)
+
+✅ USER REQUEST: move Privacy mode, App lock, Drafts, Send sound and Receive
+sound out of the main Settings screen into Settings → Advanced, and add a Font
+picker there too.
+Implementation:
+- `ui/AdvancedSettingsScreen.kt`: new group with Privacy mode, App lock, Drafts,
+  Send sound, Receive sound (same behaviour as before, incl. the biometric
+  availability check for App lock and `NotificationHelper.ensureChannel` for
+  Receive sound), plus a **Font** row that opens a radio dialog.
+- `ui/SettingsScreen.kt`: the five rows (and their now-unused state) removed.
+- Fonts: `res/font/{dm_sans,inter,figtree}.ttf` (variable) +
+  `poppins_{regular,medium,semibold,bold}.ttf` (static), all SIL OFL, with
+  licenses in `assets/licenses/`; `ui/theme/Type.kt` gains
+  `AppFonts.familyFor(key)` and `MessagesTheme(font = ...)` applies the chosen
+  family. `SettingsStore.fontFamily` **defaults to `system`**;
+  `AppViewModel.fontFamily` is observable. The picker matches the
+  "Notification sound" dialog: plain radio rows + **OK / Cancel** (Cancel keeps
+  the current font), listing **System default + 4 bundled fonts** (DM Sans,
+  Inter, Figtree, Poppins).
+Tests: `testDebugUnitTest` 19/19 (`AppFontsTest` 3/3, `TypeTest` 2/2);
+`scripts/test-advanced-move.sh` 18/18 (moved rows absent from main Settings,
+present in Advanced, font picker switches + persists + restores). Updated
+`test-settings-live.sh` (Drafts), `test-notification-sound.sh` (Receive sound)
+and `test-privacy-features.sh` (App lock / Privacy mode) to reach Advanced.
+Wired into `run-all-tests.sh`.
+
+## UI font — DM Sans as a Google Sans stand-in (2026-09-15)
+
+✅ USER REQUEST: make the app text look closer to Google Messages. The earlier
+Material You + home-search-bar pass was reverted (user did not like it); the
+only kept change is the font. Inter was tried first, then swapped for DM Sans
+(more geometric, closer to Google Sans).
+Why DM Sans: Google Sans (and Product Sans) are proprietary and cannot be
+redistributed in this GPL app. DM Sans is a free/OFL Google Sans alternative.
+Implementation:
+- `res/font/dm_sans.ttf` — the DM Sans variable font (`opsz`/`wght`), plus the
+  SIL OFL text at `assets/licenses/DMSans-OFL.txt`.
+- `ui/theme/Type.kt`: `MessagesFontFamily` maps 400/500/600/700 to the variable
+  font via `FontVariation.Settings`; `messagesTypography()` remaps every
+  Material 3 text style to it, and `MessagesTheme` passes it as the app
+  typography. Colors/shapes unchanged (no dynamic color, search bar restored).
+Tests: `testDebugUnitTest` 16/16 (`TypeTest` 2/2 — every style uses the bundled
+family); `scripts/test-font.sh` 3/3 (APK ships dm_sans.ttf + OFL license, app
+launches). Wired into `run-all-tests.sh`.
+
+## Issues #208 / #192 · SIM label + display-scale diagnostics users can share (2026-09-15)
+
+✅ USER REQUEST: issue #208 reports the Settings SIM card showing a random
+number ("SIM 7" / "SIM 3") instead of the carrier name, and issue #192 reports
+the whole UI changing scale/resolution when the app opens. Both are
+device-specific and hard to reproduce, so add a **Diagnostics** report (device +
+SIM + display) the user can share/save for a GitHub issue.
+Root causes found while wiring the logs:
+- #208: `SettingsScreen` resolved the SIM row label only from an async
+  `SubscriptionManager.activeSubscriptionInfoList` that was still empty on
+  first composition, then fell back to `settings_sim_label` with the raw
+  **subscriptionId** → "SIM 7". Now a `LaunchedEffect` loads the list on entry
+  and the label is resolved by a pure `SimLabels.resolve()` (carrier + slot, or
+  slot, or "Unknown SIM" — never the raw id).
+- #192: `MainActivity.onCreate` forced `preferredDisplayModeId` to the
+  max-refresh display mode, but a `Display.Mode` bundles resolution **and**
+  refresh rate — on panels where the top-refresh mode is a different resolution
+  (OnePlus 8 Pro) the whole UI rescaled. FIXED: new pure
+  `DisplayModeSelector.bestModeId()` only bumps the refresh rate **within the
+  current resolution** (returns null when there is no same-resolution faster
+  mode), so the resolution/scale never changes. The diagnostics still log the
+  current mode, all supported modes and the preferred mode id.
+Implementation:
+- New `diagnostics/DiagnosticsReport.kt`: collects app/device info, **app state**
+  (default-SMS role, granted permissions, locale, time zone, theme, notifications),
+  every active subscription (subscriptionId, simSlotIndex, carrierName,
+  displayName, mccMnc, countryIso, embedded), selected subscriptionId,
+  phoneCount, and the display mode list; pure `format()` is JVM-testable.
+  `saveToDownloads()` writes `Downloads/Messages/messages-diagnostics.txt`.
+- New `diagnostics/DiagnosticsDialog.kt` + a **Diagnostics** row in
+  Settings → Advanced: previews the report with **Close · Save · Copy** in that
+  left-to-right order (no Share — it was removed on request).
+- New `data/DownloadsStore.kt` shared by the crash reporter and diagnostics;
+  `data/SimLabels.kt` (pure label resolution).
+Tests: `testDebugUnitTest` 30/30 (`SimLabelsTest` 4/4, `DiagnosticsReportTest`
+4/4, `DisplayModeSelectorTest` 4/4, plus the crash suite);
+`scripts/test-diagnostics.sh` 8/8 (row → report dialog with app + SIM + display
+sections → Close present, Share absent, button order Close < Save < Copy →
+saved file contains the display modes); `scripts/test-sim-label.sh` 2/2 (select
+the carrier SIM → Settings row shows "T-Mobile (SIM 1)", not a raw id);
+`scripts/test-display-mode.sh` 3/3 (launch does not change resolution/density/
+mode — the AVD has a single mode, so the selection logic is covered by
+`DisplayModeSelectorTest`). All wired into `run-all-tests.sh`.
+
+## Issue #209 · Crash on Android 12 — capture crash logs for GitHub issues (2026-09-15)
+
+✅ USER REQUEST (issue #209 "Crash Android 12"): the app crashed on launch on
+Android 12 with no actionable error and no way for the reporter to capture it.
+Added a self-contained crash reporter so a user can export the crash log as a
+ZIP and attach it to a GitHub issue. The static audit had already ruled out the
+usual Android-12 suspects (every filtered component has `android:exported`,
+all PendingIntents carry a mutability flag, no background service starts), so
+this gives us the actual stack trace instead of guessing.
+Implementation:
+- New `crash/CrashReporter.kt`: `CrashReporter.install()` sets a global
+  `Thread.setDefaultUncaughtExceptionHandler` (chained to the previous handler)
+  from `MessagesApplication.onCreate` — installed before all other init so
+  init-time crashes are captured too. It formats app version (via
+  PackageManager; `BuildConfig` is not generated in this project), Android SDK,
+  manufacturer/model/brand/fingerprint, exception class/message and the full
+  stack trace, then writes synchronously to
+  `filesDir/crash_reports/crash-<stamp>.txt` (capped at the 5 newest to survive
+  crash-loops). Pure `CrashReportFormatter` + `CrashReportStore.buildZip` are
+  JVM-testable.
+- Crash-loop safety: the same report is ALSO published to
+  `Downloads/Messages/messages-crash-report.txt` via MediaStore (API 29+, no
+  permission). If the app crashes on every launch and its UI is unreachable,
+  the log is still retrievable from a file manager — which is exactly the
+  issue #209 case.
+- New `crash/CrashReportDialog.kt`: on the next launch the app shows a
+  "Crash report" M3 dialog — **Save ZIP** (writes
+  `Downloads/Messages/messages-crash-report.zip` containing all reports, then
+  toasts the location), **Copy** (clipboard), **Delete** (clears the internal
+  reports). The original `ACTION_SEND` share of `application/zip` was dropped:
+  on AOSP/Bluetooth-only devices the chooser offered just "Choose Bluetooth
+  device", useless for attaching to a GitHub issue — saving to Downloads lets
+  the user attach it from the GitHub app/web.
+- `MainActivity.kt`: `AppViewModel.pendingCrashReports` (loaded off-main) drives
+  the dialog; `exportCrashReports()` saves the zip. Strings in
+  `strings_main.xml`. No new permissions; `file_paths.xml` untouched.
+Tests: `testDebugUnitTest` 18/18 (`CrashReportFormatterTest` 4/4);
+`scripts/test-crash-reports.sh` 7/7 (launch -> `am crash` -> report captured
+internally AND in Downloads/Messages -> dialog shown -> valid zip saved to
+Downloads -> Delete clears). Wired into `run-all-tests.sh`.
+NOTE: catches JVM exceptions only — native crashes / ANRs are not captured.
+
 ## Issue #203 · Contacts "Text" button opens the list, not the contact's chat (2026-09-14)
 
 ✅ USER REPORT: tapping the message/Text button next to a number in Contacts
