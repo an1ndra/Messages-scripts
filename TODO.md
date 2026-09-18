@@ -5,6 +5,25 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue #210 · MMS never imported/displayed — FIXED (2026-09-18)
+
+✅ ROOT CAUSE: import only read `content://sms`; nothing read the MMS provider,
+so provider MMS never appeared even when set as the default SMS app.
+FIX:
+- New `data/MmsSupport.kt`: box/type filtering (`msg_box=1 m_type=132` inbox,
+  `2/128` sent), single-phone-participant peer resolution (group MMS skipped),
+  part→content mapping with unsupported-attachment notice, charset decode table,
+  1 MiB streamed-text cap, provider URIs.
+- New `data/MmsProviderReader.kt`: reads `content://mms` threads, `/addr` and
+  `/part`, streaming text parts with the size cap.
+- `Repository.kt` DB v16: `messages.transport` column; unique `sys_id` index is now
+  `(transport, sys_id)`; `importProviderMms()` runs in `syncFromSystem`; purge,
+  system-sync, backup/restore and local inserts are transport-aware; conversation
+  snippet shows `@Lock`/`Photo` for media.
+Tests: `testDebugUnitTest` `MmsSupportTest` 6/6; `scripts/test-mms-import.sh`
+(seed provider MMS → import, transport/timestamp/subId preserved, idempotent
+reimport, text rendered in conversation).
+
 ## Debug tooling · fake dual-SIM on the single-SIM emulator (2026-09-15)
 
 ✅ USER REQUEST: the stock Android emulator is single-SIM (verified: only
