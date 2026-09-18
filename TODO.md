@@ -5,6 +5,28 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue #211 · Status-bar notification icon too small — FIXED (2026-09-18)
+
+✅ ROOT CAUSE: both notification builders used the adaptive launcher foreground
+(`R.drawable.ic_launcher_foreground`) as the small icon. That drawable is a
+108dp canvas whose speech-bubble glyph only spans 12→60 (~47%), so at the ~24dp
+status-bar size the silhouette rendered at roughly half the size of system icons.
+FIX (same artwork, second enlarged copy — launcher/splash unchanged):
+- New `drawable/ic_stat_message.xml`: 24dp / 24×24 viewport, identical pathData,
+  one group transform (`scale 0.45833`, `translate -4.5`) mapping the glyph
+  bounds to ~92% of the canvas.
+- `sms/SmsSupport.kt`: both `setSmallIcon(...)` calls (incoming + send-failed)
+  now use `ic_stat_message`; `ic_launcher_foreground` is untouched so the
+  splash/launcher icon keeps its adaptive safe-zone sizing.
+Tests: `testDebugUnitTest` `NotificationIconTest` 5/5 (same pathData in both
+drawables, notification glyph fill ≥ 0.85, launcher fill ≤ 0.6, 24 viewport,
+both setSmallIcon calls wired); `scripts/test-notification-icon.sh` 7/7 —
+resolves the POSTED record's icon id via `dumpsys notification --noredact`,
+maps it through `aapt2 dump resources` on the installed APK and asserts it is
+`ic_stat_message` (not the launcher foreground), and checks the compiled
+viewport/artwork. Script fails before the fix (2/7 FAIL), passes after.
+`test-notification-posts.sh` still green.
+
 ## Issue #210 · MMS never imported/displayed — FIXED (2026-09-18)
 
 ✅ ROOT CAUSE: import only read `content://sms`; nothing read the MMS provider,
