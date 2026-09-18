@@ -18,14 +18,21 @@ FIX (same artwork, second enlarged copy — launcher/splash unchanged):
 - `sms/SmsSupport.kt`: both `setSmallIcon(...)` calls (incoming + send-failed)
   now use `ic_stat_message`; `ic_launcher_foreground` is untouched so the
   splash/launcher icon keeps its adaptive safe-zone sizing.
-Tests: `testDebugUnitTest` `NotificationIconTest` 5/5 (same pathData in both
-drawables, notification glyph fill ≥ 0.85, launcher fill ≤ 0.6, 24 viewport,
-both setSmallIcon calls wired); `scripts/test-notification-icon.sh` 7/7 —
-resolves the POSTED record's icon id via `dumpsys notification --noredact`,
-maps it through `aapt2 dump resources` on the installed APK and asserts it is
-`ic_stat_message` (not the launcher foreground), and checks the compiled
-viewport/artwork. Script fails before the fix (2/7 FAIL), passes after.
-`test-notification-posts.sh` still green.
+FOLLOW-UP (icon design changed — lines missing): the status bar tints the small
+icon as a single-color alpha silhouette, so the opaque white bubble and the
+opaque blue `strokeColor` lines collapsed to the same tinted color. The lines
+now live as line-shaped subpaths inside the bubble path with
+`android:fillType="evenOdd"`, so they are punched out as negative space and
+survive tinting. `ic_launcher_foreground` keeps its original stroke lines.
+Tests: `testDebugUnitTest` `NotificationIconTest` 6/6 (notification reuses the
+launcher bubble path, lines are evenOdd cut-outs with no strokes, notification
+glyph fill ≥ 0.85, launcher fill ≤ 0.6, 24 viewport, both setSmallIcon calls
+wired); `scripts/test-notification-icon.sh` 9/9 — resolves the POSTED record's
+icon id via `dumpsys notification --noredact`, maps it through
+`aapt2 dump resources` on the installed APK and asserts it is `ic_stat_message`
+(not the launcher foreground), and checks the compiled viewport/artwork plus
+the evenOdd fill / absence of strokes. Script fails before each fix (2/7 for
+size, 2/9 for strokes), passes after. `test-notification-posts.sh` still green.
 
 ## Issue #210 · MMS never imported/displayed — FIXED (2026-09-18)
 

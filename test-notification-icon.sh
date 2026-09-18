@@ -74,6 +74,13 @@ echo "$TREE" | grep -q "viewportHeight(0x01010403)=24" && pass 'notification ico
     || fail 'notification icon viewport height is not 24'
 echo "$TREE" | grep -q 'M36,12C22.745,12' && pass 'notification icon reuses the launcher artwork' \
     || fail 'notification icon artwork differs from the launcher glyph'
+echo "$TREE" | grep -q 'fillType(0x0101051e)=1' && pass 'notification lines are cut-outs (evenOdd)' \
+    || fail 'notification icon does not use evenOdd fill'
+if echo "$TREE" | grep -qi 'strokeColor'; then
+    fail 'notification icon still strokes the lines (invisible once tinted)'
+else
+    pass 'notification icon has no strokes that tinting would erase'
+fi
 
 printf 'PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 exit $((FAIL > 0))
