@@ -33,5 +33,6 @@ run bash "$S/test-keywords.sh"
 run bash "$S/test-android12-launch.sh"
 run bash "$S/test-fake-dual-sim.sh"
 run bash "$S/test-mms-import.sh"
+run bash "$S/test-backup-sim-coil.sh"
 
 info "ALL DONE — screenshots in $SHOTS_DIR"

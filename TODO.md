@@ -5,6 +5,32 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Backup location · privacy · blocked-keywords UI · Coil (2026-09-19)
+
+✅ User requests:
+1. **Coil image loading** (was: hand-rolled `BitmapFactory` + `LruCache`). Added
+   `io.coil-kt.coil3:coil-compose:3.3.0` (pinned — 3.4+ pulls Kotlin stdlib
+   2.4 which is incompatible with the project's Kotlin 2.2.20). `ImageBubble`
+   and `PersonAvatar` now use `AsyncImage`; removed `BitmapCache` and
+   `loadContactPhoto`.
+2. **Issue #212 · backup to an individual path**: Settings → "Backup location"
+   opens the SAF folder picker (`OpenDocumentTree`), persists the tree URI
+   (`SettingsStore.backupTreeUri`, `takePersistableUriPermission`) and
+   `Repository.backupDatabase` writes there via `DocumentsContract.createDocument`
+   (falling back to `Documents/Messages` when unset). New pure `BackupLocation`
+   label helper. This is the supported way to back up to a removable SD card.
+3. **Privacy mode disables backup**: the Backup row and Backup location row are
+   disabled (subtitle "Turn off Privacy mode to back up messages") and
+   `Repository.backupDatabase` refuses via the new pure `BackupPolicy`.
+4. **Blocked keywords UI**: dialog now has a title icon + count badge, an add
+   field (tag leading icon, `+` submit, IME Done), and a card list with
+   dividers and an empty state.
+Note: an in-field SIM swap control was prototyped and then removed on request —
+SIM selection stays in the chat 3-dot menu only.
+Tests: `testDebugUnitTest` 76/76 (`BackupLocationTest` 4/4, `BackupPolicyTest`
+2/2); `scripts/test-backup-sim-coil.sh` (backup row + picker, keywords dialog,
+privacy-mode disable, Coil launch). `assembleDebug` + R8 `assembleRelease` green.
+
 ## Issue #211 · Status-bar notification icon too small — FIXED (2026-09-18)
 
 ✅ ROOT CAUSE: both notification builders used the adaptive launcher foreground
