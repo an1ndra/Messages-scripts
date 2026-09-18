@@ -70,7 +70,7 @@ on_list && alive && pass "back from chat lands on list, app alive" || fail "back
 
 info "2. Back button from contact profile -> CHAT"
 open_profile
-dump_ui && grep -q "report spam" "$TMP/ui.xml" || { fail "profile did not open"; exit 1; }
+dump_ui && grep -q "Block number" "$TMP/ui.xml" || { fail "profile did not open"; exit 1; }
 adb_ shell input keyevent 4; sleep 2
 in_chat && alive && pass "back from profile returns to CHAT" || fail "back from profile did NOT return to chat"
 
