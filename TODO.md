@@ -5,6 +5,33 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Accessibility mode (2026-09-19)
+
+✅ User request: make the app usable for disabled users.
+
+**Phase 1 — TalkBack compliance (always on, no visual change).** New pure
+`ui/A11y.kt` (`touchTarget` clamps to 48dp, `describe` joins labels). Conversation
+rows now expose a merged `contentDescription` (sender · preview · time · unread ·
+pinned) and an "Open conversation" click label; `UnreadBadge` is decorative inside
+the merged row; undersized tap targets bumped to ≥48dp. `ui/A11yTest.kt`.
+
+**Phase 2 — gated accessibility mode.** `SettingsStore` adds `a11yEnabled`
+(master, default false), `a11yFontScalePercent` (85/100/115/130), `a11yBold`,
+`a11yHighContrast`, `a11yReduceMotion`, `a11yLargeTouch`. New
+`ui/theme/A11yOptions.kt`; `MessagesTheme(..., a11y)` multiplies the system font
+scale via `LocalDensity`, swaps in high-contrast schemes (Theme.kt), bolds
+typography (`Type.kt`), and provides `LocalReduceMotion` /
+`LocalLargeTouchTargets`. Reduce motion suppresses bubble entrance, shimmer and
+route transitions. Advanced settings holds the master switch; ON reveals the new
+`ui/AccessibilityScreen.kt`. While OFF every option is a no-op, so the default UI
+is unchanged. Diagnostics report records the a11y settings.
+
+Tests: `testDebugUnitTest` green incl. `A11yTest`, `A11yOptionsTest`, updated
+`TypeTest` / `BubbleEntranceTest` / `DiagnosticsReportTest`;
+`scripts/test-accessibility.sh` 22/22 on Android 16 (SDK 36, `emulator-5554`) —
+row descriptions, master gating, five options persist, font 130% visibly grows a
+text node (63→80px), settings restored.
+
 ## Backup location · privacy · blocked-keywords UI · Coil (2026-09-19)
 
 ✅ User requests:
