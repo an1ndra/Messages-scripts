@@ -37,40 +37,37 @@ bash ./grant-permissions.sh >/dev/null 2>&1 || true
 # Start from the default backup location so the label assertion is deterministic.
 adb_ shell "run-as $PKG sh -c 'sed -i \"/backup_tree_uri/d\" shared_prefs/messages_settings.xml'" >/dev/null 2>&1 || true
 
-info "1. backup-location row exists and opens the SAF folder picker"
+info "1. single Backup row offers a folder choice inside the backup flow"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null
 sleep 3
 for _ in 1 2 3 4 5 6; do
     dump_ui >/dev/null 2>&1
-    grep -q 'text="Backup location"' "$TMP/ui.xml" && grep -q 'text="[^"]*the default folder"' "$TMP/ui.xml" && break
+    grep -q 'text="Backup messages"' "$TMP/ui.xml" && break
     adb_ shell input swipe 540 1700 540 900 250 >/dev/null 2>&1; sleep 0.5
 done
-if grep -q 'text="Backup location"' "$TMP/ui.xml"; then
-    pass 'settings shows a Backup location row'
-else
-    fail 'Backup location row missing'
-fi
-if grep -q 'text="[^"]*the default folder"' "$TMP/ui.xml"; then
-    pass 'default location label shown'
-else
-    fail 'default location label missing'
-fi
-c=$(center_of "Backup location") || c=""
+grep -q 'text="Backup messages"' "$TMP/ui.xml" && pass 'settings shows the Backup messages row' || fail 'Backup messages row missing'
+# The former standalone row must be gone (folder choice lives in the dialog).
+grep -q 'text="Backup location"' "$TMP/ui.xml" && fail 'separate Backup location row still present' || pass 'no separate Backup location row'
+c=$(center_of "Backup messages") || c=""
+[ -n "$c" ] && adb_ shell input tap $c; sleep 2
+dump_ui >/dev/null 2>&1
+grep -q 'text="Set backup PIN"' "$TMP/ui.xml" && pass 'backup opens the Set PIN dialog' || fail 'Set PIN dialog missing'
+grep -q 'text="Save to"' "$TMP/ui.xml" && pass 'dialog shows the Save to location' || fail 'Save to row missing'
+grep -q 'text="Default (Documents/Messages)"' "$TMP/ui.xml" && pass 'default location shown' || fail 'default location missing'
+c=$(center_of "Change") || c=""
 [ -n "$c" ] && adb_ shell input tap $c; sleep 3
 dump_ui >/dev/null 2>&1
 # The SAF picker is a separate app (DocumentsUI); its package must be foreground.
 TOP=$(adb_ shell dumpsys activity activities 2>/dev/null | grep -oE "topResumedActivity=ActivityRecord\{[^ ]+ [^ ]+ [^ ]+" | head -1)
 if echo "$TOP" | grep -qiE "documentsui|DocumentsActivity|picker"; then
-    pass 'Backup location opens the system folder picker'
+    pass 'Change opens the system folder picker'
+elif echo "$TOP" | grep -qv "$PKG"; then
+    pass 'Change opens a system picker'
 else
-    # Some builds title the picker differently; fall back to any non-app foreground.
-    if echo "$TOP" | grep -qv "$PKG"; then
-        pass 'Backup location opens a system picker'
-    else
-        fail "folder picker did not open ($TOP)"
-    fi
+    fail "folder picker did not open ($TOP)"
 fi
+adb_ shell input keyevent 4 >/dev/null 2>&1 || true
 adb_ shell input keyevent 4 >/dev/null 2>&1 || true
 
 info "2. blocked-keywords dialog UI"
@@ -117,13 +114,13 @@ grep -q 'content-desc="Change SIM"' "$TMP/ui.xml" \
 c=$(center_of_contains "More options") || c=""
 [ -n "$c" ] && adb_ shell input tap $c; sleep 1.5
 dump_ui >/dev/null 2>&1
-if grep -q 'text="Vodafone (SIM 2)"' "$TMP/ui.xml"; then
+if grep -q 'text="SIM 2 · Vodafone"' "$TMP/ui.xml"; then
     pass '3-dot menu offers SIM selection'
 else
     fail '3-dot menu missing SIM selection'
 fi
 # Selecting the second SIM should persist the choice.
-c=$(center_of "Vodafone (SIM 2)") || c=""
+c=$(center_of "SIM 2 · Vodafone") || c=""
 [ -n "$c" ] && adb_ shell input tap $c; sleep 1.5
 adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null \
     | grep -q 'sim_subscription_id" value="7"' \
