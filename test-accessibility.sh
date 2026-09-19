@@ -77,6 +77,14 @@ if dump_ui; then
     else
         bad "conversation rows have no TalkBack description"
     fi
+    # The description must live on the same node TalkBack focuses/activates,
+    # not on a non-focusable child (regression: row desc was on a split node).
+    ROW_NODE=$(ui_tags | grep 'content-desc="[0-9(]' | grep 'clickable="true"' | head -1)
+    if [ -n "$ROW_NODE" ]; then
+        ok "row description is on the clickable/activatable node"
+    else
+        bad "row description is not on a clickable node (TalkBack would skip it)"
+    fi
 else
     bad "could not dump the conversation list"
 fi

@@ -26,11 +26,21 @@ route transitions. Advanced settings holds the master switch; ON reveals the new
 `ui/AccessibilityScreen.kt`. While OFF every option is a no-op, so the default UI
 is unchanged. Diagnostics report records the a11y settings.
 
+TalkBack node-tree validation (Google TalkBack is not on the AOSP system image;
+verified against the accessibility tree uiautomator/TalkBack both consume):
+`clearAndSetSemantics` puts the row description on the same node as the click /
+long-click actions — the first attempt left the description on a non-focusable
+child while the focusable node stayed empty, which TalkBack would skip. Covered
+by a `scripts/test-accessibility.sh` assertion ("description is on the
+clickable/activatable node"). Chat-bubble link semantics intentionally left
+untouched so in-message links stay reachable.
+
 Tests: `testDebugUnitTest` green incl. `A11yTest`, `A11yOptionsTest`, updated
 `TypeTest` / `BubbleEntranceTest` / `DiagnosticsReportTest`;
-`scripts/test-accessibility.sh` 22/22 on Android 16 (SDK 36, `emulator-5554`) —
-row descriptions, master gating, five options persist, font 130% visibly grows a
-text node (63→80px), settings restored.
+`scripts/test-accessibility.sh` 23/23 on Android 16 (SDK 36, `emulator-5554`) —
+row descriptions on the activatable node, master gating, five options persist,
+font 130% visibly grows a text node (63→80px), settings restored. App also
+launched with the system Accessibility Menu service bound.
 
 ## Backup location · privacy · blocked-keywords UI · Coil (2026-09-19)
 
