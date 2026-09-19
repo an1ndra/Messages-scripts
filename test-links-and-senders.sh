@@ -31,19 +31,22 @@ center_of_contains() {
 
 info "Inject test SMS"
 adb_ emu sms send +15551230001 "https://example.com" >/dev/null 2>&1; sleep 2
-adb_ emu sms send DK-TEST99 "Your OTP is 443322" >/dev/null 2>&1; sleep 2
+adb_ emu sms send DK-AIRCEL "Your OTP is 443322" >/dev/null 2>&1; sleep 2
 
 info "Fresh launch"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" >/dev/null; sleep 3
 
 info "1. Open the URL conversation"
-C=$(center_of_contains "555-123-0001") || { fail "URL row not on home list"; exit 1; }
+C=$(center_of_contains "123-0001") || { fail "URL row not on home list"; exit 1; }
 adb_ shell input tap $C; sleep 2
 
 info "2. Tap the link -> external handler must open"
 C=$(center_of_contains "example.com") || { fail "link not rendered in chat"; exit 1; }
-adb_ shell input tap $C; sleep 3
+adb_ shell input tap $C; sleep 2
+if dump_ui && grep -q 'text="Open"' "$TMP/ui.xml"; then
+    tap_text "Open"; sleep 3
+fi
 TOP=$(adb_ shell dumpsys activity activities 2>/dev/null | grep -i "ResumedActivity" | head -1)
 echo "top activity: $TOP"
 if echo "$TOP" | grep -q "$PKG"; then
@@ -54,20 +57,26 @@ fi
 adb_ shell input keyevent 4; sleep 1
 adb_ shell input keyevent 4; sleep 1
 
-info "3. Settings shows 'Highlight links' toggle"
+info "3. Advanced settings shows 'Highlight links' toggle"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null; sleep 3
+for i in 1 2 3 4; do
+    if dump_ui && grep -q "Advanced" "$TMP/ui.xml"; then break; fi
+    adb_ shell input swipe 540 1800 540 600 300; sleep 1.5
+done
+tap_text "Advanced"; sleep 2
 FOUND=0
 for i in 1 2 3 4; do
     if dump_ui && grep -q "Highlight links" "$TMP/ui.xml"; then FOUND=1; break; fi
     adb_ shell input swipe 540 1800 540 600 300; sleep 1.5
 done
-[ "$FOUND" = "1" ] && pass "'Highlight links' row present" || fail "toggle missing"
+[ "$FOUND" = "1" ] && pass "'Highlight links' row present in Advanced" || fail "toggle missing"
+adb_ shell input keyevent 4; sleep 1
 
 info "4. Numeric conversation still sends"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" >/dev/null; sleep 3
-C=$(center_of_contains "555-123-0001") || { fail "URL row missing"; exit 1; }
+C=$(center_of_contains "123-0001") || { fail "URL row missing"; exit 1; }
 adb_ shell input tap $C; sleep 2
 tap_edittext; sleep 1
 adb_ shell 'input keyevent 123; for i in $(seq 1 60); do input keyevent 67; done'; sleep 0.5
@@ -80,21 +89,22 @@ else
 fi
 adb_ shell input keyevent 4; sleep 1
 
-info "5. Alphanumeric conversation blocks sending"
+info "5. Alphanumeric sender ID is preserved and the chat is read-only"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" >/dev/null; sleep 3
-C=$(center_of_contains "443322") || C=$(center_of_contains '"99"') || C=$(center_of_contains "99") || { cp "$TMP/ui.xml" /tmp/opencode/step5-fail.xml; fail "OTP row not found"; exit 1; }
+C=$(center_of_contains "DK-AIRCEL") || C=$(center_of_contains "443322") || { cp "$TMP/ui.xml" /tmp/opencode/step5-fail.xml; fail "alphanumeric row not found"; exit 1; }
 adb_ shell input tap $C; sleep 2
-tap_edittext; sleep 1
-adb_ shell 'input keyevent 123; for i in $(seq 1 60); do input keyevent 67; done'; sleep 0.5
-type_text "hello"; sleep 0.5
-tap_text "Send"; sleep 2
-if dump_ui && grep -q "Can.t send message" "$TMP/ui.xml"; then
-    pass "alphanumeric send blocked with dialog"
+if dump_ui && grep -q 'text="DK-AIRCEL"' "$TMP/ui.xml"; then
+    pass "alphanumeric sender ID preserved (not reduced to digits)"
 else
-    fail "no block dialog"
+    fail "sender ID was reduced to digits"
 fi
-adb_ shell input keyevent 4; sleep 0.5
+if dump_ui && ! grep -q 'class="android.widget.EditText"' "$TMP/ui.xml" \
+        && grep -q "receive replies" "$TMP/ui.xml"; then
+    pass "alphanumeric chat is read-only"
+else
+    fail "alphanumeric chat still shows a composer"
+fi
 adb_ shell input keyevent 4; sleep 1
 
 [ "$FAIL" = "0" ] && echo "== ALL PASSED ==" || echo "== SOME CHECKS FAILED =="
