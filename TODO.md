@@ -5,6 +5,41 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## CodeQL security-and-quality cleanup · alerts #8 #9 #12 #13 #15 #22 #23 #24 #25 #27 #28 #29 #30 #31 #32 #33 — FIXED (2026-09-20)
+
+✅ All 16 open `security-and-quality` alerts on `main`:
+- **Useless null checks** (#30/#31, `MainActivity.kt:505/510`): `Context.getDisplay()`
+  is `@NonNull`, so the `display?.…` guards in the `SDK >= R` display-mode probe
+  were dropped (properties now read directly off `display`).
+- **Field masks super field** (#15, `Repository.kt:1`): the Compose-generated
+  `$stable` field in `ImportResult.Success/Error` shadowed the one in the
+  `sealed class ImportResult` parent. Converted `ImportResult` to a `sealed
+  interface` (interfaces get no `$stable`), so no generated field masks a
+  superclass field anymore.
+- **Deprecated calls**:
+  - #33 `TelephonyManager.phoneCount` → new pure `phoneCountForSdk()`:
+    `activeModemCount` on SDK ≥ 30, `SubscriptionManager.activeSubscriptionInfoCountMax`
+    below.
+  - #32 `KeyGenParameterSpec.Builder.setUserAuthenticationValidityDurationSeconds(-1)`
+    → removed; pre-R already defaults to per-use auth (validity -1), so the
+    legacy else-branch was a no-op.
+  - #25 `SmsManager.getSmsManagerForSubscriptionId` → reflective
+    `legacyManagerForSubscription(subscriptionId)` helper (the method is the only
+    per-SIM API on 29–30 but deprecated on S+).
+- **Unread locals** (#8/#9 `isList`/`isChat`, #12 `cs`, #22/#23
+  `showEntrySkeleton`/`hasEarlierButton`, #24 unused `context`, #27
+  `appInForeground`, #13/#28 unused destructured `addr`/`name`) removed; the
+  destructured `for` bindings now use `_`.
+Tests: `testDebugUnitTest` 92/92 incl. new `ImportResultTest` 4/4 and
+`phoneCountForSdk` coverage in `DiagnosticsReportTest`; `SimLabelsTest` asserts
+`Default`/`Unknown` are identity singletons after the `data object` → `object`
+change. `scripts/test-codeql-cleanup.sh` 20/20 on emulator-5554 (13 source
+guards that the deprecated/flagged patterns stay gone + launch / inbound SMS /
+diagnostics collect with no FATAL). Wired into `run-all-tests.sh`.
+NOTE: the "field masks super field" alert local builds never warned about (it is
+Compose-compiler generated) — the `sealed interface` change also removes it from
+the next CodeQL scan, unlike the earlier false-positive dismissal attempt.
+
 ## Backup location · privacy · blocked-keywords UI · Coil (2026-09-19)
 
 ✅ User requests:
