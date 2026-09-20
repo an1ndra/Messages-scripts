@@ -5,6 +5,23 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Screenshots · dummy-chat set with profile photos (2026-09-21)
+
+✅ USER REQUEST: refresh the app screenshots with useful dummy chats and real
+contact profile pictures, dropping the old numbered dark/light pair set.
+Replaced the F-Droid/README set (`fastlane/.../en-US/images/phoneScreenshots/`)
+with 7 dark-mode captures — `01-conversations`, `02-chat-grouped-bubbles`,
+`03-chat-work`, `04-chat-alex`, `05-chat-otp`, `06-new-chat`, `07-settings` —
+and updated the README table to match.
+Procedure used: `insert-demo-contacts.sh` (then fix the duplicated display names
+by clearing the family-name field), seed conversations/messages directly into
+`messages.db` (sqlite via `run-as`), inject avatars into the Contacts provider
+(256px JPEG as the `data15` blob, with `photo_file_id` left NULL so `PHOTO_URI`
+falls back to the thumbnail URI served straight from the blob), then `screencap`.
+NOTE: `take-fdroid-screenshots.sh` still targets the old 20-image set, and its
+demo-data seeding disappeared with `DemoData.kt` — it must be rewritten (or
+replaced with the procedure above) before it can regenerate this set.
+
 ## Run-aware chat bubble corners (2026-09-20)
 
 ✅ USER REQUEST: bubbles are shaped by their position in a run of consecutive
