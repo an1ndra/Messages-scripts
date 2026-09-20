@@ -26,6 +26,67 @@ Tests: `testDebugUnitTest` `MessageGroupingTest` 9/9; new
 incoming and asserts each corner set via the marker. Wired into
 `run-all-tests.sh`.
 
+## Documentation refresh · fix stale project docs (2026-09-20)
+
+✅ Audited every doc against the code and corrected outdated facts:
+- `docs/Developer.md` (app): fixed the clone URL (`anindra` → `an1ndra`),
+  bumped the DB version in the migrations section (v14 → v17), replaced the
+  "Compose Navigation" claim with the manual `navRoute` routing, refreshed the
+  project tree (added `crash/`, `diagnostics/`, MMS/SIM/backup data helpers,
+  `AccessibilityScreen.kt`, `MarkReadReceiver.kt`; dropped the deleted
+  `DemoData.kt` and `screenshots/` entries), and dropped the stale Coil
+  "(if added)" note.
+- `docs/Development.md` (app): DB v14 → v17, nav model/back table now include
+  `advanced` and `accessibility`, replaced the `DemoData.kt` demo-seed claim
+  with the real first-launch provider sync, and documented the
+  `open_conversation_address` intent hook.
+- `README.md` (app): accurate permission list (SMS/MMS, contacts, notifications,
+  phone state, photos; no internet), `navRoute` architecture wording, and an
+  Accessibility Mode feature bullet.
+- `.github/ISSUE_TEMPLATE/bug_report.yml`: Diagnostics has only **Copy** (Save
+  was removed) — fixed the instructions.
+- `scripts/Developer.md`: AVD `Pixel_7_API_35` → `Pixel_7_API_36`, full declared
+  permission list, test matrix extended with the newer regression scripts.
+- `scripts/README.md`: screenshots are evidence only; tests assert from
+  uiautomator dumps.
+
+## Accessibility mode (2026-09-19)
+
+✅ User request: make the app usable for disabled users.
+
+**Phase 1 — TalkBack compliance (always on, no visual change).** New pure
+`ui/A11y.kt` (`touchTarget` clamps to 48dp, `describe` joins labels). Conversation
+rows now expose a merged `contentDescription` (sender · preview · time · unread ·
+pinned) and an "Open conversation" click label; `UnreadBadge` is decorative inside
+the merged row; undersized tap targets bumped to ≥48dp. `ui/A11yTest.kt`.
+
+**Phase 2 — gated accessibility mode.** `SettingsStore` adds `a11yEnabled`
+(master, default false), `a11yFontScalePercent` (85/100/115/130), `a11yBold`,
+`a11yHighContrast`, `a11yReduceMotion`, `a11yLargeTouch`. New
+`ui/theme/A11yOptions.kt`; `MessagesTheme(..., a11y)` multiplies the system font
+scale via `LocalDensity`, swaps in high-contrast schemes (Theme.kt), bolds
+typography (`Type.kt`), and provides `LocalReduceMotion` /
+`LocalLargeTouchTargets`. Reduce motion suppresses bubble entrance, shimmer and
+route transitions. Advanced settings holds the master switch; ON reveals the new
+`ui/AccessibilityScreen.kt`. While OFF every option is a no-op, so the default UI
+is unchanged. Diagnostics report records the a11y settings.
+
+TalkBack node-tree validation (Google TalkBack is not on the AOSP system image;
+verified against the accessibility tree uiautomator/TalkBack both consume):
+`clearAndSetSemantics` puts the row description on the same node as the click /
+long-click actions — the first attempt left the description on a non-focusable
+child while the focusable node stayed empty, which TalkBack would skip. Covered
+by a `scripts/test-accessibility.sh` assertion ("description is on the
+clickable/activatable node"). Chat-bubble link semantics intentionally left
+untouched so in-message links stay reachable.
+
+Tests: `testDebugUnitTest` green incl. `A11yTest`, `A11yOptionsTest`, updated
+`TypeTest` / `BubbleEntranceTest` / `DiagnosticsReportTest`;
+`scripts/test-accessibility.sh` 23/23 on Android 16 (SDK 36, `emulator-5554`) —
+row descriptions on the activatable node, master gating, five options persist,
+font 130% visibly grows a text node (63→80px), settings restored. App also
+launched with the system Accessibility Menu service bound.
+
 ## Issue #207 · Alphanumeric sender IDs shown as digits ("A1 SRB" → "1") — FIXED (2026-09-19)
 
 ✅ USER REPORT (comment on #207): a promotional SMS from "A1 SRB" showed as

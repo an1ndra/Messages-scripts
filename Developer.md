@@ -7,7 +7,7 @@ For the quick start see [Development.md](Development.md).
 
 ## 1. Test device facts
 
-- Emulator: **`emulator-5554`** → AVD `Pixel_7_API_35`, 1080x2400 @ 420dpi.
+- Emulator: **`emulator-5554`** → AVD `Pixel_7_API_36`, 1080x2400 @ 420dpi.
 - adb: `$HOME/android/platform-tools/adb` (`$HOME/android` is the Android SDK).
 - Own numbers: `+15551230004` range; inject inbound via
   `adb emu sms send <num> "<text>"`.
@@ -22,7 +22,7 @@ with software rendering:
 
 ```bash
 setsid nohup $HOME/android/emulator/emulator \
-  -avd Pixel_7_API_35 -no-snapshot-load -no-boot-anim \
+  -avd Pixel_7_API_36 -no-snapshot-load -no-boot-anim \
   -gpu swiftshader_indirect -feature -Vulkan
 ```
 
@@ -38,8 +38,11 @@ Ignore a "boot_completed" false-alarm on the first poll before qemu exec; loop
 
 ## 2. Permissions & SMS role
 
-Declared + runtime-requested: `SEND_SMS`, `RECEIVE_SMS`, `READ_CONTACTS`,
-`POST_NOTIFICATIONS` (API 33+). Scripts grant silently
+Declared: `SEND_SMS`, `RECEIVE_SMS`, `READ_SMS`, `WRITE_SMS`, `RECEIVE_MMS`,
+`RECEIVE_WAP_PUSH`, `READ_CONTACTS`, `POST_NOTIFICATIONS` (API 33+),
+`READ_MEDIA_IMAGES`, `READ_PHONE_STATE`, `SCHEDULE_EXACT_ALARM`,
+`USE_EXACT_ALARM`, `WAKE_LOCK` (plus `WRITE_EXTERNAL_STORAGE` only ≤ API 28).
+The runtime-requested set is scripted via `grant-permissions.sh`. Scripts grant silently
 (`grant-permissions.sh`), or revoke to see real dialogs
 (`reset-permissions.sh`). The SMS role (`android.app.role.SMS`) must often be
 re-granted to the app after `pm clear`:
@@ -110,5 +113,11 @@ This repo is the upstream of the `scripts/` submodule in the Messages app.
 | Settings/theme | `test-settings-live.sh`, `test-settings-scroll-retention.sh`, `test-advanced-settings.sh`, `theme.sh`, `settings.sh`, `test-splash.sh` |
 | List/interaction | `test-archive-undo.sh`, `test-swipe-threshold.sh`, `test-message-delete-undo.sh`, `test-loading-screen.sh`, `test-contacts-limit.sh` |
 | Work profile | `test-work-profile-contacts.sh`, `test-work-profile-search.sh` |
+| Accessibility | `test-accessibility.sh` |
+| Bubbles | `test-bubble-animation.sh`, `test-bubble-corners.sh` |
+| MMS | `test-mms-import.sh`, `test-backup-sim-coil.sh` |
+| Diagnostics/SIM | `test-diagnostics.sh`, `test-crash-reports.sh`, `test-display-mode.sh`, `test-sim-label.sh`, `test-fake-dual-sim.sh` |
+| Keywords/font | `test-keywords.sh`, `test-font.sh` |
+| Android 12 | `test-android12-launch.sh` |
 | Miscellaneous | `test-p2-p3-p5.sh`, `test-delayed-send.sh`, `test-scheduled-send.sh`, `test-bugfix-trio.sh`, `test-links-and-senders.sh` |
 | Release screenshots | `take-fdroid-screenshots.sh`, `insert-demo-contacts.sh`, `seed-google-comparison.sh` |
