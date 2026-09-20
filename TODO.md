@@ -5,6 +5,27 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Run-aware chat bubble corners (2026-09-20)
+
+✅ USER REQUEST: bubbles are shaped by their position in a run of consecutive
+messages from the same sender (a run also breaks on the existing day / >1h group
+boundary, and on a sender change):
+- **lone / first of run** — flat tail on the sender's bottom side (outgoing
+  bottom-right, incoming bottom-left);
+- **middle of run** — all four corners rounded;
+- **last of run** — flat tail on the sender's top side (outgoing top-right,
+  incoming top-left).
+Implementation: new pure `BubblePosition` / `BubbleCorners` + `bubblePosition()`
+/ `bubbleCorners()` / `toShape()` in `ui/MessageGrouping.kt`; `ChatBubble` gains a
+`position` arg (default `SINGLE`), driven from the live list via
+`bubblePosition(messages, idx)`, replacing the old per-bubble `isMe`-only shape.
+`ChatBubble` emits a `BubbleShape` logcat marker (`id position mine` + the four
+radii) so the script can assert the rendering.
+Tests: `testDebugUnitTest` `MessageGroupingTest` 9/9; new
+`scripts/test-bubble-corners.sh` drives lone + 3-message runs for outgoing and
+incoming and asserts each corner set via the marker. Wired into
+`run-all-tests.sh`.
+
 ## fastlane metadata · translations for all app locales (2026-09-20)
 
 ✅ Added `title.txt`, `short_description.txt`, `full_description.txt` under

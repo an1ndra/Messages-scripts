@@ -34,6 +34,7 @@ run bash "$S/test-android12-launch.sh"
 run bash "$S/test-fake-dual-sim.sh"
 run bash "$S/test-mms-import.sh"
 run bash "$S/test-backup-sim-coil.sh"
+run bash "$S/test-bubble-corners.sh"
 run bash "$S/test-codeql-cleanup.sh"
 
 info "ALL DONE — screenshots in $SHOTS_DIR"
