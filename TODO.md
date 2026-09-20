@@ -5,6 +5,30 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Documentation refresh · fix stale project docs (2026-09-20)
+
+✅ Audited every doc against the code and corrected outdated facts:
+- `docs/Developer.md` (app): fixed the clone URL (`anindra` → `an1ndra`),
+  bumped the DB version in the migrations section (v14 → v17), replaced the
+  "Compose Navigation" claim with the manual `navRoute` routing, refreshed the
+  project tree (added `crash/`, `diagnostics/`, MMS/SIM/backup data helpers,
+  `AccessibilityScreen.kt`, `MarkReadReceiver.kt`; dropped the deleted
+  `DemoData.kt` and `screenshots/` entries), and dropped the stale Coil
+  "(if added)" note.
+- `docs/Development.md` (app): DB v14 → v17, nav model/back table now include
+  `advanced` and `accessibility`, replaced the `DemoData.kt` demo-seed claim
+  with the real first-launch provider sync, and documented the
+  `open_conversation_address` intent hook.
+- `README.md` (app): accurate permission list (SMS/MMS, contacts, notifications,
+  phone state, photos; no internet), `navRoute` architecture wording, and an
+  Accessibility Mode feature bullet.
+- `.github/ISSUE_TEMPLATE/bug_report.yml`: Diagnostics has only **Copy** (Save
+  was removed) — fixed the instructions.
+- `scripts/Developer.md`: AVD `Pixel_7_API_35` → `Pixel_7_API_36`, full declared
+  permission list, test matrix extended with the newer regression scripts.
+- `scripts/README.md`: screenshots are evidence only; tests assert from
+  uiautomator dumps.
+
 ## Accessibility mode (2026-09-19)
 
 ✅ User request: make the app usable for disabled users.
