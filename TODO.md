@@ -5,6 +5,14 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## CI · pin GitHub Actions runners to ubuntu-24.04 (2026-09-21)
+
+✅ GitHub will migrate the `ubuntu-latest` label from Ubuntu 24.04 to Ubuntu
+26.04 between Oct 19 and Nov 19, 2026. Pinned every `runs-on` (11 across
+`develop-build.yml`, `rc.yml`, `security.yml`, `virustotal.yml`,
+`release.yml`) to `ubuntu-24.04` so CI stays deterministic. `ubuntu-26.04` is
+available for an explicit test run when we want to validate the new image.
+
 ## Screenshots · dummy-chat set with profile photos (2026-09-21)
 
 ✅ USER REQUEST: refresh the app screenshots with useful dummy chats and real
