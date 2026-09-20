@@ -66,6 +66,45 @@ row descriptions on the activatable node, master gating, five options persist,
 font 130% visibly grows a text node (63→80px), settings restored. App also
 launched with the system Accessibility Menu service bound.
 
+## Issue #207 · Alphanumeric sender IDs shown as digits ("A1 SRB" → "1") — FIXED (2026-09-19)
+
+✅ USER REPORT (comment on #207): a promotional SMS from "A1 SRB" showed as
+"1" and the thread could be replied to, unlike other alphanumeric senders.
+ROOT CAUSE: `Repository.canonical()` fell back to `address.filter { it.isDigit() }`
+for non-parseable addresses, so `"A1 SRB"` → `"1"`. That corrupted value was
+stored as the conversation address/name (no participant row exists for
+alphanumeric senders) and `samePerson()`'s digit-run comparison could fuse it
+with a numeric sender. Sender IDs without digits (`AX-KOTAKB-S`, `DK-AIRCEL`)
+were already preserved by the `.ifEmpty { address }` callers, so only
+digit-containing IDs were hit.
+FIX:
+- New pure `data/AddressIdentity.kt`: `canonical()` = E.164 or the trimmed
+  original; `samePerson()` = digit run for numbers, exact case-insensitive for
+  any address containing a letter; `isReplyable()` = `isLikelyPhoneNumber`.
+  `Repository.canonical/samePerson`, `ChatScreen.phoneKey/isPhoneNumber` and
+  `SmsSupport.normalizeAddress` now delegate to it.
+- One-shot `Repository.repairAlphanumericSenders()` (settings flag
+  `alphanumeric_repair_done`, runs at the start of `syncFromSystem`) re-addresses
+  legacy rows reduced to digits using the provider's original sender IDs via
+  each message's `sys_id`.
+- Replies blocked for alphanumeric senders everywhere: notification Reply action
+  omitted (`SmsSupport.show`), `QuickReplyReceiver` bails, `MainActivity.send` /
+  `retryMessage` guard, and the chat composer is replaced by a
+  "can't receive replies" notice instead of an always-erroring input bar.
+Tests: `testDebugUnitTest` green incl. new `AddressIdentityTest` 7/7 (canonical
+preserves A1 SRB / AX-KOTAKB-S / DK-TEST99; `samePerson("A1 SRB","1")==false`;
+number variants still merge; replyable only for dialable numbers).
+`scripts/test-alphanumeric-sender.sh` 8/8 (notification has no Reply while a
+numeric sender's still does; provider SMS from "A1-SRB" keeps its full ID;
+chat read-only; a row corrupted to "1" is repaired to "A1-SRB" on relaunch).
+Fails before the fix (5 checks — reply action present, address digit-stripped,
+no chat header, composer present, no repair), passes after.
+`test-links-and-senders.sh` step 5 updated (was asserting the bug via the
+digit-stripped "99" row) and its stale link / settings steps fixed for the
+current app. NOTE: `adb emu sms send` parses its sender as a phone number and
+strips letters from digit-containing IDs ("A1-SRB" arrives as "1"), so the
+provider row is seeded with `content insert`.
+
 ## fastlane metadata · translations for all app locales (2026-09-20)
 
 ✅ Added `title.txt`, `short_description.txt`, `full_description.txt` under
