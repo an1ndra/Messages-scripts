@@ -5,6 +5,27 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Repo cleanup · docs/ move + single screenshot location (2026-09-20)
+
+✅ Two consolidations:
+- **App dev guides moved into `docs/`** (`Developer.md`, `Development.md`) so all
+  app documentation lives under one folder. Root references updated:
+  `README.md` → `docs/Developer.md`, `AGENTS.md` → `docs/Development.md` /
+  `docs/Developer.md`; `docs/Developer.md`'s licence link is now `../LICENSE`.
+  `README.md` and `AGENTS.md` stayed at the repo root (GitHub/F-Droid/agent
+  tooling expect them there). The `scripts/` docs are a separate set and
+  untouched.
+- **F-Droid screenshots single-sourced under fastlane.** `screenshots/fdroid/`
+  and `fastlane/metadata/android/en-US/images/phoneScreenshots/` held the same
+  20 filenames but had drifted (fastlane copies dated 2026-08-23, root set
+  2026-09-05). Fastlane is the location F-Droid reads, so the fresher
+  `screenshots/fdroid/` images were copied over it, `screenshots/fdroid/` was
+  deleted, `scripts/take-fdroid-screenshots.sh` now writes straight to
+  `fastlane/metadata/android/en-US/images/phoneScreenshots/`, and the README
+  screenshot table points there. `.gitignore` dropped the `!screenshots/fdroid/`
+  exception (root `screenshots/` stays ignored for ad-hoc captures).
+  No more mirrored/duplicated set to drift.
+
 ## Repo cleanup · drop stale in-repo F-Droid metadata template (2026-09-20)
 
 ✅ Removed `fdroid/com.anindra.messages.yml`. It was a submission template from

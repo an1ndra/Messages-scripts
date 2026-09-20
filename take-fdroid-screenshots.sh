@@ -17,7 +17,7 @@ cd "$(dirname "$0")"
 source ./env.sh
 if [ ! -x "$ADB" ]; then export ADB="$HOME/android/platform-tools/adb"; fi
 
-SHOTS="$PROJECT_DIR/screenshots/fdroid"
+SHOTS="$PROJECT_DIR/fastlane/metadata/android/en-US/images/phoneScreenshots"
 mkdir -p "$SHOTS"
 
 launch() { adb_ shell am force-stop "$PKG"; sleep 1; adb_ shell am start -n "$ACT" >/dev/null; sleep 4; }
