@@ -42,6 +42,85 @@ row descriptions on the activatable node, master gating, five options persist,
 font 130% visibly grows a text node (63→80px), settings restored. App also
 launched with the system Accessibility Menu service bound.
 
+## fastlane metadata · translations for all app locales (2026-09-20)
+
+✅ Added `title.txt`, `short_description.txt`, `full_description.txt` under
+`fastlane/metadata/android/<locale>/` for every locale the app ships besides
+`en-US`: `ar, de, es, fr, hi-IN, ja, ko, pl, pt-BR, ru, zh-CN, zh-TW`
+(12 locales × 3 files). Localized `title.txt` matches the app's own localized
+`app_name` (الرسائل / メッセージ / Wiadomości / 消息 / 訊息; "Messages"
+elsewhere). Descriptions are the translated feature/permission copy with the same
+allowed HTML (`p`, `strong`, `b`); no per-locale screenshots added (F-Droid falls
+back to the en-US set). Validated: every short description ≤ 80 chars and full
+description ≤ 4000 chars, title ≤ 50.
+
+## Repo cleanup · docs/ move + single screenshot location (2026-09-20)
+
+✅ Two consolidations:
+- **App dev guides moved into `docs/`** (`Developer.md`, `Development.md`) so all
+  app documentation lives under one folder. Root references updated:
+  `README.md` → `docs/Developer.md`, `AGENTS.md` → `docs/Development.md` /
+  `docs/Developer.md`; `docs/Developer.md`'s licence link is now `../LICENSE`.
+  `README.md` and `AGENTS.md` stayed at the repo root (GitHub/F-Droid/agent
+  tooling expect them there). The `scripts/` docs are a separate set and
+  untouched.
+- **F-Droid screenshots single-sourced under fastlane.** `screenshots/fdroid/`
+  and `fastlane/metadata/android/en-US/images/phoneScreenshots/` held the same
+  20 filenames but had drifted (fastlane copies dated 2026-08-23, root set
+  2026-09-05). Fastlane is the location F-Droid reads, so the fresher
+  `screenshots/fdroid/` images were copied over it, `screenshots/fdroid/` was
+  deleted, `scripts/take-fdroid-screenshots.sh` now writes straight to
+  `fastlane/metadata/android/en-US/images/phoneScreenshots/`, and the README
+  screenshot table points there. `.gitignore` dropped the `!screenshots/fdroid/`
+  exception (root `screenshots/` stays ignored for ad-hoc captures).
+  No more mirrored/duplicated set to drift.
+
+## Repo cleanup · drop stale in-repo F-Droid metadata template (2026-09-20)
+
+✅ Removed `fdroid/com.anindra.messages.yml`. It was a submission template from
+the initial F-Droid onboarding, referenced by nothing (no Gradle, script, CI, or
+`.circleci` job) and stale (1.0.4 / code 8 / commit f981c35 while the live
+metadata is 1.0.26 / code 29). F-Droid reads metadata only from
+`gitlab.com/an1ndra/fdroiddata` (`metadata/com.anindra.messages.yml`, updated by
+the `release.yml` `sync-fdroiddata` job), never from an in-repo `fdroid/` file.
+Kept `fastlane/metadata/android/en-US/`, which F-Droid *does* read from the
+repo (title/short/full description, icon, screenshots, changelogs).
+
+## CodeQL security-and-quality cleanup · alerts #8 #9 #12 #13 #15 #22 #23 #24 #25 #27 #28 #29 #30 #31 #32 #33 — FIXED (2026-09-20)
+
+✅ All 16 open `security-and-quality` alerts on `main`:
+- **Useless null checks** (#30/#31, `MainActivity.kt:505/510`): `Context.getDisplay()`
+  is `@NonNull`, so the `display?.…` guards in the `SDK >= R` display-mode probe
+  were dropped (properties now read directly off `display`).
+- **Field masks super field** (#15, `Repository.kt:1`): the Compose-generated
+  `$stable` field in `ImportResult.Success/Error` shadowed the one in the
+  `sealed class ImportResult` parent. Converted `ImportResult` to a `sealed
+  interface` (interfaces get no `$stable`), so no generated field masks a
+  superclass field anymore.
+- **Deprecated calls**:
+  - #33 `TelephonyManager.phoneCount` → new pure `phoneCountForSdk()`:
+    `activeModemCount` on SDK ≥ 30, `SubscriptionManager.activeSubscriptionInfoCountMax`
+    below.
+  - #32 `KeyGenParameterSpec.Builder.setUserAuthenticationValidityDurationSeconds(-1)`
+    → removed; pre-R already defaults to per-use auth (validity -1), so the
+    legacy else-branch was a no-op.
+  - #25 `SmsManager.getSmsManagerForSubscriptionId` → reflective
+    `legacyManagerForSubscription(subscriptionId)` helper (the method is the only
+    per-SIM API on 29–30 but deprecated on S+).
+- **Unread locals** (#8/#9 `isList`/`isChat`, #12 `cs`, #22/#23
+  `showEntrySkeleton`/`hasEarlierButton`, #24 unused `context`, #27
+  `appInForeground`, #13/#28 unused destructured `addr`/`name`) removed; the
+  destructured `for` bindings now use `_`.
+Tests: `testDebugUnitTest` 92/92 incl. new `ImportResultTest` 4/4 and
+`phoneCountForSdk` coverage in `DiagnosticsReportTest`; `SimLabelsTest` asserts
+`Default`/`Unknown` are identity singletons after the `data object` → `object`
+change. `scripts/test-codeql-cleanup.sh` 20/20 on emulator-5554 (13 source
+guards that the deprecated/flagged patterns stay gone + launch / inbound SMS /
+diagnostics collect with no FATAL). Wired into `run-all-tests.sh`.
+NOTE: the "field masks super field" alert local builds never warned about (it is
+Compose-compiler generated) — the `sealed interface` change also removes it from
+the next CodeQL scan, unlike the earlier false-positive dismissal attempt.
+
 ## Backup location · privacy · blocked-keywords UI · Coil (2026-09-19)
 
 ✅ User requests:
