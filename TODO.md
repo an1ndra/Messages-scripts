@@ -5,6 +5,17 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Repo cleanup · drop stale in-repo F-Droid metadata template (2026-09-20)
+
+✅ Removed `fdroid/com.anindra.messages.yml`. It was a submission template from
+the initial F-Droid onboarding, referenced by nothing (no Gradle, script, CI, or
+`.circleci` job) and stale (1.0.4 / code 8 / commit f981c35 while the live
+metadata is 1.0.26 / code 29). F-Droid reads metadata only from
+`gitlab.com/an1ndra/fdroiddata` (`metadata/com.anindra.messages.yml`, updated by
+the `release.yml` `sync-fdroiddata` job), never from an in-repo `fdroid/` file.
+Kept `fastlane/metadata/android/en-US/`, which F-Droid *does* read from the
+repo (title/short/full description, icon, screenshots, changelogs).
+
 ## CodeQL security-and-quality cleanup · alerts #8 #9 #12 #13 #15 #22 #23 #24 #25 #27 #28 #29 #30 #31 #32 #33 — FIXED (2026-09-20)
 
 ✅ All 16 open `security-and-quality` alerts on `main`:
