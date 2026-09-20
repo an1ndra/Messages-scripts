@@ -5,6 +5,18 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## fastlane metadata · translations for all app locales (2026-09-20)
+
+✅ Added `title.txt`, `short_description.txt`, `full_description.txt` under
+`fastlane/metadata/android/<locale>/` for every locale the app ships besides
+`en-US`: `ar, de, es, fr, hi-IN, ja, ko, pl, pt-BR, ru, zh-CN, zh-TW`
+(12 locales × 3 files). Localized `title.txt` matches the app's own localized
+`app_name` (الرسائل / メッセージ / Wiadomości / 消息 / 訊息; "Messages"
+elsewhere). Descriptions are the translated feature/permission copy with the same
+allowed HTML (`p`, `strong`, `b`); no per-locale screenshots added (F-Droid falls
+back to the en-US set). Validated: every short description ≤ 80 chars and full
+description ≤ 4000 chars, title ≤ 50.
+
 ## Repo cleanup · docs/ move + single screenshot location (2026-09-20)
 
 ✅ Two consolidations:
