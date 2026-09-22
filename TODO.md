@@ -5,6 +5,26 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Spam & blocked · one folder, M3 tabs, keyword messages, SIM always-on (2026-09-22)
+
+✅ USER REQUEST: fold the redundant "Blocked numbers" row into one **Spam &
+blocked** screen with Material 3 tabs (Conversations | Messages); park
+keyword-blocked SMS as messages (not the whole contact); keep the SIM switcher
+always visible.
+
+- Keyword-blocked SMS now soft-deletes just the message (`messages.blocked_reason`
+  + `deleted_at`; DB v20) and the conversation stays in the inbox; the SMS is
+  listed under **Spam & blocked → Messages**.
+- `SpamBlockedScreen` rebuilt with `PrimaryTabRow`/`Tab`: Conversations (blocked
+  numbers, Unblock) + Messages (keyword blocks, Delete). Removed the separate
+  `BlockedNumbersScreen`, its Settings row/route/strings and
+  `test-blocked-numbers-list.sh`.
+- SIM switcher renders whenever `sims.size > 1` (no draft/keyboard gate).
+
+Tests: `test-keywords.sh` 11/11 (message soft-deleted + listed under Messages,
+conversation in inbox), `test-spam-blocked.sh` 9/9, `test-sim-inputbar.sh` 7/7
+(visible while typing).
+
 ## Spam & blocked folder · GM-like block behaviour (2026-09-22)
 
 ✅ USER REQUEST (GM-like): blocking a number moves its conversation out of the

@@ -15,7 +15,9 @@ bad() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 info() { echo -e "\n=== $* ==="; }
 
 db() { adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"$1\"'" 2>/dev/null | tr -d '\r'; }
-conv_blocked() {    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT blocked FROM conversations WHERE address LIKE \\\"%$TAIL%\\\" LIMIT 1;\"'" 2>/dev/null | tr -d '\r'
+conv_blocked() {
+    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT address,blocked FROM conversations;\"'" 2>/dev/null \
+        | tr -d '\r' | awk -F'|' -v t="$TAIL" 'index($1,t) {print $2; exit}'
 }
 msg_count() {
     adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT COUNT(*) FROM messages WHERE body LIKE \\\"%$1%\\\";\"'" 2>/dev/null | tr -d '\r'
@@ -26,7 +28,10 @@ blocked_count() {
 
 cleanup() {
     adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"DELETE FROM blocked_numbers WHERE number LIKE \\\"%$TAIL%\\\";\"'" >/dev/null 2>&1
-    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"DELETE FROM conversations WHERE address LIKE \\\"%$TAIL%\\\";\"'" >/dev/null 2>&1
+    local ids
+    ids=$(adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT id,address FROM conversations;\"'" 2>/dev/null \
+        | tr -d '\r' | awk -F'|' -v t="$TAIL" 'index($2,t) {print $1}' | paste -sd, -)
+    [ -n "$ids" ] && adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"DELETE FROM conversations WHERE id IN ($ids);\"'" >/dev/null 2>&1
     adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"DELETE FROM messages WHERE body LIKE \\\"%$PROBE%\\\" OR body LIKE \\\"%$SECOND%\\\";\"'" >/dev/null 2>&1
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1
 }

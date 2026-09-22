@@ -78,25 +78,20 @@ tap_text "Switch SIM" >/dev/null 2>&1; sleep 1.5
 p2=$(pref_get)
 [ "$p2" = "$p0" ] && ok "pref wrapped back to $p0" || bad "pref did not wrap (p2=$p2 expected=$p0)"
 
-info "Stays visible with the keyboard open"
-tap_edittext >/dev/null 2>&1; sleep 1.5
-dump_ui
-grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
-    && ok "Switch SIM stays visible with the keyboard open" \
-    || bad "Switch SIM disappeared when the keyboard opened"
-
-info "Hidden while typing"
+info "Stays visible while typing"
+tap_edittext >/dev/null 2>&1; sleep 1
 type_text "hi" >/dev/null 2>&1; sleep 1
 dump_ui
 grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
-    && bad "Switch SIM still visible while typing" \
-    || ok "Switch SIM hidden while typing"
+    && ok "Switch SIM stays visible while typing" \
+    || bad "Switch SIM disappeared while typing"
 for _ in 1 2 3 4; do adb_ shell input keyevent 67 >/dev/null 2>&1; done
-adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1.5
+sleep 1
 dump_ui
 grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
-    && ok "Switch SIM returns once the keyboard closes" \
-    || bad "Switch SIM did not return after the keyboard closed"
+    && ok "Switch SIM visible after clearing the draft" \
+    || bad "Switch SIM missing after clearing the draft"
+adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
 
 info "Single-SIM: switcher absent"
 launch false
