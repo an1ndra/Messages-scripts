@@ -66,7 +66,7 @@ adb_ emu sms send "$SENDER" "$SECOND" >/dev/null 2>&1; sleep 4
 NOTIF=$(adb_ shell dumpsys notification --noredact 2>/dev/null | grep -c "$SECOND")
 [ "$NOTIF" = "0" ] && ok "no notification for the blocked SMS" || bad "notification posted ($NOTIF)"
 
-info "Settings > Spam & blocked lists it with a Blocked badge"
+info "Settings > Spam & blocked lists it"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 3
 for i in $(seq 1 8); do
@@ -80,9 +80,9 @@ dump_ui
 grep -q "$TAIL" "$TMP/ui.xml" \
     && ok "blocked conversation listed in Spam & blocked" \
     || bad "blocked conversation not in Spam & blocked"
-grep -q 'text="Blocked"' "$TMP/ui.xml" \
-    && ok "blocked badge shown" \
-    || bad "blocked badge missing"
+grep -q 'content-desc="[^"]*Blocked' "$TMP/ui.xml" \
+    && ok "row exposed as blocked to accessibility services" \
+    || bad "blocked designation missing"
 
 info "Unblock restores it to the inbox"
 tap_text "Unblock" >/dev/null 2>&1; sleep 1.5

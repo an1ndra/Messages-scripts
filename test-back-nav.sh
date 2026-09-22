@@ -52,7 +52,7 @@ fi
 info "4. Draft clears when leaving via arrow button"
 adb_ emu sms send "+15551230888" "draft holder" >/dev/null 2>&1; sleep 2
 adb_ shell am start -n "$ACT" >/dev/null; sleep 3
-C=$(center_of_contains "555-123-0888") || { fail "test row missing"; exit 1; }
+C=$(center_of_contains "123-0888") || { fail "test row missing"; exit 1; }
 adb_ shell input tap $C; sleep 2
 tap_edittext; sleep 1
 type_text "draftcheck"; sleep 0.5
@@ -62,7 +62,7 @@ dump_ui && grep -q "Draft: draftcheck" "$TMP/ui.xml" \
     || echo "[info] draft indicator not visible (row may be below fold)"
 
 info "5. Reopen, clear field, leave via arrow -> draft gone"
-C=$(center_of_contains "555-123-0888") || { fail "row missing"; exit 1; }
+C=$(center_of_contains "123-0888") || { fail "row missing"; exit 1; }
 adb_ shell input tap $C; sleep 2
 tap_edittext; sleep 1
 adb_ shell 'input keyevent 123; for i in $(seq 1 30); do input keyevent 67; done'; sleep 0.5
