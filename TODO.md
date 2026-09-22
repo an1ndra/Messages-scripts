@@ -5,6 +5,28 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Spam & blocked folder · GM-like block behaviour (2026-09-22)
+
+✅ USER REQUEST (GM-like): blocking a number moves its conversation out of the
+inbox into a **Spam & blocked** folder (kept, recoverable), later messages from
+that number are stored there with no notification, and Unblock restores the
+thread. Reachable from **Settings → Spam & blocked** (below Trash); the overflow
+menu on the main list was removed. No Trash involvement.
+
+- DB v19 adds `conversations.blocked`; `Conversation.blocked`; `matchesView`
+  (`INBOX`/`ARCHIVED`/`SPAM_BLOCKED`) filters blocked out of the inbox and
+  archives. `Repository.receiveSpamMessage` stores without unread/notify;
+  `blockNumber`/`unblockNumber` flag the conversation. `SmsReceiver` routes a
+  blocked sender's SMS there instead of dropping it.
+- New `SpamBlockedScreen` (`Settings → Spam & blocked`) lists blocked threads
+  with a "Blocked" tag and Unblock; `ConversationsScreen` rows show a block
+  badge; blocking from a chat returns to the list with a "Moved to Spam &
+  blocked" toast.
+
+Tests: `ConversationFilterTest` (view partitioning) + `scripts/test-spam-blocked.sh`
+(block → leaves inbox → kept in the folder with badge → Unblock → back in inbox;
+9/9 on `emulator-5554`).
+
 ## Settings · Blocked numbers list (2026-09-22)
 
 ✅ USER REQUEST: a way to see blocked numbers. Settings → "Blocked numbers"
