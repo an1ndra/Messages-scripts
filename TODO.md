@@ -7,16 +7,16 @@
 
 ## Trash · blocked messages kept + delete-reason tag (2026-09-22)
 
-✅ USER REQUEST: keyword-blocked messages (and now messages from blocked
-numbers) are no longer dropped — they are stored and their conversation is
-moved to Trash (recoverable via Restore) with no notification. Trash rows carry
-a reason tag under the number: "Manually" (user), "Keyword" (keyword block) or
-"Number" (blocked sender).
+✅ USER REQUEST: keyword-blocked messages are no longer dropped — they are
+stored and their conversation is moved to Trash (recoverable via Restore) with
+no notification. Trash rows carry a reason tag under the number: "Manually"
+(user) or "Keyword" (keyword block). Messages from a blocked number are still
+dropped entirely (never stored, never in Trash).
 
-- `Repository.receiveBlockedMessage(address, body, …, reason)` inserts the
-  message and sets `conversations.deleted_at` + `deleted_reason`; `SmsReceiver`
-  routes a blocked sender (`isAddressBlocked` → `blocked_number`) or a blocked
-  keyword (`KeywordFilter.route` → `blocked_keyword`) through it.
+- `Repository.receiveBlockedMessage` inserts the message and sets
+  `conversations.deleted_at` + `deleted_reason`; `SmsReceiver` routes a blocked
+  keyword (`KeywordFilter.route` → `blocked_keyword`) through it and drops
+  messages from a blocked sender (`isAddressBlocked`).
 - New `TrashReason` constants; DB v18 adds `conversations.deleted_reason`
   (default `manual`); every manual trash path records `manual`. `TrashScreen`
   renders a small reason tag.
@@ -24,8 +24,7 @@ a reason tag under the number: "Manually" (user), "Keyword" (keyword block) or
 
 Tests: `KeywordFilterTest` route cases + `TrashReasonTest`; `test-keywords.sh`
 (message kept, reason `blocked_keyword`, no notification, "Keyword" tag);
-`test-blocked-number-trash.sh` (number blocked via sheet → reason
-`blocked_number`, "Number" tag); `test-trash.sh` asserts the "Manually" tag.
+`test-trash.sh` asserts the "Manually" tag.
 
 ## Chat · emoji button setting + composer tweaks (2026-09-22)
 
