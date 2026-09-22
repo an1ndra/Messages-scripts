@@ -93,21 +93,23 @@ Tests: new `EmojiButtonSettingTest` (key + default contract) and
 `scripts/test-emoji-toggle.sh` run on dual-SIM (`--ez fake_dual_sim true`): 9/9 —
 SIM switcher present with the emoji off, both present when on, restored off.
 
-## Chat · SIM switcher icon redesign (2026-09-22)
+## Chat · SIM switcher icon redesign (2026-09-23)
 
-✅ USER REQUEST: the in-field SIM glyph now matches the supplied artwork — a
-solid rounded SIM card (angled cut at the top-right) with a negative numeral.
-Rebuilt `ic_sim_1`/`ic_sim_2` as single `evenOdd`-filled 24dp paths (tint
-`onSurfaceVariant`): the card outline is taken from the provided
-`g483*.svg` path, the "1" reuses that path's digit and the "2" is the Ubuntu-Bold
-glyph fitted to the same box. Input-bar trailing row: 40dp icon buttons, SIM
-glyph at the emoji's 24dp and placed left of it, staying visible while the soft
-keyboard is open (hidden only while a draft exists).
+✅ USER REQUEST: the in-field SIM glyph is now a single tintable 24dp Fossify
+Commons outline (`ic_sim_vector`, white placeholder fill, tinted
+`onSurfaceVariant` like the other input-bar icons). The old cutout-style
+`ic_sim_1`/`ic_sim_2`/`ic_dual_sim` are deleted, along with `SimIcon`/`iconFor`.
+The slot number ("1"/"2", or "D" for 3+) is overlaid on the icon as a bold
+`labelSmall` in `colorScheme.surface` — a knockout numeral that stays legible on
+the `onSurfaceVariant` fill in both light (light numeral on dark card) and dark
+(dark numeral on light card) themes. Input-bar trailing row: 40dp clickable
+`Box`, SIM glyph left of the emoji, hidden while a draft exists.
 
-Tests: new `SimIconDrawableTest` (tint-only colour, 24dp, card + number
-subpaths, top-right cut, card shared / digit differs) kept green with
-`test-sim-inputbar.sh` (8/8, incl. visible with the keyboard open and hidden
-while typing).
+Tests: `SimIconDrawableTest` (white tint-only fill, 24dp, Fossify card shape,
+old icons gone) and new `SimBadgeColorTest` (icon `onSurfaceVariant` tint,
+label `colorScheme.surface`, no `Color.White`/`onPrimaryContainer`) kept green
+with `test-sim-inputbar.sh` (8/8: dual button present, slot numeral rendered,
+cycles + wraps the pref, hidden while typing, absent on single-SIM).
 
 ## App · clock follows the device 12/24-hour setting (2026-09-22)
 

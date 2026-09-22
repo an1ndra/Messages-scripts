@@ -63,6 +63,9 @@ if grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml"; then
 else
     bad "Switch SIM button missing on dual-SIM"
 fi
+grep -q 'text="1"' "$TMP/ui.xml" \
+    && ok "SIM slot number overlaid on the icon" \
+    || bad "SIM slot number label missing"
 grep -q 'content-desc="Message"\|text="Message"' "$TMP/ui.xml" \
     && ok "input pill intact" || bad "input pill missing"
 
@@ -78,13 +81,13 @@ tap_text "Switch SIM" >/dev/null 2>&1; sleep 1.5
 p2=$(pref_get)
 [ "$p2" = "$p0" ] && ok "pref wrapped back to $p0" || bad "pref did not wrap (p2=$p2 expected=$p0)"
 
-info "Stays visible while typing"
+info "Hides while typing"
 tap_edittext >/dev/null 2>&1; sleep 1
 type_text "hi" >/dev/null 2>&1; sleep 1
 dump_ui
 grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
-    && ok "Switch SIM stays visible while typing" \
-    || bad "Switch SIM disappeared while typing"
+    && bad "Switch SIM still visible while typing" \
+    || ok "Switch SIM hidden while typing"
 for _ in 1 2 3 4; do adb_ shell input keyevent 67 >/dev/null 2>&1; done
 sleep 1
 dump_ui
