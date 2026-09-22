@@ -5,6 +5,17 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Settings · Blocked numbers list (2026-09-22)
+
+✅ USER REQUEST: a way to see blocked numbers. Settings → "Blocked numbers"
+(under Number blocking) opens `BlockedNumbersScreen` — each blocked number with
+an Unblock action, plus an empty state. The Settings row subtitle shows the
+count ("None" / "N blocked"). Wired through `AppViewModel.blockedNumbers()` (the
+previously-unused `Repository.blockedNumbers()`) and a `blocked` nav route.
+
+Tests: new `BlockedNumbersTest` (subtitle helper) + `scripts/test-blocked-numbers-list.sh`
+(block via the long-press sheet → number listed → Unblock → removed).
+
 ## Trash · blocked messages kept + delete-reason tag (2026-09-22)
 
 ✅ USER REQUEST: keyword-blocked messages are no longer dropped — they are
