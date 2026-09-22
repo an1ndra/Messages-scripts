@@ -71,10 +71,10 @@ adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 3
 for i in $(seq 1 8); do
     dump_ui
-    grep -q 'Spam &amp; blocked' "$TMP/ui.xml" && break
+    grep -q 'Spam &amp; Blocked' "$TMP/ui.xml" && break
     adb_ shell input swipe 540 1700 540 900 300 >/dev/null 2>&1; sleep 0.7
 done
-c=$(center_of_contains "Spam &amp; blocked") && adb_ shell input tap $c
+c=$(center_of_contains "Spam &amp; Blocked") && adb_ shell input tap $c
 sleep 1.5
 dump_ui
 grep -q "$TAIL" "$TMP/ui.xml" \

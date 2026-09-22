@@ -56,6 +56,26 @@ msg_blocked_reason() {
     adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT blocked_reason FROM messages WHERE body LIKE \\\"%$1%\\\" ORDER BY id DESC LIMIT 1;\"'" 2>/dev/null | tr -d '\r'
 }
 
+# Tap a node by its text/content-desc regardless of attribute order.
+tap_label() {
+    dump_ui || return 1
+    local b
+    b=$(python3 - "$1" "$TMP/ui.xml" <<'PY'
+import re, sys
+label, path = sys.argv[1], sys.argv[2]
+for m in re.finditer(r'<node[^>]*>', open(path).read()):
+    tag = m.group(0)
+    if f'text="{label}"' in tag or f'content-desc="{label}"' in tag:
+        b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', tag)
+        if b:
+            x1, y1, x2, y2 = map(int, b.groups())
+            print((x1 + x2)//2, (y1 + y2)//2)
+            break
+PY
+)
+    [ -n "$b" ] && adb_ shell input tap $b
+}
+
 tap_edittext_here() {
     local b x y x2 y2
     dump_ui || return 1
@@ -161,15 +181,31 @@ adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 3
 for i in $(seq 1 8); do
     dump_ui
-    grep -q 'Spam &amp; blocked' "$TMP/ui.xml" && break
+    grep -q 'Spam &amp; Blocked' "$TMP/ui.xml" && break
     adb_ shell input swipe 540 1700 540 900 300 >/dev/null 2>&1; sleep 0.7
 done
-c=$(center_of_contains "Spam &amp; blocked") && adb_ shell input tap $c; sleep 1.5
+c=$(center_of_contains "Spam &amp; Blocked") && adb_ shell input tap $c; sleep 1.5
 tap_text "Messages" >/dev/null 2>&1; sleep 1
 dump_ui
 grep -q "$KW" "$TMP/ui.xml" \
     && ok "blocked SMS listed under Spam & blocked > Messages" \
     || bad "blocked SMS not listed in the folder"
+
+info "Delete is undoable before it sticks"
+tap_label "Delete"; sleep 1
+dump_ui
+grep -q "Message deleted" "$TMP/ui.xml" \
+    && ok "snackbar shown after delete" \
+    || bad "no delete snackbar"
+grep -q "$KW" "$TMP/ui.xml" \
+    && bad "message still listed right after delete" \
+    || ok "message hidden right after delete"
+tap_label "Undo"; sleep 1.5
+dump_ui
+grep -q "$KW" "$TMP/ui.xml" \
+    && ok "Undo restored the blocked message" \
+    || bad "Undo did not restore the message"
+[ "$(db_count "$KW")" = "1" ] && ok "message still in the database after Undo" || bad "message lost after Undo"
 adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
 
 info "Removing the keyword restores delivery"
