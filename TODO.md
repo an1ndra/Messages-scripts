@@ -5,6 +5,87 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Chat · emoji button setting + composer tweaks (2026-09-22)
+
+✅ USER REQUEST: add an Advanced option to show the emoji button in the message
+field (default off), move the attach button inside the field, and rename the
+field hint "Text message" → "Message". New `SettingsStore.emojiButtonEnabled`
+(`KEY_EMOJI_BUTTON`, default false) surfaced as Advanced → Appearance → "Emoji
+button"; `InputBar` takes `showEmojiButton` and only renders the emoji
+`IconButton` when set. The attach `AddCircleOutline` moved to the TextField
+`leadingIcon`; `text_placeholder` is now "Message".
+
+Tests: new `EmojiButtonSettingTest` (key + default contract) and
+`scripts/test-emoji-toggle.sh` run on dual-SIM (`--ez fake_dual_sim true`): 9/9 —
+SIM switcher present with the emoji off, both present when on, restored off.
+
+## Chat · SIM switcher icon redesign (2026-09-22)
+
+✅ USER REQUEST: the in-field SIM glyph now matches the supplied artwork — a
+solid rounded SIM card (angled cut at the top-right) with a negative numeral.
+Rebuilt `ic_sim_1`/`ic_sim_2` as single `evenOdd`-filled 24dp paths (tint
+`onSurfaceVariant`): the card outline is taken from the provided
+`g483*.svg` path, the "1" reuses that path's digit and the "2" is the Ubuntu-Bold
+glyph fitted to the same box. Input-bar trailing row: 40dp icon buttons, SIM
+glyph at the emoji's 24dp and placed left of it, staying visible while the soft
+keyboard is open (hidden only while a draft exists).
+
+Tests: new `SimIconDrawableTest` (tint-only colour, 24dp, card + number
+subpaths, top-right cut, card shared / digit differs) kept green with
+`test-sim-inputbar.sh` (8/8, incl. visible with the keyboard open and hidden
+while typing).
+
+## App · clock follows the device 12/24-hour setting (2026-09-22)
+
+✅ USER REQUEST: message times read "12:30 AM" even when the phone is set to a
+24-hour clock. Every in-app time now derives its pattern from the device via
+`android.text.format.DateFormat.is24HourFormat(context)` — 24-hour shows
+`00:30`, 12-hour shows `12:30 AM`, matching the phone.
+
+New pure `ui/TimeFormat.kt` (`is24HourFormat`, `timePattern`,
+`timeOnlyFormatter`, `dateTimeFormatter`, `formatDateTime`). Wired through
+`Components.formatTimeOnly`/`formatListTime`, `MessageGrouping.formatGroupLabel`,
+the chat bubble + group header, the message-details dialog, the schedule toast,
+the settings scheduled-message list, and `rememberTimePickerState(is24Hour=…)`.
+Removed the hard-coded `h:mm a` `SimpleDateFormat` sites in `ChatScreen`/
+`SettingsScreen`.
+
+Tests: `testDebugUnitTest` 138/138 (new `TimeFormatTest` 6/6: pattern switch,
+`00:30`/`12:30 AM`, date+time prefix, AM/PM absent from bubbles/group labels in
+24-hour mode). New `scripts/test-24h-time.sh` (flips `settings put system
+time_12_24 24|12`, relaunches, asserts HH:mm vs AM/PM in the chat dump, restores
+the original value) wired into `run-all-tests.sh`.
+
+## Issue #227 · in-field SIM switcher + Persian number bidi (2026-09-21)
+
+✅ USER REQUEST (two parts):
+
+1. **SIM button beside send.** Restored the in-field SIM switcher in the chat
+   input bar (the prototype removed in `5ba7a29`). New pure `data/SimSwitcher.kt`
+   (`iconFor`, `next`) backs it; `InputBar` takes `sims`/`currentSimId`/
+   `onCycleSim` and paints `ic_sim_1`/`ic_sim_2`/`ic_dual_sim` (tinted
+   `colorScheme.primary`, content-desc "Switch SIM") only for `sims.size > 1`
+   and an empty draft. `cycleSim()` now delegates to `SimSwitcher.next`. The
+   chat 3-dot menu SIM rows remain.
+2. **Persian number reversal.** Root cause reproduced on emulator: in an RTL
+   paragraph the space/`-`/`+`-separated number groups are laid out right-to-
+   left, so `+98 999 862 0453` painted as `0453 862 999 98+` (list titles,
+   message bodies, details). Fix is render-layer only (DB/identity untouched):
+   new pure `ui/BidiText.kt` wraps number runs in Unicode LRI/PDI
+   (`ltr()` for standalone numbers, `isolateNumberRuns()` + offset `remap()`
+   for bodies). `isolateNumberRuns` is a no-op unless the text's first strong
+   character is RTL — isolating an otherwise-LTR run would itself reorder it in
+   an RTL layout. Applied in `rememberLinkedText`/`styledBody` (preserving link
+   + OTP styling offsets) and to every number display (`formatPhoneNumber`,
+   which now isolates, plus `convo.display` sites in conversations/chat/contact
+   details/trash).
+
+Tests: `testDebugUnitTest` 132/132 (new `BidiTextTest` 7/7, `SimSwitcherTest`
+4/4). New `scripts/test-persian-numbers.sh` (4/4: RTL title + body isolated,
+LTR body untouched) and rewritten `scripts/test-sim-inputbar.sh` (6/6: dual-SIM
+button present, cycles the pref, hidden while typing, absent on single-SIM)
+using the `--ez fake_dual_sim true` hook. Both wired into `run-all-tests.sh`.
+
 ## CI · pin GitHub Actions runners to ubuntu-24.04 (2026-09-21)
 
 ✅ GitHub will migrate the `ubuntu-latest` label from Ubuntu 24.04 to Ubuntu
@@ -251,7 +332,9 @@ the next CodeQL scan, unlike the earlier false-positive dismissal attempt.
    field (tag leading icon, `+` submit, IME Done), and a card list with
    dividers and an empty state.
 Note: an in-field SIM swap control was prototyped and then removed on request —
-SIM selection stays in the chat 3-dot menu only.
+SIM selection then lived in the chat 3-dot menu only. Issue #227 requested the
+in-field control back (see the 2026-09-21 entry above); it now sits beside send
+while the menu rows remain.
 Tests: `testDebugUnitTest` 76/76 (`BackupLocationTest` 4/4, `BackupPolicyTest`
 2/2); `scripts/test-backup-sim-coil.sh` (backup row + picker, keywords dialog,
 privacy-mode disable, Coil launch). `assembleDebug` + R8 `assembleRelease` green.

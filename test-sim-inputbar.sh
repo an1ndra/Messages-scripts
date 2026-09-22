@@ -1,55 +1,113 @@
 #!/usr/bin/env bash
-# Verify the SIM switcher icon in the chat input bar:
-#   - single-SIM device  -> icon hidden, input bar layout unchanged
-#   - multi-SIM device   -> icon at top-right of the "Text message" pill,
-#                           tap = cycle to next SIM (toast confirms),
-#                           tap again = cycle again
-# Usage: test-sim-inputbar.sh [row=1]
+# Regression for issue #227: the in-field SIM switcher in the chat input bar.
+#
+# The stock emulator is single-SIM, so the debug `--ez fake_dual_sim true` flag
+# makes the app see two SIMs (T-Mobile/SIM 1, Vodafone/SIM 2 with subId 7) and
+# the dual path is exercised for real:
+#   - dual-SIM  -> "Switch SIM" button beside the send button; tap cycles the
+#                  selected SIM (pref changes, toast confirms); hidden while typing
+#   - single-SIM -> button absent
+# Before the fix there was no in-field control at all, so the dual assertions
+# fail. Restores the SIM preference at the end.
 source "$(dirname "$0")/env.sh"
 
-ROW="${1:-1}"
+SEED="+15551234599"
+PASS=0; FAIL=0
+ok()  { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
+bad() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 
-info "Opening app + conversation row $ROW"
-adb_ shell am start -n "$ACT"; sleep 2
-Y=$(( 357 + (ROW - 1) * 190 ))
-[ "$Y" -gt 2200 ] && Y=2200
-adb_ shell input tap 500 "$Y"; sleep 1.5
-shot "sim-01-chat-empty-draft"
+pref_get() {
+    adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null > "$TMP/prefs.xml"
+    python3 - "$TMP/prefs.xml" <<'PY'
+import re
+try:
+    s = open("/tmp/opencode/messages-tests/prefs.xml").read()
+except OSError:
+    s = ""
+m = re.search(r'name="sim_subscription_id" value="([^"]*)"', s)
+print(m.group(1) if m else "")
+PY
+}
 
-dump_ui || { echo "FAIL: could not dump UI"; exit 1; }
-if grep -q "Switch SIM" "$TMP/ui.xml"; then
-    info "Multi-SIM detected: tapping 'Switch SIM' icon (top-right of input pill)"
-    tap_text "Switch SIM" || { echo "FAIL: could not tap Switch SIM"; exit 1; }
-    sleep 1
-    shot "sim-02-after-first-tap"
+pref_set_default() {
+    adb_ shell "run-as $PKG sed -i 's/name=\"sim_subscription_id\" value=\"[^\"]*\"/name=\"sim_subscription_id\" value=\"-1\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1
+}
 
-    info "Tapping again to cycle back"
-    tap_text "Switch SIM" || { echo "FAIL: second tap failed"; exit 1; }
-    sleep 1
-    shot "sim-03-after-second-tap"
-    echo "PASS: SIM icon present and cycles on tap"
-    MULTI_SIM=1
+launch() {  # $1 = fake_dual_sim true/false
+    adb_ shell am force-stop "$PKG"; sleep 1
+    adb_ shell am start -n "$ACT" --ez fake_dual_sim "$1" >/dev/null 2>&1; sleep 4
+}
+
+open_seed_chat() {
+    adb_ emu sms send "$SEED" "sim-inputbar-seed" >/dev/null 2>&1
+    sleep 4
+    local c i
+    for i in 1 2 3; do
+        c=$(center_of_contains "(555) 123-4599") || c=$(center_of_contains "555-123-4599") || { sleep 1; continue; }
+        adb_ shell input tap $c; sleep 2
+        dump_ui || true
+        grep -q "Message" "$TMP/ui.xml" && return 0
+        sleep 1
+    done
+    return 1
+}
+
+pref_set_default
+
+info "Dual-SIM (fake): switcher visible beside send"
+launch true
+open_seed_chat || { bad "could not open seeded chat"; }
+dump_ui
+if grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml"; then
+    ok "Switch SIM button present"
 else
-    info "Single-SIM device: icon must be hidden"
-    echo "PASS: no SIM icon on single-SIM device"
-    MULTI_SIM=0
+    bad "Switch SIM button missing on dual-SIM"
 fi
+grep -q 'content-desc="Message"\|text="Message"' "$TMP/ui.xml" \
+    && ok "input pill intact" || bad "input pill missing"
 
-info "Checking input pill is intact"
-dump_ui && grep -q "Text message" "$TMP/ui.xml" \
-    && echo "PASS: input pill intact" \
-    || { echo "FAIL: input pill missing"; exit 1; }
+info "Tap cycles the selected SIM"
+p0=$(pref_get)
+tap_text "Switch SIM" >/dev/null 2>&1; sleep 1.5
+p1=$(pref_get)
+[ -n "$p1" ] && [ "$p1" != "$p0" ] && ok "pref changes on tap ($p0 -> $p1)" \
+    || bad "pref did not change on tap (p0=$p0 p1=$p1)"
 
-info "Typing a draft (icon must HIDE while typing)"
-tap_edittext; sleep 1
-type_text "hi"; sleep 1
-shot "sim-04-with-draft"
-if [ "$MULTI_SIM" = "1" ]; then
-    dump_ui && grep -q "Switch SIM" "$TMP/ui.xml" \
-        && { echo "FAIL: SIM icon still visible while typing"; exit 1; } \
-        || echo "PASS: SIM icon hidden while typing"
-fi
-adb_ shell input keyevent 4; sleep 0.5
-adb_ shell input keyevent 4; sleep 1
+info "Second tap wraps back"
+tap_text "Switch SIM" >/dev/null 2>&1; sleep 1.5
+p2=$(pref_get)
+[ "$p2" = "$p0" ] && ok "pref wrapped back to $p0" || bad "pref did not wrap (p2=$p2 expected=$p0)"
 
-info "Done. Screenshots in $SHOTS_DIR (sim-*.png)"
+info "Stays visible with the keyboard open"
+tap_edittext >/dev/null 2>&1; sleep 1.5
+dump_ui
+grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
+    && ok "Switch SIM stays visible with the keyboard open" \
+    || bad "Switch SIM disappeared when the keyboard opened"
+
+info "Hidden while typing"
+type_text "hi" >/dev/null 2>&1; sleep 1
+dump_ui
+grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
+    && bad "Switch SIM still visible while typing" \
+    || ok "Switch SIM hidden while typing"
+for _ in 1 2 3 4; do adb_ shell input keyevent 67 >/dev/null 2>&1; done
+adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1.5
+dump_ui
+grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
+    && ok "Switch SIM returns once the keyboard closes" \
+    || bad "Switch SIM did not return after the keyboard closed"
+
+info "Single-SIM: switcher absent"
+launch false
+open_seed_chat || bad "could not open seeded chat (single-SIM)"
+dump_ui
+grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
+    && bad "Switch SIM shown on single-SIM" \
+    || ok "Switch SIM hidden on single-SIM"
+adb_ shell input keyevent 4 >/dev/null 2>&1
+
+pref_set_default
+echo ""
+echo "=== RESULTS: $PASS passed, $FAIL failed ==="
+[ "$FAIL" -eq 0 ]
