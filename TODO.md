@@ -5,6 +5,25 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Trash · blocked keywords kept + delete-reason tag (2026-09-22)
+
+✅ USER REQUEST: keyword-blocked messages are no longer dropped — they are
+stored and their conversation is moved to Trash (recoverable via Restore) with
+no notification. Trash rows now carry a reason tag under the number: "Manually"
+(user deleted) or "Keyword" (blocked).
+
+- `Repository.receiveBlockedMessage` inserts the message and sets
+  `conversations.deleted_at` + `deleted_reason`; `SmsReceiver` routes blocked
+  bodies through `KeywordFilter.route` → TRASH. New `TrashReason` constants; DB
+  v18 adds `conversations.deleted_reason` (default `manual`); every manual trash
+  path records `manual`. `TrashScreen` renders a small reason tag.
+- `keywords_hint` now says matching messages go to Trash.
+
+Tests: `KeywordFilterTest` route cases + new `TrashReasonTest`; `test-keywords.sh`
+asserts the message is kept, the conversation trashed with reason
+`blocked_keyword`, no notification, and the Trash screen shows the "Keyword" tag;
+`test-trash.sh` asserts the "Manually" tag.
+
 ## Chat · emoji button setting + composer tweaks (2026-09-22)
 
 ✅ USER REQUEST: add an Advanced option to show the emoji button in the message

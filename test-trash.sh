@@ -109,6 +109,9 @@ if [ "$FOUND_TRASH" = "1" ]; then
     tap_text "Trash"; sleep 2
     if center_of_contains "555-123-0999" >/dev/null; then
         pass "trashed item listed"
+        grep -q 'text="Manually"' "$TMP/ui.xml" \
+            && pass "trash row shows the 'Manually' tag" \
+            || fail "trash row reason tag missing"
         tap_text "Restore"; sleep 1.5
         adb_ shell input keyevent 4; sleep 1
     else
