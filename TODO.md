@@ -5,6 +5,22 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Contact details · show the number under a saved name (2026-09-24)
+
+✅ USER REQUEST: on the conversation-details screen a saved contact showed only
+the name — the phone number was never rendered, so the user could not see which
+number the contact was saved under.
+
+- New pure helper `ContactDetails` (`isKnown`/`title`/`subtitle`): a saved
+  contact titles with the name and shows the formatted number beneath it; an
+  unknown sender titles with the number and has no subtitle.
+- `ContactDetailsScreen` uses the helper in both the profile header (number
+  under the name) and the contact card row (name + number).
+
+Tests: `ContactDetailsTest` (name+number, number-only, alphanumeric sender) +
+`scripts/test-contact-details.sh` (seed Sarah / +15551230010, open details,
+assert the name and a `…0010` number line; fails before the fix).
+
 ## CI · pin GitHub Actions runners to ubuntu-24.04 (2026-09-21)
 
 ✅ GitHub will migrate the `ubuntu-latest` label from Ubuntu 24.04 to Ubuntu
