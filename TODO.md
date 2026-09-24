@@ -5,6 +5,56 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue #219 · Notifications stop for a sender after their chat was opened (2026-09-24)
+
+✅ USER REPORT (Zokii0): once a sender tripped a blocked keyword, every later
+message from that same sender still arrived in the app but never produced a
+notification. Reporter saw the same on a second sender after that sender's
+first keyword-block.
+
+- ROOT CAUSE: `ForegroundTracker`'s open address was set when a chat opened
+  (`ChatScreen`) but only cleared by the `MainActivity` BackHandler — which is
+  shadowed by `ChatScreen`'s own `BackHandler`/back arrow, so the in-app back
+  button never cleared it. The receiver runs in the main process (no
+  `android:process`), so `openAddress` stayed latched on the last-opened
+  sender for the life of the process, and `SmsReceiver` skipped
+  `NotificationHelper.show` for exactly that address forever. Opening the chat
+  is what users do to check a keyword block, hence the keyword correlation.
+- `ui/ChatScreen.kt`: `DisposableEffect` now clears the open conversation on
+  dispose, so every exit path (back arrow, system back, archive, delete, route
+  swap) releases it.
+- `sms/NotificationPolicy.kt` (new): pure `skipForOpenThread(appInForeground,
+  threadOpen)`, used by `SmsReceiver` and `NotificationHelper.show`. The
+  receiver's gate is now foreground-aware, matching the helper, so a backgrounded
+  app no longer suppresses a thread's notifications.
+- `MainActivity.kt`: dropped the now-dead `wasChat` clear.
+- `ForegroundTracker.kt`: now in-memory only. The startup restore from
+  SharedPreferences (plus the uncalled `persist`/`persistIfForeground`) is gone —
+  a stale `open_address` written by an older build would otherwise re-latch a
+  sender on upgrade and keep the bug alive on the reporter's device even with
+  the dispose-clear in place. `MessagesApplication` no longer calls `init`.
+
+Tests: `NotificationPolicyTest` (suppresses only when foreground AND that
+thread is open) + `scripts/test-keyword-followup-notification.sh` (opens a
+sender's chat, leaves via the in-app back arrow, then sends a follow-up from
+that same sender and asserts `dumpsys notification` has it; control sender
+never opened still notifies). Fails before the fix on the follow-up assertion
+(6 PASS / 1 FAIL), passes after (7 PASS / 0 FAIL).
+
+Pre-existing script repairs found while running the suite:
+`test-keywords.sh` still asserted keyword-blocked messages are dropped
+outright, but they are parked in Spam & blocked — now asserts kept-once, not
+visible in the chat, no notification, and that a normal message from another
+sender does notify. `test-notif-dismiss-on-open.sh` counted the `dumpsys`
+`AppSettings` line as a notification (so its dismissal assert could never
+fail) and tapped a fixed coordinate — now launches the app, filters
+`NotificationRecord(...pkg=...)`, and taps the row found from the message body.
+
+File: `ui/ChatScreen.kt`, `sms/NotificationPolicy.kt`, `sms/SmsReceiver.kt`,
+`sms/SmsSupport.kt`, `sms/ForegroundTracker.kt`, `MainActivity.kt`,
+`MessagesApplication.kt` · tests: `test-keyword-followup-notification.sh`,
+`test-keywords.sh`, `test-notif-dismiss-on-open.sh`
+
 ## Spam & blocked / Trash · Messages tab shows the sender name (2026-09-24)
 
 ✅ USER REQUEST (follow-up to the contact-details work): on the Spam &

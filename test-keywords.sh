@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Regression for the "Blocked keywords" option (Settings -> Advanced ->
 # Blocked keywords). A message whose body contains a blocked keyword must be
-# dropped entirely: not stored in the app and no notification (so no sound).
-# A normal message still arrives. The keyword is added/removed through the UI.
+# parked in Spam & blocked (kept with a blocked reason, not shown in the chat)
+# and must not notify. A normal message still arrives and notifies. The keyword
+# is added/removed through the UI.
 source "$(dirname "$0")/env.sh"
 
 KW="ZZBLOCK$RANDOM"
@@ -35,6 +36,10 @@ PY
 
 db_count() {
     adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT COUNT(*) FROM messages WHERE body LIKE \\\"%$1%\\\";\"'" 2>/dev/null | tr -d '\r'
+}
+
+db_count_visible() {
+    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT COUNT(*) FROM messages WHERE body LIKE \\\"%$1%\\\" AND (deleted_at=0 OR blocked_reason=\\\"\\\");\"'" 2>/dev/null | tr -d '\r'
 }
 
 tap_edittext_here() {
@@ -114,16 +119,20 @@ grep -q "text=\"$KW\"" "$TMP/ui.xml" && ok "keyword listed in the dialog" || bad
 tap_text "Close" >/dev/null 2>&1; sleep 1
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 
-info "Blocked message is dropped (not stored, no notification)"
+info "Blocked message is parked in Spam & blocked (no chat row, no notification)"
 adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 3
 adb_ emu sms send "$SENDER" "$KW promo offer" >/dev/null 2>&1; sleep 4
 adb_ emu sms send "$NORMAL_SENDER" "$NORMAL_BODY" >/dev/null 2>&1; sleep 4
 BLOCKED=$(db_count "$KW")
+VISIBLE=$(db_count_visible "$KW")
 NORMAL=$(db_count "$NORMAL_BODY")
-[ "$BLOCKED" = "0" ] && ok "blocked message NOT stored" || bad "blocked message stored ($BLOCKED)"
+[ "$BLOCKED" = "1" ] && ok "blocked message kept for Spam & blocked" || bad "blocked message not kept ($BLOCKED)"
+[ "$VISIBLE" = "0" ] && ok "blocked message not shown in the chat" || bad "blocked message visible in chat ($VISIBLE)"
 [ "$NORMAL" = "1" ] && ok "normal message stored" || bad "normal message missing ($NORMAL)"
 NOTIF=$(adb_ shell dumpsys notification --noredact 2>/dev/null | grep -c "$KW")
 [ "$NOTIF" = "0" ] && ok "no notification for the blocked message" || bad "notification posted for blocked message ($NOTIF)"
+NORMAL_NOTIF=$(adb_ shell dumpsys notification --noredact 2>/dev/null | grep -c "$NORMAL_BODY")
+[ "$NORMAL_NOTIF" -ge 1 ] && ok "notification posted for the normal message" || bad "no notification for the normal message"
 
 info "Removing the keyword restores delivery"
 open_keywords

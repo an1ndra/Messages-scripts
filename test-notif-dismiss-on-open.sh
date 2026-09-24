@@ -9,12 +9,20 @@ pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1"; FAIL=1; }
 
 info "Inject SMS with OTP"
-adb_ emu sms send +1234567890 "Your code is 123456" >/dev/null 2>&1
+BODY="probe$RANDOM"
+adb_ shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1
+sleep 4
+adb_ emu sms send +1234567890 "Your code is $BODY" >/dev/null 2>&1
 sleep 3
+
+count_notifs() {
+  adb_ shell "dumpsys notification" 2>/dev/null \
+    | grep -c "NotificationRecord(.*pkg=$PKG" || true
+}
 
 # Check notification is visible
 info "Check notification appeared"
-NOTIF=$(adb_ shell "dumpsys notification | grep -c 'com.anindra.messages'" 2>/dev/null || echo "0")
+NOTIF=$(count_notifs)
 if [ "$NOTIF" -gt 0 ]; then
   pass "notification visible"
 else
@@ -23,12 +31,20 @@ fi
 
 # Open the conversation
 info "Open conversation"
-adb_ shell "input tap 540 400"
+C=$(center_of_contains "$BODY") || { fail "conversation row not found"; }
+[ -n "${C:-}" ] && adb_ shell input tap $C
 sleep 3
+for _ in 1 2 3; do
+  if dump_ui && grep -qE 'class="android.widget.EditText"' "$TMP/ui.xml"; then
+    pass "chat screen opened"
+    break
+  fi
+  sleep 1
+done
 
 # Check notification is dismissed
 info "Check notification dismissed after opening chat"
-NOTIF_AFTER=$(adb_ shell "dumpsys notification | grep -c 'com.anindra.messages'" 2>/dev/null || echo "0")
+NOTIF_AFTER=$(count_notifs)
 if [ "$NOTIF_AFTER" -eq 0 ]; then
   pass "notification dismissed"
 else
