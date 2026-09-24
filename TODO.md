@@ -5,6 +5,108 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue #236 · Incoming MMS never arrives (receive path) — FIXED (2026-09-24)
+
+✅ USER REPORT (tmpjx555, Nokia 3.4 / Android 12 / SDK 31, F-Droid 1.0.26,
+`high`): "It still doesn't work for me on Android 12" — MMS neither received
+nor sent. Follow-up to #210.
+
+- ROOT CAUSE: since KitKat the **default SMS app** must download incoming MMS
+  itself. The carrier announces one as an empty `msg_box=1, m_type=130`
+  provider row and sends `WAP_PUSH_DELIVER`; the platform no longer fetches it.
+  `MmsReceiver.onReceive` was an **empty no-op**, and `MmsSupport.isImportable`
+  only accepts `m_type=132` (`RETRIEVE_CONF` = already downloaded), so the row
+  was skipped forever and the MMS was silently dropped on every Android version.
+  #210 only fixed importing MMS that were *already* downloaded — its test seeds
+  a complete `132` fixture, which is why the gap was invisible.
+- `sms/MmsReceiver.kt`: real `WAP_PUSH_DELIVER` handling (action + MIME + data
+  URI) that hands the message to the downloader.
+- `sms/MmsDownloader.kt` (new): `SmsManager.downloadMultimediaMessage` with a
+  MUTABLE completion `PendingIntent`, per-message 5-minute retry cooldown, and
+  a `requestPending()` sweep for announcements whose WAP broadcast was missed.
+- `sms/MmsDownloadReceiver.kt` (new, registered in the manifest): on completion
+  imports the downloaded MMS and posts a notification per new inbound message.
+- `MainActivity.onResume` calls `MmsDownloader.requestPending(...)`.
+- `MmsSupport`: `PDU_*` constants, `PENDING_DOWNLOAD_SELECTION`,
+  `isPendingDownload`, `shouldRetryDownload`, `messageContentUri`, `InboundMms`.
+  `MmsProviderReader.pendingDownloadIds()` queries undownloaded inbox rows.
+- `Repository.importProviderMms()` now returns the inbound messages it imported
+  (for notification) and is exposed as `importDownloadedMms()`. Deliberately not
+  wrapped in `runOnIo`: it already serializes writes on the same single-thread
+  executor, and nesting would deadlock.
+- Sending MMS was **separately broken and is now fixed** — see the #236 send
+  entry below.
+
+Tests: `MmsSupportTest` (+2: pending-download predicate/selection/URI, retry
+cooldown) + `scripts/test-mms-download.sh` (seeds a real `m_type=130` row with
+`addr` and **no parts** into the provider DB, resumes the app, asserts a download
+was requested for that `content://mms/<id>` via the `MmsDownload` log tag, that
+the undownloaded row is not fabricated into an empty message, and that nothing
+crashed). Fails before the fix with `4 PASS / 1 FAIL` ("app never requested a
+download"), passes after with `5 PASS / 0 FAIL`. `test-mms-import.sh` (#210)
+still 5/5.
+
+File: `sms/MmsReceiver.kt`, `sms/MmsDownloader.kt`, `sms/MmsDownloadReceiver.kt`,
+`data/MmsSupport.kt`, `data/MmsProviderReader.kt`, `data/Repository.kt`,
+`MainActivity.kt`, `AndroidManifest.xml` · tests: `test-mms-download.sh`,
+`MmsSupportTest`
+
+## Issue #236 · Outgoing MMS never transmitted (send path) — FIXED (2026-09-24)
+
+✅ Same report as the receive-path entry above ("receiving / sending MMS").
+
+- ROOT CAUSE: `SmsSender.sendMms` handed the **picked media URI** to
+  `SmsManager.sendMultimediaMessage`. That URI must point at the MMS *message*
+  to transmit — a `content://mms/outbox/<id>` row or a content URI serving a
+  composed binary PDU — so the transaction service found no PDU and the send
+  died immediately. No outbox row was ever created either.
+- CORRECTION to the earlier note above: the `FLAG_IMMUTABLE` sent-intent was
+  **not** a defect. It only blocks the platform's *fill-in extras*; the broadcast
+  result code still arrives, which is all `SmsStatusReceiver` uses. quik/klinker
+  use `FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE` too. The defect was the URI alone.
+- Vendored `android-smsmms/` — klinker's Apache-2.0 fork of the AOSP MMS stack
+  (the `com.google.android.mms` PDU classes are hidden from the public SDK, so
+  they cannot be replaced by framework calls). Taken from `quik-sms/quik`, added
+  as a Gradle module; only the PDU/SMIL subset is called by the app.
+- New `sms/MmsComposer.kt`: builds the `SendReq` (from-address, `addTo` per
+  recipient, date, attachment part + optional text part, **SMIL** part at index
+  0, message size/class/expiry/priority, delivery + read report `0`), persists it
+  via `PduPersister.persist(..., Telephony.Mms.Outbox.CONTENT_URI, ...)`,
+  re-loads it, composes the binary with `PduComposer(...).make()` and serves the
+  `.dat` from `cache/` through the app FileProvider. Modern AOSP has no `app_id`
+  column on `pdu`, so the app-side id travels in the sent PendingIntent instead.
+- `SmsSender.sendMms` now persists → composes → `sendMultimediaMessage` with
+  `MMS_CONFIG_GROUP_MMS_ENABLED` and a `FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE`
+  sent-intent carrying the message id, outbox URI and PDU file path.
+- `SmsStatusReceiver`: new MMS branch moves the provider row to
+  `MESSAGE_BOX_SENT`/`MESSAGE_BOX_FAILED` from the broadcast result code,
+  deletes the composed PDU file, and — unlike SMS — never mirrors an MMS into
+  the SMS sent box (#91).
+- `res/xml/file_paths.xml` exposes `cache/` so the PDU file can be served.
+- Debug-only probe (`--es mms_probe <media uri> --es mms_probe_to <number>`,
+  debuggable-gated like `fake_dual_sim`) so a send can be driven on an emulator
+  with no MMSC.
+- R8 keeps added for the vendored PDU/SMIL packages so release minification
+  cannot strip them.
+
+Tests: `MmsSupportTest` (+2: `defaultAttachmentMime` fallback incl. by file
+extension, `outgoingParts` attachment + optional text) + new
+`scripts/test-mms-send.sh` (seeds a PNG through the app FileProvider, drives one
+MMS send, asserts the provider holds an `m_type=128` PDU with a SMIL part, the
+image part and a `type=151` recipient, that the row lands in an
+outbox/sent/failed box, that the sent callback resolved the app row to a real
+status, and that the composed PDU file is cleaned up). Fails before the fix —
+"no outgoing MMS PDU in the provider outbox" — and passes after (8 PASS / 0
+FAIL).
+
+NOT verified on hardware: actual delivery still needs a real carrier/MMSC; the
+emulator can only prove the PDU, provider record, hand-off and callback.
+
+File: `android-smsmms/` (vendored), `sms/MmsComposer.kt`, `sms/SmsSupport.kt`,
+`sms/SmsStatusReceiver.kt`, `data/MmsSupport.kt`, `MainActivity.kt`,
+`res/xml/file_paths.xml`, `proguard-rules.pro`, `settings.gradle.kts`,
+`gradle/libs.versions.toml` · tests: `test-mms-send.sh`, `MmsSupportTest`
+
 ## Issue #219 · Notifications stop for a sender after their chat was opened (2026-09-24)
 
 ✅ USER REPORT (Zokii0): once a sender tripped a blocked keyword, every later
