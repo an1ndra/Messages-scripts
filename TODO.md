@@ -5,6 +5,62 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issues #232 / #235 / #231 · Select all, Save MMS picture, Copy part of a message (2026-09-25)
+
+✅ USER REQUESTS, all three landed in the chat selection overflow:
+- #232 `itsSamBz`: multi-select already existed but there was no **Select all**;
+  the reporter had asked twice after the owner pushed back.
+- #235 `tmpjx555`: save MMS content (e.g. a picture) to the device.
+- #231 `ramonyouc3540` (also an open PR from the reporter): copy only part of a
+  message text.
+
+- `SelectionToolbar.showMore` — the overflow is now reachable for *any*
+  non-empty selection, not only a single message, because it carries
+  "Select all". `SelectionToolbar.selectAllCandidates(allIds, lockedIds)` takes
+  every **unlocked** message, so a locked message can never be swept into a bulk
+  trash.
+- `MessageSelectionToolbar` overflow now lists Select all, Select text and Save
+  image (each shown only when meaningful: body non-blank for Select text, media
+  present for Save image), then Share / View details / Lock/Unlock for a single
+  message.
+- `MmsSupport.mimeForSavedAttachment` / `savedAttachmentName` resolve the
+  attachment's type and build `"<contact>_<timestamp>.<ext>"`, keeping spaces and
+  dropping only path-unsafe characters. `DownloadsStore.writeImage` writes
+  through `MediaStore.Images` to **Pictures/Messages** with
+  `IS_PENDING`, which is why no storage permission is needed on API 29+.
+  `AppViewModel.saveMessageImage` reads the bytes through the resolver (so both
+  `content://mms/part/...` and our own cache URIs work) and toasts the result.
+- #231 is a **dialog** with the message text, not an in-bubble selection mode.
+  First attempt made the bubble a `SelectionContainer`: that swallowed the
+  long-press and left the user with no visible way back — reported as "click
+  Select text and all the settings disappear". The dialog keeps every hold-a-
+  message option reachable, and the platform's own handles/Copy work inside it.
+  The dialog is opened a beat after the dropdown closes, otherwise the menu's
+  dismiss click lands on the new dialog's scrim and closes it immediately.
+  The body is rendered as plain selectable text — a read-only text field was
+  tried and rejected because the outlined box looked out of place against the
+  rest of the chat.
+
+Tests: `SelectionToolbarTest` (+2: more-menu visibility, select-all skips
+locked), `MmsSupportTest` (+2: saved-name sanitising, mime by extension) and a
+new `scripts/test-message-actions.sh` (15/15) which seeds two text MMS plus one
+image MMS into the provider and asserts Select all selects everything, skips the
+locked message, Select text opens the dialog with a selectable field and leaves
+the hold-message options intact, and Save image lands a file in
+Pictures/Messages. `scripts/test-message-selection.sh` was repaired as well
+(19/19): it seeded through the emulator radio, which duplicated the same three
+messages 36 times and made the script unusable, and it asserted Copy hid itself
+and "Forward" lived in the overflow, neither of which is true.
+
+Note: uiautomator cannot see the platform text-selection handles, so the script
+asserts the dialog, the selectable field and the surrounding options rather than
+the handle UI itself.
+
+File: `ui/SelectionToolbar.kt`, `ui/ChatScreen.kt`, `data/MmsSupport.kt`,
+`data/DownloadsStore.kt`, `MainActivity.kt`, `res/values/strings_chat.xml` ·
+tests: `test-message-actions.sh`, `test-message-selection.sh`,
+`SelectionToolbarTest`, `MmsSupportTest`
+
 ## Issue #236 · Incoming MMS never arrives (receive path) — FIXED (2026-09-24)
 
 ✅ USER REPORT (tmpjx555, Nokia 3.4 / Android 12 / SDK 31, F-Droid 1.0.26,
