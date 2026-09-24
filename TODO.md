@@ -5,6 +5,28 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Spam & blocked / Trash · Messages tab shows the sender name (2026-09-24)
+
+✅ USER REQUEST (follow-up to the contact-details work): on the Spam &
+blocked → Messages tab and the Trash → Messages tab, a row whose sender is a
+saved contact rendered only the formatted number — the stored
+`COALESCE(p.display_destination, c.address)` column was mapped into the
+sender-name slot instead of `c.name`.
+
+- `data/FolderRows.kt`: shared column-index/SELECT contract for both folder
+  queries (`COL_NAME = c.name`, no `participants` join), plus pure
+  `blockedMessage`/`trashedMessage` builders.
+- `Repository.blockedMessages()` / `trashedMessages()` consume `FolderRows`
+  and map the sender name from `c.name` only.
+
+Tests: `FolderRowsTest` (SELECT projections resolve `c.name`, display column
+and `participants` join are absent, builders keep the saved name) +
+`scripts/test-folder-sender-name.sh` (seeds saved contact Fran /
++15551230022 with a `…0022` display destination, one parked keyword-blocked
+message and one normal message trashed through the UI; asserts both folder
+Message tabs show `Fran`; fails before the fix with 2 FAILs, passes after;
+DB-seeded so the flaky emulator radio/duplicate delivery can't leak rows).
+
 ## Contact details · show the number under a saved name (2026-09-24)
 
 ✅ USER REQUEST: on the conversation-details screen a saved contact showed only
