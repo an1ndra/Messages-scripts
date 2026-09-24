@@ -5,6 +5,63 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Import backups from SMS Import / Export (sms-ie) (2026-09-25)
+
+✅ USER REQUEST: let users import the backup files produced by
+[tmo1/sms-ie](https://github.com/tmo1/sms-ie) instead of being stuck with our own
+encrypted backup format.
+
+Validated against the **real app**, not just the spec: installed
+sms-ie v2.11.1 on the emulator, seeded real SMS through the radio, had the app
+export `messages-2026-09-25.zip` (523 records) and imported that file here —
+523 messages landed, MMS images rendered in the chat, no crash. Two real-format
+details came out of that and are covered by tests:
+
+- **Every provider column is exported as a JSON string** (`"date":
+  "1790279506000"`, `"type": "1"`, `"m_type": "132"`), because Android stores
+  those columns as text. `SmsIeBackup` therefore coerces via `optInt`/`optLong`
+  and there is a test pinned to the verbatim export shape.
+- MMS binary parts live in the ZIP's `data/` directory and are matched to parts
+  by the **filename only**; the `_data` tag carries the full source path.
+  `SmsIeReader` strips that path and resolves the basename.
+- v2 (2.0.0+) is a ZIP of `messages.ndjson` (one record per line) plus `data/`;
+  v1 (<2.0.0) is a bare JSON array. Both are accepted — the v1 path was
+  exercised end to end as well.
+- `sub_id` is deliberately dropped rather than restored: sms-ie does this too by
+  default because restoring `sub_id` makes messages disappear on Android 14+.
+- Contact names (`__display_name`) are ignored on purpose; this app resolves
+  names from the device contacts, so a stale name from another phone would pin
+  the wrong label in the conversation list.
+
+- New `data/SmsIeBackup.kt` (pure, unit-tested): direction/status mapping for SMS
+  `type` and MMS `msg_box`, seconds-vs-milliseconds MMS timestamps, peer
+  resolution (sender for inbox, recipient for sent), text/image part extraction.
+- New `data/SmsIeReader.kt`: ZIP/NDJSON/plain-JSON loading with a size guard on
+  each part.
+- `Repository.importSmsIe` matches conversations by canonical address, maps
+  status, and copies MMS attachments into `files/mms-import/` so they survive the
+  backup file disappearing; the URI is served by the existing FileProvider
+  (`file_paths.xml` gained the matching path).
+- UI: Settings → "Import from SMS Backup & Restore" with a ZIP/JSON picker, and
+  a debuggable-gated `sms_ie_probe` intent extra because the SAF picker is not
+  scriptable.
+- Not included: call logs, contacts and blocked numbers, which sms-ie also
+  exports. Contacts are not imported by sms-ie itself either, and call
+  permissions would be a new permission for this app.
+
+Tests: `SmsIeBackupTest` (9 tests: type/box mapping, MMS timestamp units, v1
+array, v2 NDJSON with joined parts, sent-MMS peer from `__recipient_addresses`,
+records without an address, text fallback to the part's data file, real export
+string shape, extension mapping) and `scripts/test-sms-ie-import.sh` (10/10),
+which builds a genuine v2 ZIP fixture with the same field shapes the app writes
+and asserts 3 records land with the right direction, status, transport and a
+stored image.
+
+File: `data/SmsIeBackup.kt`, `data/SmsIeReader.kt`, `data/Repository.kt`,
+`MainActivity.kt`, `ui/SettingsScreen.kt`, `res/values/strings_settings.xml`,
+`res/xml/file_paths.xml`, `app/build.gradle.kts` · tests:
+`test-sms-ie-import.sh`, `SmsIeBackupTest`
+
 ## Issues #232 / #235 / #231 · Select all, Save MMS picture, Copy part of a message (2026-09-25)
 
 ✅ USER REQUESTS, all three landed in the chat selection overflow:
