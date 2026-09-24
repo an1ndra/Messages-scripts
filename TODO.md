@@ -5,6 +5,55 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Import source picker follows the M3 radio button guidelines (2026-09-25)
+
+✅ USER REQUEST: the "This app's backup / A .sqlite3 or encrypted backup file from
+Messages" rows did not look or read right; follow the Material 3 dialog and radio
+button guidelines.
+
+The old rows were **not** radio buttons in any meaningful sense: each rendered
+`RadioButton(selected = false)`, nothing was ever selected, and tapping a row
+immediately fired the file picker. That breaks the guidelines on three counts —
+a radio group must have one option pre-selected, a radio must reflect selection,
+and *"radio buttons should take effect immediately, unless they're in a dialog or
+page that needs to be saved"*.
+
+- `ImportRadioGroup` replaces `ImportChoiceRow`: a `selectableGroup()` column of
+  rows, each `Modifier.selectable(role = Role.RadioButton)` with a
+  `RadioButton(selected = …, onClick = null)` inside, so **the whole row is the
+  tap target** (guideline: selecting works by tapping either the radio or its
+  label) and TalkBack gets real radio-group semantics instead of two fake radios.
+- **One option is pre-selected** (Messages) and the group cannot be emptied,
+  which is why the confirm button is never disabled — matching *"disable
+  confirming actions until a choice is made"* without needing a disabled state.
+- **Selection no longer acts on its own.** The dialog now has a trailing
+  **Continue** button that opens the picker, with **Cancel** as the dismissive
+  action, per *"the confirmation button is always closest to the edge"*. This is
+  also the fix for the old behaviour where tapping a row launched the file
+  picker with no way to change your mind.
+- The Merge/Restore dialog got the same treatment, so both import steps now look
+  and behave the same. Its descriptions stay, because "keep what is here" vs
+  "delete it first" is the whole point of that choice.
+- Labels shortened to **Messages** and **SMS Import / Export**, each with the
+  file extensions it reads: **Messages (.enc)** and **SMS Import / Export (.zip,
+  .json)**. Note `.enc`, not `.asc` — that is what `exportEncryptedDatabase`
+  actually writes (`messages_backup_<ts>.enc`); a legacy raw `.sqlite3` is still
+  accepted by the picker.
+- Dropped the "Choose which app made the backup." intro line and the per-option
+  descriptions at the user's request, and deleted the three strings left unused
+  when the separate sms-ie row was removed.
+
+Verified on `emulator-5554` with uiautomator (no screenshots): the dialog reads
+`Choose backup to import / Messages (.enc) / SMS Import / Export (.zip, .json) /
+Cancel / Continue`; Messages is pre-selected; tapping the *SMS Import / Export*
+label moves the selection and leaves the dialog open; **Continue** then opens the
+SMS Import picker, and picking Messages first opens the app's own picker.
+
+- `test-sms-ie-import.sh` still 14/14, `testDebugUnitTest` green.
+
+Files: `ui/SettingsScreen.kt`, `res/values/strings_settings.xml`,
+`res/values/strings_components.xml` · tests: `test-sms-ie-import.sh`
+
 ## Import: one entry point for both backup sources (2026-09-25)
 
 ✅ USER REQUEST: fold the sms-ie option into the existing "Import messages" row and
