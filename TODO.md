@@ -5,6 +5,52 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Import: one entry point for both backup sources (2026-09-25)
+
+✅ USER REQUEST: fold the sms-ie option into the existing "Import messages" row and
+make the choice obvious, then wipe the app and restore a real backup.
+
+- **Settings → "Import messages"** now opens a **"Choose backup to import"**
+  dialog: *This app's backup* (`.sqlite3` / encrypted) or *SMS Import / Export*
+  (`.zip` / `.json`). The separate "Import from SMS Backup & Restore" row is gone,
+  so there is one import entry instead of two near-identical ones.
+- Both sources then get the **same "How should this backup be applied?" step**
+  (Merge / Restore), which is what people actually need to decide. Previously
+  sms-ie could only ever merge.
+- **Restore now works for sms-ie too**: `Repository.importSmsIeFrom` takes an
+  `ImportMode`, and REPLACE calls the new `clearAllMessages()`, which drops
+  messages, conversations and participants in one transaction and leaves
+  settings alone. The wipe decision lives in `SmsIeBackupPolicy.clearsExisting`
+  so it is unit-testable without a database.
+- The `sms_ie_probe` debug extra accepts `sms_ie_probe_mode=replace` so the
+  Restore path is scriptable like Merge already was.
+
+Verified on `emulator-5554` through the **real UI** (uiautomator, no
+screenshots): Settings → Import messages → SMS Import / Export → picked
+`messages-2026-09-25.zip` in the SAF picker → Restore (replace all) → **523
+messages / 141 threads**, exactly the backup's contents. Separately, the system
+provider was cleared too and the app re-imported the same file: the app store
+ends up at exactly 523 messages with the 8 MMS images present in
+`files/mms-import/`.
+
+One thing worth knowing: **this app mirrors the system SMS/MMS provider**, so
+wiping only the app's own store is not enough on a device whose provider still
+holds messages — the next launch syncs them back. Restore is exact on a fresh
+install (empty provider), which is the case that matters for a user moving from
+another messaging app.
+
+- Fixed a leak in `test-sms-ie-import.sh`: cleanup removed its DB rows but left
+  the copied MMS attachments in `files/mms-import/`, so each run orphaned an
+  image. Now removed too.
+- `test-sms-ie-import.sh` also covers Restore: seeds a canary message, imports
+  with `replace`, and asserts the canary is gone, all 3 backup records are back,
+  and no empty conversations survive. **14/14** (the script wipes the app in that
+  section by design, so it is not for a device holding real data).
+
+Files: `data/Repository.kt`, `data/SmsIeBackup.kt`, `MainActivity.kt`,
+`ui/SettingsScreen.kt`, `res/values/strings_settings.xml` · tests:
+`test-sms-ie-import.sh`, `SmsIeBackupTest`
+
 ## Import backups from SMS Import / Export (sms-ie) (2026-09-25)
 
 ✅ USER REQUEST: let users import the backup files produced by

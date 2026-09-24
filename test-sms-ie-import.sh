@@ -6,6 +6,10 @@
 # writes (every provider column dumped verbatim, so numbers arrive as strings).
 # The import is driven through a debuggable-gated intent extra because the SAF
 # picker is not scriptable.
+#
+# NOTE: the Restore section below wipes every message in the app, since that is
+# what Restore does. Fine on a test AVD, but do not run this against a device
+# holding data you care about.
 source "$(dirname "$0")/env.sh"
 set -euo pipefail
 
@@ -24,13 +28,20 @@ INAPP="/data/data/$PKG/files/smsie-$MARK.zip"
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
     adb_ shell "run-as '$PKG' rm -f files/$(basename "$INAPP")" >/dev/null 2>&1 || true
+    adb_ shell "run-as '$PKG' sh -c 'rm -f files/mms-import/*$MARK*'" >/dev/null 2>&1 || true
     adb_ shell "rm -f $REMOTE /data/local/tmp/$PARTFILE" >/dev/null 2>&1 || true
-    local_query "DELETE FROM messages WHERE body LIKE '%$MARK%'; DELETE FROM conversations WHERE address IN ('$ADDR_IN','$ADDR_MMS'); DELETE FROM participants WHERE normalized_destination IN ('$ADDR_IN','$ADDR_MMS');" >/dev/null 2>&1 || true
+    db_sql "DELETE FROM messages WHERE body LIKE '%$MARK%'; DELETE FROM conversations WHERE address IN ('$ADDR_IN','$ADDR_MMS'); DELETE FROM participants WHERE normalized_destination IN ('$ADDR_IN','$ADDR_MMS');" >/dev/null 2>&1 || true
     rm -f "$TMPZIP" "/tmp/$PARTFILE"
 }
 trap cleanup EXIT
-provider_state() { local_query "SELECT COUNT(*) FROM messages WHERE body LIKE '%$MARK%';"; }
-local_query() { adb_ shell "run-as '$PKG' sqlite3 databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r'; }
+
+# env.sh has no SQL helper; this mirrors the one in test-folder-sender-name.sh.
+db_sql() {
+    adb_ shell "run-as $PKG sqlite3 databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r' && return 0
+    adb_ shell "su -c \"sqlite3 /data/data/$PKG/databases/messages.db \\\"$1\\\"\"" 2>/dev/null | tr -d '\r' || true
+}
+
+provider_state() { db_sql "SELECT COUNT(*) FROM messages WHERE body LIKE '%$MARK%';"; }
 
 adb_ shell cmd role add-role-holder android.app.role.SMS "$PKG" >/dev/null 2>&1 || true
 
@@ -99,19 +110,19 @@ TOTAL=$((COUNT - BEFORE))
 [ "$TOTAL" = "3" ] && pass 'all 3 records imported (2 SMS + 1 MMS)' \
     || fail "expected 3 records, imported $TOTAL"
 
-IN_ROW=$(local_query "SELECT COUNT(*) FROM messages WHERE body='smsie inbox $MARK' AND is_me=0 AND status='received';")
+IN_ROW=$(db_sql "SELECT COUNT(*) FROM messages WHERE body='smsie inbox $MARK' AND is_me=0 AND status='received';")
 [ "$IN_ROW" = "1" ] && pass 'inbox SMS stored as received' || fail "inbox SMS wrong ($IN_ROW)"
-OUT_ROW=$(local_query "SELECT COUNT(*) FROM messages WHERE body='smsie sent $MARK' AND is_me=1 AND status='sent';")
+OUT_ROW=$(db_sql "SELECT COUNT(*) FROM messages WHERE body='smsie sent $MARK' AND is_me=1 AND status='sent';")
 [ "$OUT_ROW" = "1" ] && pass 'sent SMS stored as sent' || fail "sent SMS wrong ($OUT_ROW)"
-MMS_ROW=$(local_query "SELECT COUNT(*) FROM messages WHERE body='smsie mms $MARK' AND transport='mms' AND is_me=0;")
+MMS_ROW=$(db_sql "SELECT COUNT(*) FROM messages WHERE body='smsie mms $MARK' AND transport='mms' AND is_me=0;")
 [ "$MMS_ROW" = "1" ] && pass 'MMS stored with transport=mms' || fail "MMS row wrong ($MMS_ROW)"
 
-IMG=$(local_query "SELECT media_uri FROM messages WHERE body='smsie mms $MARK';")
+IMG=$(db_sql "SELECT media_uri FROM messages WHERE body='smsie mms $MARK';")
 case "$IMG" in
     *fileprovider/mms/*) pass "MMS image copied into app storage ($IMG)" ;;
     *) fail "MMS image not stored (media_uri='$IMG')" ;;
 esac
-STORED=$(local_query "SELECT COUNT(*) FROM messages WHERE body='smsie mms $MARK' AND media_type='image';")
+STORED=$(db_sql "SELECT COUNT(*) FROM messages WHERE body='smsie mms $MARK' AND media_type='image';")
 [ "$STORED" = "1" ] && pass 'MMS image recorded as an image message' || fail "media_type wrong ($STORED)"
 
 if adb_ shell "logcat -d -b crash" 2>/dev/null | grep -q "$PKG"; then
@@ -119,6 +130,33 @@ if adb_ shell "logcat -d -b crash" 2>/dev/null | grep -q "$PKG"; then
 else
     pass 'no crash during the import'
 fi
+
+info "Restore (replace) wipes the existing history first"
+# A canary stands in for the user's current messages: Restore must remove it,
+# while Merge above left it alone.
+db_sql "INSERT INTO conversations(address,name,snippet,timestamp) VALUES('$ADDR_IN','$ADDR_IN','canary',0);" >/dev/null 2>&1
+CANARY_CID=$(db_sql "SELECT id FROM conversations WHERE address='$ADDR_IN';")
+db_sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($CANARY_CID,'canary $MARK',0,'received');" >/dev/null 2>&1
+[ "$(db_sql "SELECT COUNT(*) FROM messages WHERE body='canary $MARK';")" = "1" ] \
+    && pass 'canary message present before Restore' || fail 'could not seed the canary'
+
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1
+adb_ shell am start -n "$ACT" --es sms_ie_probe "file://$INAPP" --es sms_ie_probe_mode replace >/dev/null
+RESTORED=""
+for _ in $(seq 1 25); do
+    sleep 2
+    RESTORED=$(db_sql "SELECT COUNT(*) FROM messages WHERE body LIKE 'smsie% $MARK';")
+    [ "${RESTORED:-0}" = "3" ] && break
+done
+
+[ "$(db_sql "SELECT COUNT(*) FROM messages WHERE body='canary $MARK';")" = "0" ] \
+    && pass 'Restore removed the messages that were already in the app' \
+    || fail 'Restore kept pre-existing messages'
+[ "${RESTORED:-0}" = "3" ] && pass 'Restore re-imported all 3 backup records' \
+    || fail "Restore imported ${RESTORED:-0} records (expected 3)"
+ORPHAN=$(db_sql "SELECT COUNT(*) FROM conversations WHERE id NOT IN (SELECT conversation_id FROM messages);")
+[ "${ORPHAN:-0}" = "0" ] && pass 'Restore left no empty conversations behind' \
+    || fail "$ORPHAN empty conversations survived the Restore"
 
 printf 'PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 exit $((FAIL > 0))
