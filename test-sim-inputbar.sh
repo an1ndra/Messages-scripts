@@ -30,9 +30,11 @@ print(m.group(1) if m else "")
 PY
 }
 
-pref_set_default() {
-    adb_ shell "run-as $PKG sed -i 's/name=\"sim_subscription_id\" value=\"[^\"]*\"/name=\"sim_subscription_id\" value=\"-1\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1
+pref_set() {
+    adb_ shell "run-as $PKG sed -i 's/name=\"sim_subscription_id\" value=\"[^\"]*\"/name=\"sim_subscription_id\" value=\"$1\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1
 }
+
+pref_set_default() { pref_set -1; }
 
 launch() {  # $1 = fake_dual_sim true/false
     adb_ shell am force-stop "$PKG"; sleep 1
@@ -106,6 +108,22 @@ grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
     && ok "Switch SIM visible after clearing the draft" \
     || bad "Switch SIM missing after clearing the draft"
 adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
+
+info "A stale saved SIM falls back to slot 1, not slot 0"
+pref_set 99
+launch true
+open_seed_chat || bad "could not open seeded chat (stale saved SIM)"
+dump_ui
+grep -q 'text="1"' "$TMP/ui.xml" \
+    && ok "slot numeral falls back to 1" \
+    || bad "slot numeral wrong for a stale saved SIM (renders 0)"
+grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
+    && ok "Switch SIM still shown with a stale saved SIM" \
+    || bad "Switch SIM missing with a stale saved SIM"
+PS=$(pref_get)
+[ "$PS" = "1" ] \
+    && ok "stale pref rewritten to the first available SIM ($PS)" \
+    || bad "stale pref left as '$PS' instead of being normalised"
 
 info "Single-SIM: switcher absent"
 launch false

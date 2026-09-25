@@ -59,15 +59,36 @@ Neither ever happened since `e637b71`. Blocked messages live in
 **Spam & blocked → Messages**; the Trash message query deliberately excludes
 them (`FolderRows.TRASH_SELECT` has `blocked_reason=''`).
 
+### 3. Stale saved SIM rendered the slot numeral as "0"
+
+The numeral was `sims.indexOfFirst { it.subscriptionId == currentSimId } + 1`, so
+a persisted id that no longer matched any SIM gave index `-1` and the icon showed
+**"0"** until tapped. Only reachable with exactly two SIMs, since 3+ renders a
+generic "D".
+
+`SimSwitcher.selectedIndex()` now falls back to 0 the same way `next()` already
+did. The deeper cause was the state, not the display: both normalisation sites
+in `ChatScreen` only handled `currentSimId == -1`, so a stale id survived into
+`vm.send(...)`, and `SmsSender.manager()` guards only `-1` before calling
+`createForSubscriptionId(staleId)` — which throws on a real device. Both sites
+now test `sims.none { it.subscriptionId == currentSimId }`, which covers `-1`
+and stale alike.
+
 ### Tests
-- `SimSwitcherTest` +1, `InboundIngestTest` (3) — **218 JUnit / 0 failures**
-- `test-sim-inputbar.sh` **9/9**, `test-keywords.sh` **19/19**
+- `SimSwitcherTest` +4, `InboundIngestTest` (3) — **221 JUnit / 0 failures**
+- `test-sim-inputbar.sh` **12/12**, `test-keywords.sh` **19/19**
 - Both verified to **fail before the fix**:
   ```
   [FAIL] Switch SIM missing after dismissing the keyboard
   [FAIL] conversation was resurrected into the inbox (deleted_at='0')
+  [FAIL] slot numeral wrong for a stale saved SIM (renders 0)
+  [FAIL] stale pref left as '99' instead of being normalised
   ```
 - debug and R8-minified release both build
+
+Note: one `test-keywords.sh` run failed a single assertion immediately after the
+49s release build and passed on the three runs after it. Treated as AVD timing,
+not a regression — the keyword path is untouched by this change.
 
 ### Still open from the same comment (suggestions, not bugs — no rush)
 - 30-day auto-purge exists for Trash only (`purgeOldTrashSuspend`, keyed on
