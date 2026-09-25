@@ -5,6 +5,27 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Comment density pass (2026-09-25)
+
+✅ USER REQUEST on the badge work (#244): the code had picked up far more
+comments than the repo rule allows — "no comments unless genuinely
+non-obvious".
+
+- `Motion.kt` went from 24 comment lines out of 88 to 3 of 66. Most restated
+  the name of the constant or function directly beneath them, e.g.
+  `/** M3 duration tokens, in milliseconds. */` above `DURATION_SHORT4 = 200`.
+- The badge work went from ~35 comment lines to 2. Four call-site comments
+  restated `clearConversationNotification`'s own name, and the narration of the
+  old `cancelAll()` behaviour was left to `git blame`.
+
+What survives is the genuinely non-obvious part: that launchers aggregate the
+notification number, so it is 1 per conversation, and that the motion helpers
+collapse to an instant `snap()` under reduce-motion so call sites never branch
+on the accessibility option themselves.
+
+No behaviour change. 209 JUnit / 0 failures on `Develop` at the trim, 214 after
+the badge merge. (#245, #244)
+
 ## Launcher icon badge shows no unread count (2026-09-25)
 
 ✅ USER REPORT (#227 comment 5827727611): notifications arrive, but the app icon
