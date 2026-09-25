@@ -90,49 +90,147 @@ restart
     && pass "aged message purged on the next run" \
     || fail "aged message survived"
 
-info "The window is user-configurable and defaults to 30"
-# A previous run leaves retention_days at 7; clear it so the default assertion
-# means something and the script stays idempotent.
-adb_ shell "run-as $PKG sed -i '/name=\"retention_days\"/d' shared_prefs/messages_settings.xml" >/dev/null 2>&1
+# Reads a boolean pref, printing "absent" when the key is not in the XML yet.
+pref_bool() {
+    v=$(adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null | tr -d '\r' \
+        | sed -n "s/.*name=\"$1\" value=\"\([a-z]*\)\".*/\1/p")
+    printf '%s' "${v:-absent}"
+}
+
+# Drops every retention_* key so each run starts from the defaults.
+pref_reset_retention() {
+    adb_ shell "run-as $PKG sed -i '/name=\"retention_/d' shared_prefs/messages_settings.xml" >/dev/null 2>&1
+}
+
+# A previous run leaves the bucket switches flipped and the window at 7 days.
+pref_reset_retention
 sql "DELETE FROM messages WHERE body LIKE '%$MARK%';"
 sql "DELETE FROM conversations WHERE name='$MARK';"
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 5
-found=0
-for _ in $(seq 1 8); do
-    dump_ui
-    grep -q "Auto-delete after" "$TMP/ui.xml" && { found=1; break; }
-    adb_ shell input swipe 540 1700 540 1000 250 >/dev/null 2>&1
-    sleep 1
-done
-[ "$found" = "1" ] \
-    && pass "Settings shows the Auto-delete after row" \
-    || fail "Auto-delete after row not found in Settings"
-if [ "$found" = "1" ]; then
-    dump_ui
-    grep -q "30 days" "$TMP/ui.xml" \
-        && pass "default window reads 30 days" \
-        || fail "default window does not read 30 days"
-    c=$(center_of_contains "Auto-delete after")
-    if [ -n "$c" ]; then
-        XY=($c)
-        adb_ shell input tap "${XY[0]}" "${XY[1]}" >/dev/null 2>&1
-        sleep 1.5
-        dump_ui
-        grep -q "7 days" "$TMP/ui.xml" \
-            && pass "chooser offers 7 / 30 / 90 / 365 days" \
-            || fail "chooser missing the day options"
-        if grep -q "7 days" "$TMP/ui.xml"; then
-            tap_text "7 days" >/dev/null 2>&1; sleep 1.5
-            pref=$(adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null | tr -d '\r' \
-                | sed -n 's/.*name="retention_days" value="\([0-9]*\)".*/\1/p')
-            [ "$pref" = "7" ] \
-                && pass "picking 7 days persists to prefs" \
-                || fail "retention_days pref is '$pref', expected 7"
-        fi
+
+# wait_for_text does not scroll, and "Advanced" sits at the bottom of General
+# settings, so scroll the list while polling.
+scroll_to() {
+    local target="$1" i
+    for i in $(seq 1 12); do
+        dump_ui >/dev/null 2>&1 || true
+        if grep -c "$target" "$TMP/ui.xml" >/dev/null 2>&1; then return 0; fi
+        adb_ shell input swipe 540 1700 540 1000 250 >/dev/null 2>&1
+        sleep 0.7
+    done
+    return 1
+}
+
+info "Auto-delete lives in Advanced, not in General settings"
+if scroll_to "Advanced"; then
+    pass "General settings still offers the Advanced row"
+else
+    fail "could not find the Advanced row in General settings"
+fi
+tap_text "Advanced" >/dev/null 2>&1; sleep 2
+if wait_for_text "Auto-delete" 10; then
+    pass "Auto-delete section is in Advanced"
+else
+    fail "Auto-delete section not found in Advanced"
+fi
+
+info "The section is collapsed by default and expands on tap"
+dump_ui
+if [ "$(grep -c 'text="Deleted chats"' "$TMP/ui.xml")" = "0" ]; then
+    pass "bucket options are hidden while collapsed"
+else
+    fail "bucket options are already visible without expanding"
+fi
+c=$(center_of_contains "Auto-delete")
+if [ -n "$c" ]; then
+    XY=($c)
+    adb_ shell input tap "${XY[0]}" "${XY[1]}" >/dev/null 2>&1
+    sleep 1.5
+    if wait_for_text "Deleted chats" 6; then
+        pass "tapping the header expands the options"
     else
-        fail "could not tap the Auto-delete after row"
+        fail "tapping the header did not expand the options"
     fi
+    if wait_for_text "Blocked messages" 4 && wait_for_text "Blocked senders" 4; then
+        pass "all three buckets are offered"
+    else
+        fail "expected Trash / Blocked messages / Blocked senders options"
+    fi
+else
+    fail "could not tap the Auto-delete header"
+fi
+
+info "Each bucket can be turned off on its own"
+if center_of_contains "Blocked senders" >/dev/null; then
+    tap_switch_near "Blocked senders" >/dev/null 2>&1; sleep 1
+    [ "$(pref_bool retention_blocked_senders)" = "false" ] \
+        && pass "turning off Blocked senders persists to prefs" \
+        || fail "retention_blocked_senders is '$(pref_bool retention_blocked_senders)', expected false"
+    tap_switch_near "Deleted chats" >/dev/null 2>&1; sleep 1
+    [ "$(pref_bool retention_trash)" = "false" ] \
+        && pass "turning off Deleted chats persists to prefs" \
+        || fail "retention_trash is '$(pref_bool retention_trash)', expected false"
+    tap_switch_near "Blocked senders" >/dev/null 2>&1; sleep 1
+    tap_switch_near "Deleted chats" >/dev/null 2>&1; sleep 1
+else
+    fail "could not find the bucket rows"
+fi
+
+info "Only the selected buckets are purged"
+CT=$(convo "$ADDR_T" "$OLD" 0 "$OLD"); msg "$CT" "$MARK trashed-2" "$OLD" "$OLD" ""
+CB=$(convo "$ADDR_B" "$OLD" 1 0);     msg "$CB" "$MARK blockednum-2" "$OLD" 0 ""
+CK=$(convo "$ADDR_K" "$OLD" 0 0);     msg "$CK" "$MARK keyword-2" "$OLD" "$OLD" "blocked_keyword"
+tap_switch_near "Blocked senders" >/dev/null 2>&1; sleep 1
+[ "$(pref_bool retention_blocked_senders)" = "false" ] \
+    || fail "could not switch Blocked senders off for the purge check"
+restart
+[ "$(count_msgs "$MARK trashed-2")" = "0" ] \
+    && pass "an enabled bucket is still purged (Deleted chats)" \
+    || fail "Deleted chats bucket stopped purging"
+[ "$(count_msgs "$MARK keyword-2")" = "0" ] \
+    && pass "an enabled bucket is still purged (Blocked messages)" \
+    || fail "Blocked messages bucket stopped purging"
+[ "$(count_msgs "$MARK blockednum-2")" = "1" ] \
+    && pass "the bucket switched off is left alone (Blocked senders)" \
+    || fail "blocked senders were purged even though the option is off"
+
+info "Turning auto-delete off entirely purges nothing"
+CT=$(convo "$ADDR_T" "$OLD" 0 "$OLD"); msg "$CT" "$MARK trashed-3" "$OLD" "$OLD" ""
+adb_ shell "run-as $PKG sed -i 's/name=\"retention_trash\" value=\"true\"/name=\"retention_trash\" value=\"false\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1
+adb_ shell "run-as $PKG sed -i 's/name=\"retention_keyword_messages\" value=\"true\"/name=\"retention_keyword_messages\" value=\"false\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1
+adb_ shell "run-as $PKG sed -i 's/name=\"retention_blocked_senders\" value=\"false\"/name=\"retention_blocked_senders\" value=\"true\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1
+adb_ shell "run-as $PKG sed -i 's/name=\"retention_enabled\" value=\"true\"/name=\"retention_enabled\" value=\"false\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1
+restart
+[ "$(count_msgs "$MARK trashed-3")" = "1" ] \
+    && pass "nothing is purged when the master switch is off" \
+    || fail "rows were purged with auto-delete switched off"
+
+info "The window is still user-selectable"
+pref_reset_retention
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 4
+scroll_to "Advanced" >/dev/null
+tap_text "Advanced" >/dev/null 2>&1; sleep 2
+wait_for_text "Auto-delete" 10 >/dev/null
+c=$(center_of_contains "Auto-delete")
+[ -n "$c" ] && { XY=($c); adb_ shell input tap "${XY[0]}" "${XY[1]}" >/dev/null 2>&1; sleep 1.5; }
+if wait_for_text "Delete after" 6; then
+    tap_text "Delete after" >/dev/null 2>&1; sleep 1.5
+    dump_ui
+    if [ "$(grep -c '7 days' "$TMP/ui.xml")" -ge 1 ]; then
+        pass "chooser offers 7 / 30 / 90 / 365 days"
+    else
+        fail "chooser missing the day options"
+    fi
+    tap_text "7 days" >/dev/null 2>&1; sleep 1.5
+    pref=$(adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null | tr -d '\r' \
+        | sed -n 's/.*name="retention_days" value="\([0-9]*\)".*/\1/p')
+    [ "$pref" = "7" ] \
+        && pass "picking 7 days persists to prefs" \
+        || fail "retention_days pref is '$pref', expected 7"
+else
+    fail "could not find the Delete after row"
 fi
 
 info "No crashes"

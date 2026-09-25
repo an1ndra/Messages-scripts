@@ -168,7 +168,7 @@ forever:
 - blocked senders — `conversations.blocked = 1` with `deleted_at = 0`
 
 Three buckets now share one `RetentionPolicy`, with the window user-selectable
-(7 / 30 / 90 / 365 days) under **Settings → Auto-delete after**.
+(7 / 30 / 90 / 365 days) under **Settings → Advanced → Auto-delete**.
 
 Blocked senders are aged by `conversations.timestamp` rather than a deleted_at
 that is never set for them, so a sender who keeps texting is not purged out from
@@ -197,7 +197,7 @@ column so the shape cannot come back.
   [FAIL] old keyword-blocked message survived
   [FAIL] old blocked sender survived
   [FAIL] blocked sender conversation row survived
-  [FAIL] Auto-delete after row not found in Settings
+  [FAIL] Auto-delete section not found in Advanced
   ```
 - The script seeds backdated rows and restarts the app, because the purge only
   runs from `Application.onCreate`. It clears `retention_days` at the end so it
@@ -209,6 +209,48 @@ column so the shape cannot come back.
 `test-trash.sh` ("trash row reason tag missing") and `test-spam-blocked.sh`
 ("conversation not restored to the inbox") both fail identically on clean
 `Develop`; confirmed by stashing this branch and re-running.
+
+## Auto-delete: moved to Advanced, per-bucket switches, collapsible (2026-09-25)
+
+✅ USER REQUEST, after #247 shipped: move "Auto-delete after" into the Advanced
+settings, let the user pick which buckets are cleaned up — deleted chats, blocked
+messages, blocked senders — and make the section collapsible.
+
+- `RetentionBucket` names the three buckets, and `RetentionPolicy.activeBuckets()`
+  resolves the four switches (one master plus three buckets) into the set the
+  purge acts on. An empty set means nothing is touched, so the master switch and
+  "all three off" are the same code path.
+- `purgeOldTrashSuspend(days, buckets)` now takes the set. Blocked senders and
+  deleted chats are the only buckets that remove a conversation row; a
+  keyword-blocked message is removed on its own, so a chat the user is not looking
+  at is never taken away from them by the cleanup.
+- The Advanced section is collapsed by default. The header shows a summary
+  ("Deleted chats, Blocked senders · after 30 days", or "Off"), so the state is
+  readable without expanding anything, and the master switch stays reachable while
+  collapsed.
+
+The row was removed from General settings, where it sat next to Trash and
+Spam & Blocked but governed all three folders plus a fourth thing (keyword
+messages) that is not a folder at all.
+
+### Tests
+- `RetentionPolicyTest` (11) — **239 JUnit / 0 failures**, up from 7; new cases
+  cover the master switch, each bucket selected alone, all-off, and the
+  bucket-to-predicate mapping
+- `test-retention.sh` **21/21**, up from 12/12, verified to **fail before the
+  change**:
+  ```
+  [FAIL] Auto-delete section not found in Advanced
+  [FAIL] blocked senders were purged even though the option is off
+  [FAIL] rows were purged with auto-delete switched off
+  ```
+  It now asserts the section is collapsed on arrival, expands on tap, offers all
+  three buckets, and — the part that actually matters — that switching one bucket
+  off leaves exactly that bucket's rows alone while the other two are still purged.
+  A master-switch-off case asserts nothing is purged at all.
+- `scroll_to` added to the script because `wait_for_text` does not scroll and
+  "Advanced" sits at the bottom of General settings
+- debug and R8-minified release both build
 
 ## #219 follow-up: SIM switch hidden + trashed thread resurrected (2026-09-25)
 
