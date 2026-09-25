@@ -5,6 +5,65 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Launcher icon badge shows no unread count (2026-09-25)
+
+✅ USER REPORT (#227 comment 5827727611): notifications arrive, but the app icon
+shows **no count** while other apps on the same launcher do. A second, separate
+defect turned up while verifying it.
+
+### 1. No badge number was ever published
+
+The app called `notify()` without `setNumber()`. That is the field Android
+launchers read for the **numeric** badge; launchers that render a count rather
+than a plain dot show nothing at all without it. The app had no
+`setNumber`/`setBadgeIconType` call anywhere, and no total-unread query existed.
+
+- `Repository.unreadTotalBlocking()` sums `unread_count` over the conversations
+  that are actually visible in the inbox - archived, trashed and blocked threads
+  must not inflate the badge.
+- `NotificationHelper.show()` now publishes `BadgePolicy.badgeCount(total)`.
+
+### 2. Opening any chat wiped every notification (found while verifying)
+
+`ChatScreen` called `NotificationManagerCompat.cancelAll()` when a conversation
+opened, so opening **one** chat cleared the notifications of **all** the others.
+The launcher badge is derived from active notifications, so the count vanished
+as soon as any chat was opened - the badge could never stay up.
+
+Reproduced on `emulator-5554`: two unread senders, 3 active notifications,
+opened one chat -> **0** notifications left, while the other conversation was
+still unread.
+
+- New `NotificationHelper.clearConversationNotification()` cancels only that
+  conversation's message notification and its `"failed"`-tagged sibling
+  (delivered-failed posts under a tag, so the tag has to be cleared too).
+- Replaced `cancelAll()` at all four sites: `ChatScreen` and three in
+  `MainActivity` (open from a conversation row, open from a notification, and
+  `onNewIntent`).
+- After the fix the same sequence gives **3 -> 2**: only the opened
+  conversation's notification is dismissed.
+
+### Not changed: the per-tone notification channels
+
+`ensureChannel()` keeps 7 channel ids and deletes the other 6 on every post, so
+changing the sound setting deletes the old channel - and with it that channel's
+notifications, which also drops the badge and produces Android's "1 category
+removed" message. That is real, and it was reproduced, but it is a separate
+defect from the count not appearing at all, and fixing it means collapsing the
+per-tone channels into one stable channel - a behaviour change to the sound
+picker that has already been reviewed. Left for its own change.
+
+### Tests
+- `BadgePolicyTest` (6 tests): count is clamped, a number is only published when
+  something is unread, and the dismiss pair is scoped to one conversation.
+- `scripts/test-notification-badge.sh` **7/7**, verified to **fail before the
+  fix** with the exact reported symptoms ("no positive badge number", and
+  "3 -> 0" notifications on opening a chat) and pass after.
+
+Files: `sms/SmsSupport.kt`, `sms/BadgePolicy.kt`, `data/Repository.kt`,
+`ui/ChatScreen.kt`, `MainActivity.kt` · tests: `BadgePolicyTest`,
+`test-notification-badge.sh`
+
 ## Shared motion tokens + conversation list placement motion (2026-09-25)
 
 ✅ USER REQUEST: audit the app for missing animation, then implement it.
