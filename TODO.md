@@ -5,6 +5,64 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Retention: purge Spam & blocked too, and make the window configurable (2026-09-25)
+
+✅ USER SUGGESTION (#219 comment 5827316702): "just like everything is purged in
+trash after 30 days, you should implement that for Spam & blocked too, and
+eventually give us to choose if we want for 30 days or more."
+
+`purgeOldTrashSuspend()` selected only `conversations.deleted_at > 0`, so it
+reached neither of the other two filed-away buckets, both of which accumulated
+forever:
+
+- keyword-blocked messages — `messages.deleted_at > 0 AND blocked_reason != ''`
+  in a conversation that is still active, so the conversation predicate misses
+  them entirely
+- blocked senders — `conversations.blocked = 1` with `deleted_at = 0`
+
+Three buckets now share one `RetentionPolicy`, with the window user-selectable
+(7 / 30 / 90 / 365 days) under **Settings → Auto-delete after**.
+
+Blocked senders are aged by `conversations.timestamp` rather than a deleted_at
+that is never set for them, so a sender who keeps texting is not purged out from
+under the user while they are reading it.
+
+### A crash this introduced, and the trap behind it
+
+The first version aliased the columns (`DELETE FROM messages m WHERE
+m.deleted_at>0 …`). Android's SQLite rejects that:
+
+```
+SQLiteException: near "m": syntax error, while compiling:
+DELETE FROM messages m WHERE m.deleted_at>0 AND m.blocked_reason!='' AND …
+```
+
+It threw from `MessagesApplication.onCreate`, so the app crashed on **every
+launch** and the purge never ran — the feature was worse than the gap it filled.
+Every column in the predicates is unambiguous within its own table, so the
+aliases are gone, and `RetentionPolicyTest` asserts no predicate qualifies a
+column so the shape cannot come back.
+
+### Tests
+- `RetentionPolicyTest` (7) — **229 JUnit / 0 failures**
+- `test-retention.sh` **12/12**, verified to **fail before the fix**:
+  ```
+  [FAIL] old keyword-blocked message survived
+  [FAIL] old blocked sender survived
+  [FAIL] blocked sender conversation row survived
+  [FAIL] Auto-delete after row not found in Settings
+  ```
+- The script seeds backdated rows and restarts the app, because the purge only
+  runs from `Application.onCreate`. It clears `retention_days` at the end so it
+  stays idempotent — the first version left it at 7 and the "defaults to 30"
+  assertion failed on the second run.
+- debug and R8-minified release both build
+
+### Pre-existing failures, unrelated to this change
+`test-trash.sh` ("trash row reason tag missing") and `test-spam-blocked.sh`
+("conversation not restored to the inbox") both fail identically on clean
+`Develop`; confirmed by stashing this branch and re-running.
+
 ## #219 follow-up: SIM switch hidden + trashed thread resurrected (2026-09-25)
 
 ✅ USER REPORT (#219 comment 5827316702). The same comment confirms the earlier
