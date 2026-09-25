@@ -210,49 +210,73 @@ column so the shape cannot come back.
 ("conversation not restored to the inbox") both fail identically on clean
 `Develop`; confirmed by stashing this branch and re-running.
 
-## Auto-delete: moved to Advanced, per-bucket switches, collapsible (2026-09-25)
+## Auto-delete: in Advanced, per-folder windows, per-bucket switches (2026-09-25)
 
-✅ USER REQUEST, after #247 shipped: move "Auto-delete after" into the Advanced
-settings, let the user pick which buckets are cleaned up — deleted chats, blocked
-messages, blocked senders — and make the section collapsible.
+✅ USER REQUEST, after #247 shipped: move the Auto-delete setting into Advanced,
+let the user choose how long each folder keeps things, and choose which buckets
+are cleaned up at all.
 
-- `RetentionBucket` names the three buckets, and `RetentionPolicy.activeBuckets()`
-  resolves the four switches (one master plus three buckets) into the set the
-  purge acts on. An empty set means nothing is touched, so the master switch and
-  "all three off" are the same code path.
-- `purgeOldTrashSuspend(days, buckets)` now takes the set. Blocked senders and
-  deleted chats are the only buckets that remove a conversation row; a
-  keyword-blocked message is removed on its own, so a chat the user is not looking
-  at is never taken away from them by the cleanup.
-- The Advanced section is collapsed by default. The header shows a summary
-  ("Deleted chats, Blocked senders · after 30 days", or "Off"), so the state is
-  readable without expanding anything, and the master switch stays reachable while
-  collapsed.
+### Two windows, not one
 
-The row was removed from General settings, where it sat next to Trash and
-Spam & Blocked but governed all three folders plus a fourth thing (keyword
-messages) that is not a folder at all.
+`RetentionPolicy.daysFor` resolves a window per bucket: Trash keeps its own,
+and both Spam & Blocked buckets share one because they are a single folder. So
+the two numbers are set where they apply rather than in one place governing
+things the user thinks of as separate.
+
+- `purgeRetainedSuspend(buckets, trashDays, spamDays)` computes a cutoff per
+  bucket, so the two windows really are independent.
+- `RetentionBucket` names the three buckets; `activeBuckets(enabled, trash,
+  keywordMessages, blockedSenders)` turns the four switches into the set the
+  purge acts on. Empty means nothing is touched, so "master off" and "all three
+  off" are the same path.
+- Blocked senders and deleted chats are the only buckets that remove a
+  conversation row. A keyword-blocked message is removed on its own, so the
+  cleanup never takes away a chat the user is not looking at.
+
+### The setting is reachable from the folder it governs
+
+`AutoDeleteDurationAction` is an app-bar icon on Trash and on Spam & Blocked,
+with the current window in its accessibility label ("Auto-delete after 30
+days", or "Auto-delete is off for this folder" when that folder's buckets are
+both off). It was a full-width row above the tabs first, which pushed the list
+down and looked wrong.
+
+### A collapsible layout that was reverted
+
+Advanced was also restructured into collapsible groups, with the rarely used
+options (swipe direction, permanent delete, links, sounds, diagnostics,
+auto-delete) folded behind headers. It was reverted at the user's request: the
+headers did not match the plain rows around them, and a different background on
+a header read as worse than the flat list, not better. Advanced is back to its
+original flat groups, with Auto-delete added as one more group and Diagnostics
+still last. `CollapsibleSettingsGroup` is gone.
 
 ### Tests
-- `RetentionPolicyTest` (11) — **239 JUnit / 0 failures**, up from 7; new cases
-  cover the master switch, each bucket selected alone, all-off, and the
-  bucket-to-predicate mapping
-- `test-retention.sh` **21/21**, up from 12/12, verified to **fail before the
+- `RetentionPolicyTest` (14) — **241 JUnit / 0 failures**, up from 7
+- `test-retention.sh` **37/37**, up from 12/12, verified to **fail before the
   change**:
   ```
   [FAIL] Auto-delete section not found in Advanced
   [FAIL] blocked senders were purged even though the option is off
   [FAIL] rows were purged with auto-delete switched off
   ```
-  It now asserts the section is collapsed on arrival, expands on tap, offers all
-  three buckets, and — the part that actually matters — that switching one bucket
-  off leaves exactly that bucket's rows alone while the other two are still purged.
-  A master-switch-off case asserts nothing is purged at all.
-- `scroll_to` added to the script because `wait_for_text` does not scroll and
-  "Advanced" sits at the bottom of General settings
+  The assertions that matter are the asymmetric ones: one bucket switched off
+  leaves exactly that bucket's rows alone while the other two are still purged;
+  the master switch off purges nothing; and the two folder windows stay
+  independent when one is changed from the other folder's page.
+- `scroll_top` and `scroll_to` were added because `wait_for_text` neither
+  scrolls nor scrolls back up, and several Advanced rows sit outside the first
+  screen
 - debug and R8-minified release both build
 
-## #219 follow-up: SIM switch hidden + trashed thread resurrected (2026-09-25)
+### Two traps worth remembering
+The dumped text for "Spam & Blocked" is literally `Spam &amp; Blocked`, and the
+helpers `re_escape` their search argument, so searching for `&` or for `Blocked`
+cannot match it — only the escaped form can. And after `pref_reset` deletes the
+retention keys, editing them with `sed` writes nothing and the code defaults
+apply, so a test that wants a bucket off has to switch it through the UI.
+
+## #219 follow-up: SIM switch hidden + trashed thread resurrected (2026-09-25)## #219 follow-up: SIM switch hidden + trashed thread resurrected (2026-09-25)
 
 ✅ USER REPORT (#219 comment 5827316702). The same comment confirms the earlier
 #219 notification fix and the spam contact names now work. Two bugs came out of

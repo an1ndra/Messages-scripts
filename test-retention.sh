@@ -50,6 +50,10 @@ restart() {
     sleep 6
 }
 
+# A previous run may have left buckets switched off or the window changed, which
+# would silently change what the first purge assertions see.
+adb_ shell "run-as $PKG sed -i '/name=\"retention_/d' shared_prefs/messages_settings.xml" >/dev/null 2>&1
+
 info "Seeding one row per retention bucket (old vs fresh)"
 CT=$(convo "$ADDR_T" "$OLD" 0 "$OLD")
 msg "$CT" "$MARK trashed-old" "$OLD" "$OLD" ""
@@ -109,6 +113,15 @@ sql "DELETE FROM conversations WHERE name='$MARK';"
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 5
 
+# scroll_to only walks downwards, so anything above the current position needs
+# the list returned to the top first.
+scroll_top() {
+    for _ in 1 2 3 4 5 6; do
+        adb_ shell input swipe 540 700 540 1800 250 >/dev/null 2>&1
+        sleep 0.5
+    done
+}
+
 # wait_for_text does not scroll, and "Advanced" sits at the bottom of General
 # settings, so scroll the list while polling.
 scroll_to() {
@@ -122,46 +135,69 @@ scroll_to() {
     return 1
 }
 
-info "Auto-delete lives in Advanced, not in General settings"
+# center_of_contents already matches text or content-desc, so the app-bar action
+# is reachable by its accessibility label.
+tap_action() {
+    local c
+    c=$(center_of_contains "$1") || { echo "[tap] '$1' not found"; return 1; }
+    adb_ shell input tap $c
+}
+
+info "Auto-delete is a collapsible section, last in Advanced"
+# A previous run leaves retention_* flipped and the windows changed.
+pref_reset_retention
+sql "DELETE FROM messages WHERE body LIKE '%$MARK%';"
+sql "DELETE FROM conversations WHERE name='$MARK';"
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 5
 if scroll_to "Advanced"; then
     pass "General settings still offers the Advanced row"
 else
     fail "could not find the Advanced row in General settings"
 fi
 tap_text "Advanced" >/dev/null 2>&1; sleep 2
-if wait_for_text "Auto-delete" 10; then
-    pass "Auto-delete section is in Advanced"
+if scroll_to "Auto-delete"; then
+    pass "Advanced has an Auto-delete section"
 else
     fail "Auto-delete section not found in Advanced"
 fi
-
-info "The section is collapsed by default and expands on tap"
-dump_ui
-if [ "$(grep -c 'text="Deleted chats"' "$TMP/ui.xml")" = "0" ]; then
-    pass "bucket options are hidden while collapsed"
+if scroll_to "Diagnostics" >/dev/null; then
+    pass "Diagnostics is the last option, as before"
 else
-    fail "bucket options are already visible without expanding"
+    bad "Diagnostics row not found in Advanced"
 fi
-c=$(center_of_contains "Auto-delete")
-if [ -n "$c" ]; then
-    XY=($c)
-    adb_ shell input tap "${XY[0]}" "${XY[1]}" >/dev/null 2>&1
-    sleep 1.5
-    if wait_for_text "Deleted chats" 6; then
-        pass "tapping the header expands the options"
+
+info "The everyday settings are all on one screen"
+scroll_top
+for visible in "Drafts" "Privacy mode" "App lock" "Accessibility mode"; do
+    if scroll_to "$visible" >/dev/null; then
+        pass "'$visible' is reachable without expanding anything"
     else
-        fail "tapping the header did not expand the options"
+        fail "'$visible' is not visible by default"
     fi
-    if wait_for_text "Blocked messages" 4 && wait_for_text "Blocked senders" 4; then
-        pass "all three buckets are offered"
+done
+
+info "Every bucket is offered in the same plain list as the rest of Advanced"
+for row in "Deleted chats" "Blocked messages" "Blocked senders"; do
+    if scroll_to "$row"; then
+        pass "'$row' is listed in Advanced"
     else
-        fail "expected Trash / Blocked messages / Blocked senders options"
+        fail "'$row' is missing from Advanced"
     fi
+done
+if scroll_to "Keep deleted chats for"; then
+    pass "Trash has its own window row"
 else
-    fail "could not tap the Auto-delete header"
+    fail "Trash window row missing from Advanced"
+fi
+if scroll_to "Keep blocked messages"; then
+    pass "Spam has its own window row"
+else
+    fail "Spam window row missing from Advanced"
 fi
 
 info "Each bucket can be turned off on its own"
+scroll_to "Blocked senders" >/dev/null
 if center_of_contains "Blocked senders" >/dev/null; then
     tap_switch_near "Blocked senders" >/dev/null 2>&1; sleep 1
     [ "$(pref_bool retention_blocked_senders)" = "false" ] \
@@ -181,6 +217,7 @@ info "Only the selected buckets are purged"
 CT=$(convo "$ADDR_T" "$OLD" 0 "$OLD"); msg "$CT" "$MARK trashed-2" "$OLD" "$OLD" ""
 CB=$(convo "$ADDR_B" "$OLD" 1 0);     msg "$CB" "$MARK blockednum-2" "$OLD" 0 ""
 CK=$(convo "$ADDR_K" "$OLD" 0 0);     msg "$CK" "$MARK keyword-2" "$OLD" "$OLD" "blocked_keyword"
+scroll_top; scroll_to "Blocked senders" >/dev/null
 tap_switch_near "Blocked senders" >/dev/null 2>&1; sleep 1
 [ "$(pref_bool retention_blocked_senders)" = "false" ] \
     || fail "could not switch Blocked senders off for the purge check"
@@ -215,8 +252,9 @@ tap_text "Advanced" >/dev/null 2>&1; sleep 2
 wait_for_text "Auto-delete" 10 >/dev/null
 c=$(center_of_contains "Auto-delete")
 [ -n "$c" ] && { XY=($c); adb_ shell input tap "${XY[0]}" "${XY[1]}" >/dev/null 2>&1; sleep 1.5; }
-if wait_for_text "Delete after" 6; then
-    tap_text "Delete after" >/dev/null 2>&1; sleep 1.5
+if scroll_to "Keep deleted chats for"; then
+    pass "Advanced offers a window for deleted chats"
+    tap_text "Keep deleted chats for" >/dev/null 2>&1; sleep 1.5
     dump_ui
     if [ "$(grep -c '7 days' "$TMP/ui.xml")" -ge 1 ]; then
         pass "chooser offers 7 / 30 / 90 / 365 days"
@@ -225,12 +263,86 @@ if wait_for_text "Delete after" 6; then
     fi
     tap_text "7 days" >/dev/null 2>&1; sleep 1.5
     pref=$(adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null | tr -d '\r' \
-        | sed -n 's/.*name="retention_days" value="\([0-9]*\)".*/\1/p')
+        | sed -n 's/.*name="retention_trash_days" value="\([0-9]*\)".*/\1/p')
     [ "$pref" = "7" ] \
-        && pass "picking 7 days persists to prefs" \
-        || fail "retention_days pref is '$pref', expected 7"
+        && pass "picking 7 days for Trash persists to prefs" \
+        || fail "retention_trash_days pref is '$pref', expected 7"
 else
-    fail "could not find the Delete after row"
+    fail "could not find the per-folder window row in Advanced"
+fi
+
+info "Trash has its own auto-delete control in the app bar"
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 4
+scroll_to "Trash" >/dev/null
+tap_text "Trash" >/dev/null 2>&1; sleep 2
+if wait_for_text "Auto-delete after 7 days" 8; then
+    pass "Trash app bar shows the window picked in Advanced"
+else
+    fail "Trash app bar has no auto-delete control, or shows the wrong window"
+fi
+tap_action "Auto-delete after 7 days" >/dev/null 2>&1; sleep 1.5
+dump_ui
+if [ "$(grep -c '365 days' "$TMP/ui.xml")" -ge 1 ]; then
+    pass "Trash chooser offers 7 / 30 / 90 / 365 days"
+else
+    fail "Trash chooser missing the day options"
+fi
+tap_text "365 days" >/dev/null 2>&1; sleep 1.5
+pref=$(adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null | tr -d '\r' \
+    | sed -n 's/.*name="retention_trash_days" value="\([0-9]*\)".*/\1/p')
+[ "$pref" = "365" ] \
+    && pass "picking 365 days from Trash persists" \
+    || fail "retention_trash_days is '$pref', expected 365"
+
+info "Trash and Spam keep separate windows"
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 4
+scroll_to 'Spam &amp; Blocked' >/dev/null
+tap_text 'Spam &amp; Blocked' >/dev/null 2>&1; sleep 2
+if wait_for_text "Auto-delete after 30 days" 8; then
+    pass "Spam app bar shows its own, separate window"
+else
+    fail "Spam app bar has no auto-delete control, or Trash's value leaked into it"
+fi
+tap_action "Auto-delete after 30 days" >/dev/null 2>&1; sleep 1.5
+tap_text "7 days" >/dev/null 2>&1; sleep 1.5
+tp=$(adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null | tr -d '\r' \
+    | sed -n 's/.*name="retention_trash_days" value="\([0-9]*\)".*/\1/p')
+sp=$(adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null | tr -d '\r' \
+    | sed -n 's/.*name="retention_spam_days" value="\([0-9]*\)".*/\1/p')
+[ "$tp" = "365" ] && [ "$sp" = "7" ] \
+    && pass "setting Spam did not disturb Trash (trash=$tp spam=$sp)" \
+    || fail "windows are not independent (trash=$tp spam=$sp)"
+
+info "A folder whose buckets are off says so instead of promising a window"
+# Driven through the UI: after a pref reset the keys are absent, so editing the
+# XML would silently write nothing and the defaults would apply.
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 4
+scroll_to "Advanced" >/dev/null
+tap_text "Advanced" >/dev/null 2>&1; sleep 2
+scroll_top
+for row in "Blocked messages" "Blocked senders"; do
+    scroll_to "$row" >/dev/null
+    tap_switch_near "$row" >/dev/null 2>&1
+    sleep 1
+done
+[ "$(pref_bool retention_keyword_messages)" = "false" ] \
+    && pass "Blocked messages switched off through the UI" \
+    || fail "Blocked messages is '$(pref_bool retention_keyword_messages)', expected false"
+[ "$(pref_bool retention_blocked_senders)" = "false" ] \
+    && pass "Blocked senders switched off through the UI" \
+    || fail "Blocked senders is '$(pref_bool retention_blocked_senders)', expected false"
+
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 4
+scroll_to 'Spam &amp; Blocked' >/dev/null
+tap_text 'Spam &amp; Blocked' >/dev/null 2>&1; sleep 2
+if wait_for_text "Auto-delete is off for this folder" 8; then
+    pass "Spam says auto-delete is off when both its buckets are off"
+else
+    fail "Spam still advertises a window while both its buckets are off"
 fi
 
 info "No crashes"
