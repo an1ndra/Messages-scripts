@@ -27,7 +27,7 @@ notif_count() { adb_ shell "dumpsys notification --noredact 2>/dev/null" | tr -d
 unread_total() { db_sql "SELECT COALESCE(SUM(unread_count),0) FROM conversations WHERE deleted_at=0 AND archived=0 AND blocked=0;"; }
 scroll_to_row() {
     local needle="$1" c=""
-    for _ in 1 2 3 4 5 6; do
+    for _ in $(seq 1 14); do
         c=$(row_center "$needle") || c=""
         [ -n "$c" ] && { printf '%s' "$c"; return 0; }
         adb_ shell input swipe 540 1700 540 1100 250 >/dev/null 2>&1
@@ -66,11 +66,13 @@ info "Seed two unread conversations from different senders"
 # Other scripts leave unread rows behind, so this asserts the delta, not a total.
 BEFORE_UNREAD=$(unread_total)
 TS=$(date +%s000)
+CID_A=""; CID_B=""
 for pair in "$A:A" "$B:B"; do
     N=${pair%%:*}; TAG=${pair##*:}
     db_sql "INSERT INTO conversations(address,name,snippet,timestamp,unread_count) VALUES('$N','badge$TAG-$MARK','badge$TAG $MARK',$TS,2);" >/dev/null 2>&1
     CID=$(db_sql "SELECT id FROM conversations WHERE address='$N';")
     db_sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($CID,'badge$TAG $MARK',$TS,'received');" >/dev/null 2>&1
+    [ "$TAG" = "A" ] && CID_A=$CID || CID_B=$CID
 done
 TOTAL=$(unread_total)
 [ "$((TOTAL - BEFORE_UNREAD))" = "4" ] \
@@ -78,6 +80,12 @@ TOTAL=$(unread_total)
     || fail "seed raised the total by $((TOTAL - BEFORE_UNREAD)) (expected 4)"
 
 info "An incoming message publishes a badge number"
+# Clear any notification left by an earlier build/run: the aggregate is only
+# meaningful over the notifications this run posts.
+for id in $(adb_ shell "dumpsys notification --noredact" 2>/dev/null | tr -d '\r' \
+        | grep -oE "NotificationRecord\(.*pkg=$PKG.*id=[0-9-]+" | grep -oE "id=[0-9-]+" | cut -d= -f2 | sort -u); do
+    adb_ shell cmd notification cancel "$PKG" "$id" tag 0 >/dev/null 2>&1
+done
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1
 adb_ shell am start -n "$ACT" >/dev/null 2>&1
 sleep 5
@@ -96,18 +104,32 @@ sleep 7
 # Returns the numbers carried by this app's notifications, one per line. Older
 # records can legitimately hold 0 (posted when nothing was unread yet), so the
 # assertion looks for a positive one rather than the first.
+# The number carried by one specific notification id. Restricting to this run's
+# conversation ids keeps notifications left behind by earlier runs or older
+# builds out of the aggregate.
+number_for_id() {
+    adb_ shell "dumpsys notification --noredact" 2>/dev/null | tr -d '\r' | awk -v want="$1" -v pkg="$PKG" '
+        /NotificationRecord\(/ { i=($0 ~ ("pkg=" pkg)); if (i) { match($0, /id=[0-9-]+/); id=substr($0, RSTART+3, RLENGTH-3) } }
+        i && id == want && /^[[:space:]]+number=/ { gsub(/[^0-9]/, "", $0); print $0; exit }
+    '
+}
+
 badge_numbers() {
     adb_ shell "dumpsys notification --noredact 2>/dev/null" | tr -d '\r' | awk -v pkg="$PKG" '
         /NotificationRecord\(/ { inrec = ($0 ~ ("pkg=" pkg)) }
         inrec && /^[[:space:]]+number=/ { gsub(/[^0-9]/, "", $0); print $0 }
     '
 }
-NUMBERS=$(badge_numbers)
-MAX=$(printf '%s\n' "$NUMBERS" | grep -E '^[0-9]+$' | sort -n | tail -1)
-if [ -n "$MAX" ] && [ "$MAX" -gt 0 ]; then
-    pass "notifications carry a badge number (max=$MAX, unread=$TOTAL, all=[$(echo $NUMBERS | tr '\n' ' ')])"
+# Launchers that render a count AGGREGATE across the app's active
+# notifications (Lawnchair sums them, verified on device). So each notification
+# must carry exactly 1, and the badge is then the number of unread
+# conversations. Publishing the unread *message* total per notification was
+# observed rendering 45 for three notifications that each carried 15.
+NA=$(number_for_id "$CID_A"); NB=$(number_for_id "$CID_B")
+if [ "$NA" = "1" ] && [ "$NB" = "1" ]; then
+    pass "both notifications carry badge number 1 (A=$NA B=$NB -> badge aggregates to the unread-conversation count)"
 else
-    fail "no positive badge number on any notification (got '${NUMBERS:-none}')"
+    fail "expected number 1 on each of this run's notifications, got A='${NA:-none}' B='${NB:-none}'"
 fi
 
 if [ "$(notif_count)" -ge 2 ]; then
@@ -119,12 +141,18 @@ fi
 info "Opening one conversation keeps the other conversation's notification"
 # The badge check left the app backgrounded, so bring it forward before looking
 # for a row - otherwise the dump is the launcher, not the conversation list.
-adb_ shell am start -n "$ACT" >/dev/null 2>&1
-sleep 5
 BEFORE=$(notif_count)
-C=$(scroll_to_row "badgeA-$MARK")
-if [ -n "$C" ]; then
-    adb_ shell input tap $C >/dev/null 2>&1
+# Open the conversation by address rather than by tapping its row. The row shows
+# a formatted number, and an arriving message rewrites the conversation's name
+# (receiveMessage resets it to the contact/address), so neither the raw address
+# nor the seeded name is a stable thing to match on. This intent extra drives
+# the same open-a-conversation path, including the notification dismissal.
+#
+# The app is deliberately NOT force-stopped first: force-stopping an app makes
+# Android cancel its notifications, which would wipe the very notifications this
+# step is meant to observe (measured 3 -> 0).
+adb_ shell am start -n "$ACT" --es open_conversation_address "$A" >/dev/null 2>&1
+if true; then
     sleep 6
     AFTER=$(notif_count)
     if [ "$AFTER" -ge 1 ] && [ "$AFTER" -lt "$BEFORE" ]; then
@@ -144,19 +172,16 @@ else
 fi
 
 info "The opened conversation's own notification is still dismissed"
-C=$(scroll_to_row "badgeA-$MARK")
-if [ -n "$C" ]; then
-    adb_ shell input tap $C >/dev/null 2>&1
-    sleep 5
-    adb_ shell input keyevent 4 >/dev/null 2>&1
-    sleep 3
-    if [ "$(unread_total)" -ge 1 ]; then
-        pass 'remaining unread still tracked after revisiting the chat'
-    else
-        fail 'unread lost after revisiting the chat'
-    fi
+adb_ shell input keyevent 4 >/dev/null 2>&1
+sleep 2
+adb_ shell am start -n "$ACT" --es open_conversation_address "$A" >/dev/null 2>&1
+sleep 6
+adb_ shell input keyevent 4 >/dev/null 2>&1
+sleep 3
+if [ "$(unread_total)" -ge 1 ]; then
+    pass 'remaining unread still tracked after revisiting the chat'
 else
-    fail 'could not reopen the conversation'
+    fail 'unread lost after revisiting the chat'
 fi
 
 if adb_ shell "logcat -d -b crash" 2>/dev/null | grep -q "$PKG"; then

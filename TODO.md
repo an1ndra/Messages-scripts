@@ -18,10 +18,14 @@ launchers read for the **numeric** badge; launchers that render a count rather
 than a plain dot show nothing at all without it. The app had no
 `setNumber`/`setBadgeIconType` call anywhere, and no total-unread query existed.
 
-- `Repository.unreadTotalBlocking()` sums `unread_count` over the conversations
-  that are actually visible in the inbox - archived, trashed and blocked threads
-  must not inflate the badge.
-- `NotificationHelper.show()` now publishes `BadgePolicy.badgeCount(total)`.
+- `NotificationHelper.show()` now publishes a badge number. Verified visually on
+  `emulator-5554` with **Lawnchair** installed as the home app: the icon shows a
+  count, where the stock AOSP Launcher3 only ever draws a dot.
+- The number is **1 per conversation, not the unread total**. Launchers that
+  render a count *aggregate across the app's active notifications* - Lawnchair
+  sums them, and publishing the unread total rendered a badge of **45** for three
+  notifications that each carried 15. With 1 each the badge is the number of
+  unread conversations, which is also what messaging apps conventionally show.
 
 ### 2. Opening any chat wiped every notification (found while verifying)
 
@@ -54,11 +58,27 @@ per-tone channels into one stable channel - a behaviour change to the sound
 picker that has already been reviewed. Left for its own change.
 
 ### Tests
-- `BadgePolicyTest` (6 tests): count is clamped, a number is only published when
-  something is unread, and the dismiss pair is scoped to one conversation.
+- `BadgePolicyTest` (5 tests): the per-notification value is 1, a non-positive
+  count is never published, and the dismiss pair is scoped to one conversation.
 - `scripts/test-notification-badge.sh` **7/7**, verified to **fail before the
   fix** with the exact reported symptoms ("no positive badge number", and
   "3 -> 0" notifications on opening a chat) and pass after.
+
+Two things worth knowing about verifying a badge, both learned the hard way:
+
+- **The stock AOSP Launcher3 can only draw a dot.** It has no numeric badge
+  implementation, so no app can show a number on the emulator's own home screen.
+  Lawnchair (FOSS, from its GitHub releases) was installed to prove the count
+  visually.
+- **A launcher needs notification-listener access**, and granting it by writing
+  `settings put secure enabled_notification_listeners` does *not* work - the
+  system still reports 0 enabled listeners. `cmd notification allow_listener` is
+  the supported route. Without it the launcher sees no notifications and badges
+  nothing, which looks exactly like an app bug.
+- **`am force-stop` cancels the app's notifications**, so a test that restarts
+  the app before opening a conversation destroys the very notifications it is
+  trying to observe. Deliver the open-conversation intent to the running app
+  instead.
 
 Files: `sms/SmsSupport.kt`, `sms/BadgePolicy.kt`, `data/Repository.kt`,
 `ui/ChatScreen.kt`, `MainActivity.kt` · tests: `BadgePolicyTest`,
