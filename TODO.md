@@ -5,6 +5,73 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Shared motion tokens + conversation list placement motion (2026-09-25)
+
+✅ USER REQUEST: audit the app for missing animation, then implement it.
+
+Audit result: the app had good motion in a few places (route transitions, bubble
+entrance, shared shimmer) but **no motion tokens at all** — durations were inline
+literals (`tween(300)`, `tween(150)`, `tween(1100)`) and everything used the
+pre-M3 `FastOutSlowInEasing`. Worse, the accessibility **reduce-motion** setting
+was only honoured in three places, so turning it on still left the FAB morph,
+tab scale, swipe background, selection toolbar and emoji panel animating.
+
+- **New `ui/theme/Motion.kt`**: the M3 duration tokens, the three emphasized
+  easing curves, and the spring constants, plus `motionTween()` / `motionSpring()`
+  which return a normal spec or an instant `snap()` when reduce-motion is on, so
+  callers never branch on the accessibility flag themselves. The pure accessors
+  live on the `Motion` object so they are unit-testable, and the spec builders are
+  deliberately **not** `@Composable` so `MotionTest` can call them directly.
+- **Conversation list placement motion**: `Modifier.animateItem()` on each keyed
+  row, with token-driven fade-in/out and a spatial spring for placement. A
+  modifier had to be threaded through `SwipeableConversationItem` →
+  `SwipeConversationItem` → `ConversationRow` to reach the row.
+- **Reduce-motion now honoured everywhere**: navigation slides/fade, bubble
+  entrance, shared shimmer, swipe background colour, Start Chat FAB morph,
+  ExpressiveTabs, the chat selection toolbar, and the emoji panel.
+- **Two motion bugs fixed while wiring the tokens**:
+  - `ExpressiveTabs` was springing **colours** (not a physical property) and had
+    `indication = null`, which killed the M3 state layer. Colours now use an
+    emphasized tween, and the ripple is back alongside the press scale.
+  - The emoji panel's `AnimatedVisibility` had no authored enter/exit and now
+    expands/shrinks from the top on the M3 curve.
+
+Note on scope: the remaining audit findings (chat status/date-separator
+transitions, schedule-picker step swap, Toast→Snackbar for contextual actions,
+tab content crossfades) are **not** in this change. They are polish, not
+accessibility gaps, and are better as their own commits.
+
+Tests: `MotionTest` (10 tests: M3 duration values, the three emphasized curves,
+reduce-motion collapsing durations to 0, linear easing under reduce-motion, and
+both spec builders degrading to `snap`) and `test-motion-system.sh` **16/16**.
+
+Script notes worth keeping — three of the failures during this work were bugs in
+the test harness itself, not the app:
+
+- **`ui_tags | grep -q X` is a false negative under `set -o pipefail`.** `grep -q`
+  exits on the first match, `ui_tags` dies with SIGPIPE, and the pipeline reports
+  failure even though the text was right there. `has_text()` uses `grep -c`
+  instead, which consumes all input. **`test-message-actions.sh` still has 8 of
+  these and is latently flaky for the same reason.**
+- **The conversation list shows its loading skeleton while the startup sync
+  settles**, so a single dump taken right after a mutation reads as "empty list".
+  All assertions now poll (`wait_for_text` / `wait_for_absent`).
+- **Matching rows by substring is ambiguous**: the options sheet's "Archive" is a
+  substring of the top bar's "Archived" icon, and `row_center` checks
+  `content-desc` first, so the script was pressing the Archived button. Sheet
+  actions use `tap_exact` now.
+
+Verified on `emulator-5554` with uiautomator (no screenshots): archiving, undo
+re-insertion, swipe, chat navigation, bubble rendering, emoji panel open/close,
+and the whole flow again with Accessibility mode + Reduce motion enabled.
+
+Animation *timing* itself is not asserted, because a `uiautomator dump` takes
+roughly a second and cannot sample a 200 ms transition.
+
+Files: `ui/theme/Motion.kt`, `ui/ConversationsScreen.kt`, `ui/ChatScreen.kt`,
+`ui/ExpressiveTabs.kt`, `ui/Components.kt`, `MainActivity.kt` · tests:
+`MotionTest`, `test-motion-system.sh`
+
 ## Import source picker follows the M3 radio button guidelines (2026-09-25)
 
 ✅ USER REQUEST: the "This app's backup / A .sqlite3 or encrypted backup file from
