@@ -2165,3 +2165,29 @@ Tests: `testDebugUnitTest` 132/132 (new `BidiTextTest` 7/7, `SimSwitcherTest`
 LTR body untouched) and rewritten `scripts/test-sim-inputbar.sh` (6/6: dual-SIM
 button present, cycles the pref, hidden while typing, absent on single-SIM)
 using the `--ez fake_dual_sim true` hook. Both wired into `run-all-tests.sh`.
+
+## Issue #219 comment · grouped notifications show read history (2026-09-25)
+
+USER REPORT: expanding a conversation notification showed the sender's whole
+recent history, including the user's own replies, and sometimes did not say who
+the messages were from.
+
+✅ Read state lives only in `conversations.unread_count` (there is no per-message
+read flag), so the history query is now bounded by it:
+`Repository.notificationHistory()` selects `is_me=0, deleted_at=0` newest-first,
+limited by `NotificationHistory.takeCount(unread, MAX_LINES)` and reversed, so
+the record holds exactly the missed messages. `takeCount` floors at 1 line
+because the message that triggered the post is itself unread. Superseded
+`recentMessageLines()` deleted rather than left as a second query to drift.
+Sender name is unchanged: `groupedStyle` still sets `conversationTitle`, and
+Android renders it in the header even when every line is the same sender (the
+per-line name is dropped by the platform in that case, confirmed on emulator).
+
+Tests: `NotificationHistoryTest` +3 (`takeCount` bounded by unread, capped at
+MAX_LINES, never zero). `test-grouped-notifications.sh` 19/19, new section seeds
+a read backlog and asserts read messages stay out of the record — verified
+failing against the pre-fix query.
+
+NOTE (environment): a nested `runOnIo` inside `notificationHistory` deadlocked
+`SmsReceiver` on the single-thread `dbExecutor`, which looked like the AVD radio
+dropping SMS. The count read is now inlined in the same block.
