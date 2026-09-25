@@ -184,6 +184,36 @@ else
     fail 'unread lost after revisiting the chat'
 fi
 
+info "A message arriving in the open chat does not raise the badge"
+# The reporter watched the badge climb while sitting in the chat the messages were
+# arriving in. The thread on screen is read on arrival, so it must stay at 0.
+adb_ shell am start -n "$ACT" --es open_conversation_address "$A" >/dev/null 2>&1
+sleep 6
+IDA=$(db_sql "SELECT id FROM conversations WHERE address='$A';" | tr -d '\r\n')
+before=$(db_sql "SELECT COALESCE(SUM(unread_count),0) FROM conversations;" | tr -d '\r\n')
+adb_ emu sms send "$A" "${MARK}live" >/dev/null 2>&1
+landed=""
+for _ in $(seq 1 25); do
+    n=$(db_sql "SELECT count(*) FROM messages WHERE conversation_id=$IDA AND body='${MARK}live';" | tr -d '\r\n')
+    if [ "$n" != "0" ]; then landed=yes; break; fi
+    sleep 1
+done
+if [ -z "$landed" ]; then
+    fail 'the message sent to the open chat never arrived'
+else
+    pass 'the message sent to the open chat arrived'
+    u=$(db_sql "SELECT unread_count FROM conversations WHERE id=$IDA;" | tr -d '\r\n')
+    [ "$u" = "0" ] \
+        && pass "the open chat did not gain unread (unread=$u)" \
+        || fail "the open chat gained unread (unread=$u) while it was on screen"
+    after=$(db_sql "SELECT COALESCE(SUM(unread_count),0) FROM conversations;" | tr -d '\r\n')
+    [ "$after" = "$before" ] \
+        && pass "total unread unchanged at $before" \
+        || fail "total unread went $before -> $after while the chat was open"
+fi
+adb_ shell input keyevent 4 >/dev/null 2>&1
+sleep 2
+
 if adb_ shell "logcat -d -b crash" 2>/dev/null | grep -q "$PKG"; then
     fail 'app crashed during the badge regression'
 else
