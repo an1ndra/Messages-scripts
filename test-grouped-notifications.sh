@@ -35,6 +35,25 @@ sql() {
 }
 convo_id() { sql "SELECT id FROM conversations WHERE address='$1';" | tr -d '\r\n'; }
 
+# The console drops some `emu sms send` bursts, so a fixed sleep leaves the
+# assertions reading a history that never arrived. Resend until the body is
+# actually in the database.
+send_wait() {
+    local num="$1" body="$2" try
+    for try in 1 2 3; do
+        adb_ emu sms send "$num" "$body" >/dev/null 2>&1
+        for _ in $(seq 1 20); do
+            # Scoped to the sender: the two senders deliberately share body text, so
+            # matching on body alone would return on the other sender's row.
+            if [ "$(sql "SELECT count(*) FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.body='$body' AND c.address='$num';" | tr -d '\r\n')" != "0" ]; then
+                return 0
+            fi
+            sleep 1
+        done
+    done
+    return 1
+}
+
 # The NotificationRecord block for one id, so one sender's lines are never read
 # out of another sender's record.
 block_for_id() {
@@ -63,10 +82,8 @@ info "Three messages from one sender become one grouped notification"
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 5
 for i in 1 2 3; do
-    adb_ emu sms send "$A" "${MARK}$i" >/dev/null 2>&1
-    sleep 3
+    send_wait "$A" "${MARK}$i" || fail "message $i from the first sender never arrived"
 done
-sleep 2
 IDA=$(convo_id "$A")
 [ -n "$IDA" ] && pass "conversation for the first sender resolved ($IDA)" \
     || { fail "could not resolve the conversation id for $A"; exit 1; }
@@ -93,10 +110,8 @@ blk_has "$IDA" "ranker_group" \
 
 info "The history is capped, not unbounded"
 for i in 4 5 6 7 8; do
-    adb_ emu sms send "$A" "${MARK}$i" >/dev/null 2>&1
-    sleep 2
+    send_wait "$A" "${MARK}$i" || fail "message $i never arrived"
 done
-sleep 2
 n=$(line_count "$IDA")
 [ "$n" = "5" ] \
     && pass "history is capped at 5 lines (got $n)" \
@@ -107,8 +122,7 @@ newest=$(block_for_id "$IDA" | grep -o "text=$MARK[0-9]*" | tail -1)
     || fail "newest line is '$newest', expected text=${MARK}8"
 
 info "A second sender gets its own separate record"
-adb_ emu sms send "$B" "${MARK}1" >/dev/null 2>&1
-sleep 4
+send_wait "$B" "${MARK}1" || fail "the second sender's message never arrived"
 IDB=$(convo_id "$B")
 if [ -z "$IDB" ]; then
     fail "could not resolve the conversation id for $B"
@@ -133,6 +147,41 @@ record_exists "$IDA" \
 [ -n "$IDB" ] && { record_exists "$IDB" \
     && pass "the other sender's notification survives" \
     || fail "the other sender's notification was lost"; }
+
+info "A read chat notifies with only the new message, and still names the sender"
+# The reporter's complaint: expanding a chat whose last messages were all theirs
+# showed the whole recent history, including their own replies. Read state lives
+# only in conversations.unread_count, so a read backlog has to drop out of the
+# notification. The AVD radio drops repeated `emu sms send` bursts, so the backlog
+# is seeded into the database and only the message under test is injected.
+C="+1555887${MARK: -3}"
+NOW=$(($(date +%s) * 1000))
+CID=$(sql "INSERT INTO conversations(address,name,timestamp,unread_count) VALUES('$C','$C',$NOW,0); SELECT id FROM conversations WHERE address='$C';" | tail -1 | tr -d '\r\n')
+[ -n "$CID" ] || CID=$(convo_id "$C")
+if [ -z "$CID" ]; then
+    fail "could not seed a conversation for $C"
+else
+    for i in 1 2 3; do
+        sql "INSERT INTO messages(conversation_id,body,timestamp,is_me,status) VALUES($CID,'${MARK}o$i',$((NOW + i)),0,'received');" >/dev/null
+    done
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+    adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 5
+    send_wait "$C" "${MARK}z" || fail "the message under test never arrived"
+    u=$(sql "SELECT unread_count FROM conversations WHERE id=$CID;" | tr -d '\r\n')
+    [ "$u" = "1" ] \
+        && pass "the new message is the only unread one (unread=$u)" \
+        || fail "unread is $u, expected 1"
+    blk_has "$CID" "text=${MARK}z" \
+        && pass "the notification carries the new message" \
+        || fail "the notification does not carry the new message"
+    blk_has "$CID" "${MARK}o1" \
+        && fail "the notification still shows read messages from before" \
+        || pass "read messages from before are not in the notification"
+    blk_has "$CID" "$C" \
+        && pass "the single-sender record still names the sender" \
+        || fail "the record does not identify $C anywhere"
+    sql "DELETE FROM conversations WHERE id=$CID;" >/dev/null
+fi
 
 info "No crashes"
 adb_ shell "logcat -d -b crash" 2>/dev/null | grep -c "$PKG" >/dev/null \
