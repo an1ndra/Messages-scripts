@@ -71,7 +71,6 @@ roughly a second and cannot sample a 200 ms transition.
 Files: `ui/theme/Motion.kt`, `ui/ConversationsScreen.kt`, `ui/ChatScreen.kt`,
 `ui/ExpressiveTabs.kt`, `ui/Components.kt`, `MainActivity.kt` · tests:
 `MotionTest`, `test-motion-system.sh`
-
 ## Import source picker follows the M3 radio button guidelines (2026-09-25)
 
 ✅ USER REQUEST: the "This app's backup / A .sqlite3 or encrypted backup file from
@@ -120,7 +119,6 @@ SMS Import picker, and picking Messages first opens the app's own picker.
 
 Files: `ui/SettingsScreen.kt`, `res/values/strings_settings.xml`,
 `res/values/strings_components.xml` · tests: `test-sms-ie-import.sh`
-
 ## Import: one entry point for both backup sources (2026-09-25)
 
 ✅ USER REQUEST: fold the sms-ie option into the existing "Import messages" row and
@@ -166,7 +164,6 @@ another messaging app.
 Files: `data/Repository.kt`, `data/SmsIeBackup.kt`, `MainActivity.kt`,
 `ui/SettingsScreen.kt`, `res/values/strings_settings.xml` · tests:
 `test-sms-ie-import.sh`, `SmsIeBackupTest`
-
 ## Import backups from SMS Import / Export (sms-ie) (2026-09-25)
 
 ✅ USER REQUEST: let users import the backup files produced by
@@ -223,7 +220,6 @@ File: `data/SmsIeBackup.kt`, `data/SmsIeReader.kt`, `data/Repository.kt`,
 `MainActivity.kt`, `ui/SettingsScreen.kt`, `res/values/strings_settings.xml`,
 `res/xml/file_paths.xml`, `app/build.gradle.kts` · tests:
 `test-sms-ie-import.sh`, `SmsIeBackupTest`
-
 ## Issues #232 / #235 / #231 · Select all, Save MMS picture, Copy part of a message (2026-09-25)
 
 ✅ USER REQUESTS, all three landed in the chat selection overflow:
@@ -279,7 +275,6 @@ File: `ui/SelectionToolbar.kt`, `ui/ChatScreen.kt`, `data/MmsSupport.kt`,
 `data/DownloadsStore.kt`, `MainActivity.kt`, `res/values/strings_chat.xml` ·
 tests: `test-message-actions.sh`, `test-message-selection.sh`,
 `SelectionToolbarTest`, `MmsSupportTest`
-
 ## Issue #236 · Incoming MMS never arrives (receive path) — FIXED (2026-09-24)
 
 ✅ USER REPORT (tmpjx555, Nokia 3.4 / Android 12 / SDK 31, F-Droid 1.0.26,
@@ -325,7 +320,6 @@ File: `sms/MmsReceiver.kt`, `sms/MmsDownloader.kt`, `sms/MmsDownloadReceiver.kt`
 `data/MmsSupport.kt`, `data/MmsProviderReader.kt`, `data/Repository.kt`,
 `MainActivity.kt`, `AndroidManifest.xml` · tests: `test-mms-download.sh`,
 `MmsSupportTest`
-
 ## Issue #236 · Outgoing MMS never transmitted (send path) — FIXED (2026-09-24)
 
 ✅ Same report as the receive-path entry above ("receiving / sending MMS").
@@ -381,7 +375,6 @@ File: `android-smsmms/` (vendored), `sms/MmsComposer.kt`, `sms/SmsSupport.kt`,
 `sms/SmsStatusReceiver.kt`, `data/MmsSupport.kt`, `MainActivity.kt`,
 `res/xml/file_paths.xml`, `proguard-rules.pro`, `settings.gradle.kts`,
 `gradle/libs.versions.toml` · tests: `test-mms-send.sh`, `MmsSupportTest`
-
 ## Issue #219 · Notifications stop for a sender after their chat was opened (2026-09-24)
 
 ✅ USER REPORT (Zokii0): once a sender tripped a blocked keyword, every later
@@ -431,7 +424,6 @@ File: `ui/ChatScreen.kt`, `sms/NotificationPolicy.kt`, `sms/SmsReceiver.kt`,
 `sms/SmsSupport.kt`, `sms/ForegroundTracker.kt`, `MainActivity.kt`,
 `MessagesApplication.kt` · tests: `test-keyword-followup-notification.sh`,
 `test-keywords.sh`, `test-notif-dismiss-on-open.sh`
-
 ## Spam & blocked / Trash · Messages tab shows the sender name (2026-09-24)
 
 ✅ USER REQUEST (follow-up to the contact-details work): on the Spam &
@@ -453,7 +445,6 @@ and `participants` join are absent, builders keep the saved name) +
 message and one normal message trashed through the UI; asserts both folder
 Message tabs show `Fran`; fails before the fix with 2 FAILs, passes after;
 DB-seeded so the flaky emulator radio/duplicate delivery can't leak rows).
-
 ## Contact details · show the number under a saved name (2026-09-24)
 
 ✅ USER REQUEST: on the conversation-details screen a saved contact showed only
@@ -469,7 +460,6 @@ number the contact was saved under.
 Tests: `ContactDetailsTest` (name+number, number-only, alphanumeric sender) +
 `scripts/test-contact-details.sh` (seed Sarah / +15551230010, open details,
 assert the name and a `…0010` number line; fails before the fix).
-
 ## CI · pin GitHub Actions runners to ubuntu-24.04 (2026-09-21)
 
 ✅ GitHub will migrate the `ubuntu-latest` label from Ubuntu 24.04 to Ubuntu
@@ -477,7 +467,6 @@ assert the name and a `…0010` number line; fails before the fix).
 `develop-build.yml`, `rc.yml`, `security.yml`, `virustotal.yml`,
 `release.yml`) to `ubuntu-24.04` so CI stays deterministic. `ubuntu-26.04` is
 available for an explicit test run when we want to validate the new image.
-
 ## Screenshots · dummy-chat set with profile photos (2026-09-21)
 
 ✅ USER REQUEST: refresh the app screenshots with useful dummy chats and real
@@ -494,7 +483,6 @@ falls back to the thumbnail URI served straight from the blob), then `screencap`
 NOTE: `take-fdroid-screenshots.sh` still targets the old 20-image set, and its
 demo-data seeding disappeared with `DemoData.kt` — it must be rewritten (or
 replaced with the procedure above) before it can regenerate this set.
-
 ## Run-aware chat bubble corners (2026-09-20)
 
 ✅ USER REQUEST: bubbles are shaped by their position in a run of consecutive
@@ -515,7 +503,6 @@ Tests: `testDebugUnitTest` `MessageGroupingTest` 9/9; new
 `scripts/test-bubble-corners.sh` drives lone + 3-message runs for outgoing and
 incoming and asserts each corner set via the marker. Wired into
 `run-all-tests.sh`.
-
 ## Documentation refresh · fix stale project docs (2026-09-20)
 
 ✅ Audited every doc against the code and corrected outdated facts:
@@ -539,7 +526,6 @@ incoming and asserts each corner set via the marker. Wired into
   permission list, test matrix extended with the newer regression scripts.
 - `scripts/README.md`: screenshots are evidence only; tests assert from
   uiautomator dumps.
-
 ## Accessibility mode (2026-09-19)
 
 ✅ User request: make the app usable for disabled users.
@@ -576,7 +562,6 @@ Tests: `testDebugUnitTest` green incl. `A11yTest`, `A11yOptionsTest`, updated
 row descriptions on the activatable node, master gating, five options persist,
 font 130% visibly grows a text node (63→80px), settings restored. App also
 launched with the system Accessibility Menu service bound.
-
 ## Issue #207 · Alphanumeric sender IDs shown as digits ("A1 SRB" → "1") — FIXED (2026-09-19)
 
 ✅ USER REPORT (comment on #207): a promotional SMS from "A1 SRB" showed as
@@ -615,7 +600,6 @@ digit-stripped "99" row) and its stale link / settings steps fixed for the
 current app. NOTE: `adb emu sms send` parses its sender as a phone number and
 strips letters from digit-containing IDs ("A1-SRB" arrives as "1"), so the
 provider row is seeded with `content insert`.
-
 ## fastlane metadata · translations for all app locales (2026-09-20)
 
 ✅ Added `title.txt`, `short_description.txt`, `full_description.txt` under
@@ -627,7 +611,6 @@ elsewhere). Descriptions are the translated feature/permission copy with the sam
 allowed HTML (`p`, `strong`, `b`); no per-locale screenshots added (F-Droid falls
 back to the en-US set). Validated: every short description ≤ 80 chars and full
 description ≤ 4000 chars, title ≤ 50.
-
 ## Repo cleanup · docs/ move + single screenshot location (2026-09-20)
 
 ✅ Two consolidations:
@@ -648,7 +631,6 @@ description ≤ 4000 chars, title ≤ 50.
   screenshot table points there. `.gitignore` dropped the `!screenshots/fdroid/`
   exception (root `screenshots/` stays ignored for ad-hoc captures).
   No more mirrored/duplicated set to drift.
-
 ## Repo cleanup · drop stale in-repo F-Droid metadata template (2026-09-20)
 
 ✅ Removed `fdroid/com.anindra.messages.yml`. It was a submission template from
@@ -659,7 +641,6 @@ metadata is 1.0.26 / code 29). F-Droid reads metadata only from
 the `release.yml` `sync-fdroiddata` job), never from an in-repo `fdroid/` file.
 Kept `fastlane/metadata/android/en-US/`, which F-Droid *does* read from the
 repo (title/short/full description, icon, screenshots, changelogs).
-
 ## CodeQL security-and-quality cleanup · alerts #8 #9 #12 #13 #15 #22 #23 #24 #25 #27 #28 #29 #30 #31 #32 #33 — FIXED (2026-09-20)
 
 ✅ All 16 open `security-and-quality` alerts on `main`:
@@ -694,7 +675,6 @@ diagnostics collect with no FATAL). Wired into `run-all-tests.sh`.
 NOTE: the "field masks super field" alert local builds never warned about (it is
 Compose-compiler generated) — the `sealed interface` change also removes it from
 the next CodeQL scan, unlike the earlier false-positive dismissal attempt.
-
 ## Backup location · privacy · blocked-keywords UI · Coil (2026-09-19)
 
 ✅ User requests:
@@ -720,7 +700,6 @@ SIM selection stays in the chat 3-dot menu only.
 Tests: `testDebugUnitTest` 76/76 (`BackupLocationTest` 4/4, `BackupPolicyTest`
 2/2); `scripts/test-backup-sim-coil.sh` (backup row + picker, keywords dialog,
 privacy-mode disable, Coil launch). `assembleDebug` + R8 `assembleRelease` green.
-
 ## Issue #211 · Status-bar notification icon too small — FIXED (2026-09-18)
 
 ✅ ROOT CAUSE: both notification builders used the adaptive launcher foreground
@@ -749,7 +728,6 @@ icon id via `dumpsys notification --noredact`, maps it through
 (not the launcher foreground), and checks the compiled viewport/artwork plus
 the evenOdd fill / absence of strokes. Script fails before each fix (2/7 for
 size, 2/9 for strokes), passes after. `test-notification-posts.sh` still green.
-
 ## Issue #210 · MMS never imported/displayed — FIXED (2026-09-18)
 
 ✅ ROOT CAUSE: import only read `content://sms`; nothing read the MMS provider,
@@ -768,7 +746,6 @@ FIX:
 Tests: `testDebugUnitTest` `MmsSupportTest` 6/6; `scripts/test-mms-import.sh`
 (seed provider MMS → import, transport/timestamp/subId preserved, idempotent
 reimport, text rendered in conversation).
-
 ## Debug tooling · fake dual-SIM on the single-SIM emulator (2026-09-15)
 
 ✅ USER REQUEST: the stock Android emulator is single-SIM (verified: only
@@ -791,7 +768,6 @@ Tests: `testDebugUnitTest` 48/48 (`SimCardsTest` 2/2);
 `scripts/test-fake-dual-sim.sh` 7/7 (two SIMs shown, no raw "SIM 7", selecting
 the second updates row+pref, Default restored, no fake SIM without the flag).
 Wired into `run-all-tests.sh`.
-
 ## Issue #209 · Crash on Android 10–13 (NoSuchFieldError) — FIXED (2026-09-15)
 
 ✅ ROOT CAUSE (reproduced on an API 31 emulator, stack trace captured):
@@ -814,7 +790,6 @@ Tests: `testDebugUnitTest` 46/46 (`EnterpriseContactsTest` 1/1);
 `scripts/test-android12-launch.sh` 4/4 on an **API 31** emulator
 (`ANDROID_SERIAL=emulator-5556`) — no FATAL, no NoSuchFieldError, home screen
 reached; skips on API ≥ 34. Verified the API 35 build still works too.
-
 ## Keyword blocking + diagnostics/avatar improvements (2026-09-15)
 
 ✅ USER REQUEST (three parts):
@@ -848,7 +823,6 @@ Tests: `testDebugUnitTest` 42/42 (`KeywordFilterTest` 4/4, `PhotoUriCacheTest`
 message dropped, not stored, no notification; normal message arrives; remove →
 cleared); `scripts/test-diagnostics.sh` 7/7 (sections + Close/Copy, no Save);
 `test-advanced-move.sh` 18/18 still green. Wired into `run-all-tests.sh`.
-
 ## Settings → Advanced: move toggles + font picker (2026-09-15)
 
 ✅ USER REQUEST: move Privacy mode, App lock, Drafts, Send sound and Receive
@@ -875,7 +849,6 @@ present in Advanced, font picker switches + persists + restores). Updated
 `test-settings-live.sh` (Drafts), `test-notification-sound.sh` (Receive sound)
 and `test-privacy-features.sh` (App lock / Privacy mode) to reach Advanced.
 Wired into `run-all-tests.sh`.
-
 ## UI font — DM Sans as a Google Sans stand-in (2026-09-15)
 
 ✅ USER REQUEST: make the app text look closer to Google Messages. The earlier
@@ -894,7 +867,6 @@ Implementation:
 Tests: `testDebugUnitTest` 16/16 (`TypeTest` 2/2 — every style uses the bundled
 family); `scripts/test-font.sh` 3/3 (APK ships dm_sans.ttf + OFL license, app
 launches). Wired into `run-all-tests.sh`.
-
 ## Issues #208 / #192 · SIM label + display-scale diagnostics users can share (2026-09-15)
 
 ✅ USER REQUEST: issue #208 reports the Settings SIM card showing a random
@@ -938,7 +910,6 @@ the carrier SIM → Settings row shows "T-Mobile (SIM 1)", not a raw id);
 `scripts/test-display-mode.sh` 3/3 (launch does not change resolution/density/
 mode — the AVD has a single mode, so the selection logic is covered by
 `DisplayModeSelectorTest`). All wired into `run-all-tests.sh`.
-
 ## Issue #209 · Crash on Android 12 — capture crash logs for GitHub issues (2026-09-15)
 
 ✅ USER REQUEST (issue #209 "Crash Android 12"): the app crashed on launch on
@@ -980,7 +951,6 @@ Tests: `testDebugUnitTest` 18/18 (`CrashReportFormatterTest` 4/4);
 internally AND in Downloads/Messages -> dialog shown -> valid zip saved to
 Downloads -> Delete clears). Wired into `run-all-tests.sh`.
 NOTE: catches JVM exceptions only — native crashes / ANRs are not captured.
-
 ## Issue #203 · Contacts "Text" button opens the list, not the contact's chat (2026-09-14)
 
 ✅ USER REPORT: tapping the message/Text button next to a number in Contacts
@@ -1016,11 +986,9 @@ Verified on emulator-5554: tapping the Contacts "Text" button lands directly on
 the contact's chat; back returns to the home list; warm `sms:`/`smsto:`, `?body=`
 stripping, multi-recipient, and a trashed thread (restored, header + send) all
 work. Regression: `scripts/test-issue-203-sms-intent.sh` (18/18).
-
 ## CodeQL alerts #1/#2/#3 · implicit PendingIntent (2026-09-13)
 
 (Alert #3 section below; alerts #1/#2 now resolved by the same inline-intent fix in ScheduledMessageSender.)
-
 ## CodeQL alert #20 · random-used-once (2026-09-13)
 
 ✅ ROOT CAUSE: `java/random-used-once` flagged `BackupCrypto.kt:43` — a new
@@ -1033,7 +1001,6 @@ VERIFIED: `assembleDebug` ✓; `test-backup-restore.sh` ✓ (PIN-protected backu
 restore round-trip passes).
 
 File: `data/BackupCrypto.kt`
-
 ## CodeQL alert #15 · field-masks-super-field (2026-09-13)
 
 ✅ ROOT CAUSE: `java/field-masks-super-field` flagged `Repository.kt:1` with
@@ -1048,69 +1015,6 @@ events write).  Needs user to dismiss manually in the UI or grant the token the
 `security_events: write` scope and re-run the dismiss PATCH.
 
 File: N/A — no source change required.
-
-## CodeQL alerts #1/#2/#3 · implicit PendingIntent (2026-09-13)
-
-✅ ROOT CAUSE: `java/android/implicit-pendingintents` flagged the quick-reply
-notification action (`github.com/an1ndra/Messages/security/code-scanning/3`).
-The reply PendingIntent must be `FLAG_MUTABLE` (RemoteInput needs the system to
-inject reply text; immutable → silently dropped on Android 15+), and CodeQL's
-`ExplicitIntentSanitizer` (`ImplicitPendingIntents.qll`) is intra-procedural
-only. Building the explicit Intent in a helper (`QuickReplyReceiver.createReplyIntent`)
-bypassed the sanitizer — so Copilot's autofix (`setPackage`) did NOT close the
-alert (still `open` on main @ `fd0c6e75`, 2026-09-07).
-FIX: inlined the explicit Intent (`Intent(context, QuickReplyReceiver::class.java)`
-+ `setPackage` + extras) into `SmsSupport.show()`, the same method that creates
-`PendingIntent.getBroadcast(...)`; inlined code reads as explicit to the
-receiver → sanitizer blocks the taint. Removed the now-unused helper.
-VERIFIED: `assembleDebug` ✓; `test-notification-posts.sh` ✓ (cold + warm paths,
-"Reply action (RemoteInput) wired"); quick-reply ✓ (reply lands in system Sent
-box, 0 crash-buffer entries).
-ALSO FIXED: `test-quick-reply.sh` `set -o pipefail` crash on a clean device —
-`CLEAR_NODE=$(ui_tags | grep ... | head -1)` exits 1 when no "Clear all" node
-exists (added `|| true`).
-FOLLOW-UP: manual path of `test-quick-reply.sh` tells the user to type+send,
-then the script re-runs `type_text`/send → `input text ''` error if the field is
-already gone (collide between script-driven and human-driven reply).
-
-ALERTS #1/#2 (same rule, `ScheduledMessageSender.kt` `setAlarmClock`/`setExact`
-sinks; pendingIntent built in `buildPendingIntent()` helper → same cross-method
-sanitizer bypass): same inline-explicit-intent pattern applied — `schedule()`
-now builds `Intent(context, ScheduledMessageSender::class.java)` (`ACTION_SEND`
-+ extras) inline right before `PendingIntent.getBroadcast(...)`,
-`buildPendingIntent()` remains used only by `cancel()` (intent equality for
-cancel still holds: same component/action/requestCode). VERIFIED:
-`assembleDebug` ✓; `test-scheduled-send.sh` ✓ (message persisted + sent); 
-`test-delayed-send.sh` ✓ (countdown + auto-send uses the alarm path).
-File: `sms/ScheduledMessageSender.kt`.
-
-PR #190 (`fix/codeql-pendingintent` from main) carries the alert #3 fix (SmsSupport
-+ QuickReplyReceiver) AND the #1/#2 fix (ScheduledMessageSender) + the #20 fix
-(BackupCrypto). MERGE BLOCKED: fine-grained PAT lacks "Pull requests: write"
-(PR create OK, merge 403) + "Actions: write" for the security.yml dispatch +
-"Security events" for alert dismissal — needs manual merge or extended token,
-then `workflow_dispatch` security.yml on main and re-check alerts #1/#2/#3/#20.
-
-UPDATE (2026-09-14): the inline-intent fix above did **NOT** close the alerts. A
-fresh CodeQL 2.27.0 scan of merged main (v1.0.24 @ `51ad75c`) still reported all
-three — `SmsSupport.kt:240` (`NotificationManagerCompat.notify`),
-`ScheduledMessageSender.kt:86/88` (`setAlarmClock`/`setExact`). Root cause:
-CodeQL's `ExplicitIntentSanitizer` is intra-procedural and the sink lived in a
-separate `notify()` helper; the alarm Intents were also built with a `.apply {}`
-block and had no `setPackage`.
-REAL FIX (Develop commit `1fab96b`):
-- `ScheduledMessageSender.schedule()`: build the alarm + show Intents with plain
-  statements (no apply-block) + `setPackage(context.packageName)`, in the same
-  method as the AlarmManager sink.
-- `SmsSupport.show()`: build the reply/mark-read Intents with plain statements
-  and inline `NotificationManagerCompat.notify()` (removed the `notify()` helper).
-VERIFIED with the CodeQL CLI 2.27.0 bundle CI uses, DB built from the fixed tree:
-`java/android/implicit-pendingintents` = **0 results**; full
-`java-security-and-quality.qls` = 13 (CI's v1.0.24 had 16 = these 13 + the 3 PI
-alerts). Functionality: `assembleDebug` ✓, `testDebugUnitTest` 12/12 ✓,
-`test-notification-posts.sh` ✓, `test-scheduled-send.sh` ✓. The 3 alerts will
-close on the next security scan of `main` (weekly cron or next release tag).
-
 ## CodeQL alert #21 · insecure-local-authentication (2026-09-14)
 
 ✅ ROOT CAUSE: `java/android/insecure-local-authentication` flagged the
@@ -1125,7 +1029,6 @@ biometric on API 29). `lockUnlockSelection()` now passes a
 operation (`cipher.doFinal`) on `result.cryptoObject.cipher` before unlocking.
 VERIFIED: `testDebugUnitTest` 14/14 (`MessageLockCryptoTest` 2/2);
 `scripts/test-message-lock-auth.sh` 3/3 (seed -> lock -> @Lock -> unlock).
-
 ## Issue #180 · Search contacts in both the personal and work profile (2026-09-13)
 
 ✅ USER REQUEST: contacts from the work (managed) profile must appear in the
@@ -1159,7 +1062,6 @@ Test: `scripts/test-work-profile-search.sh` (6/6) — sets up the work profile
 via `test-work-profile-contacts.sh`, asserts the picker badge (work contact
 badged), home list row resolves work number by name + shows badge, and
 chat header shows name + badge.
-
 ## Bug · Copy/Forward must hide URLs when "Hide links from messages" is ON (2026-09-12)
 
 ✅ USER REQUEST: with "Hide links" enabled the chat strips the URL, but the
@@ -1179,7 +1081,6 @@ Test: `scripts/test-hide-links.sh` now long-presses a bubble, taps Copy, pastes
 into the compose input (`KEYCODE_PASTE`), and reads the EditText back — asserts
 the clipboard has no URL while hide is ON and includes the URL again once OFF
 (31/31).
-
 ## Feature · Notification sound picker + preview on selection (2026-09-12)
 
 ✅ USER REQUEST: let the user pick the incoming-message notification sound in Settings (Default + bundled tones instead of only the system default), hear a preview when picking an option, and tighten the gap between the picker options.
@@ -1192,7 +1093,6 @@ Follow-up fix (changing the sound had no effect): Android `NotificationChannel` 
 Verified on emulator: picker shows 5 options; tapping each plays an active MediaPlayer player (`dumpsys audio` → `state:started … usage=USAGE_NOTIFICATION content=CONTENT_TYPE_SONIFICATION`); switching the setting swaps the active channel — `messages_dragon` (`mSound=android.resource://com.anindra.messages/2131623936`), `messages_default` (`content://settings/system/notification_sound`), `messages_silent` (`mSound=android.resource://…/silent.wav`, importance HIGH), prior variants `mDeleted=true`.
 Test: `scripts/test-notification-sound.sh` (20/20) — now also asserts the active channel's `mSound`, the field Android actually plays.
 Follow-up fix ("Receive sound" OFF killed the popup — two layers): (1) a channel with `setSound(null,null)` is treated by Android as low-importance and never heads-up, so the silent `messages_silent` channel could not pop — the channel now plays a bundled 50ms silent clip (`app/src/main/res/raw/silent.wav`) instead, keeping `IMPORTANCE_HIGH`. (2) `show()` no longer calls `setSilent(true)` for the sound-off case: that groups the notification under the `"silent"` group key (androidx convention, confirmed in core 1.18.0 `isSilent()`), and grouped notifications without a summary are suppressed from heads-up. Verified on emulator: `messages_silent` → `mImportance=4`, `mSound=android.resource://…/2131623938`, the posted record has no `groupKey=silent`, and `SingleNotificationStats.airtimeCount=1` proves the popup was actually displayed (uiautomator can't see the SystemUI overlay; the record is the ground truth). Regression: `scripts/test-notification-sound.sh` now asserts the silent channel carries the silent clip AND the popup's `airtimeCount`.
-
 ## Issue #184 · Incoming SMS notification shows phone number instead of contact name
 
 ✅ USER REPORT: notifications from saved contacts showed the raw phone number as the notification title instead of the contact name (tested on Android 12).
@@ -1200,7 +1100,6 @@ Root cause: `NotificationHelper.show()` set the content title directly to `from`
 Fix: `SmsSupport.kt` resolves the title through `Repository.contactNameFor(from)` (reuses the existing contact cache/lookup) and falls back to the number only when the contact is not saved. Privacy mode keeps the generic "New message" title unchanged. The lookup runs on the background thread SmsReceiver already posts from.
 Verified on emulator (`dumpsys notification --noredact`): SMS from +15551230010 (demo contact "Sarah") → title `Sarah Sarah`, raw number absent.
 Test: `scripts/test-issue-184-notification-name.sh`
-
 ## ui/chat-design-update · App stuck / crashes / chats won't load on a real phone (2026-09-12)
 
 ✅ USER REPORT: built the `ui/chat-design-update` branch with the Develop Build workflow and installed on a physical phone — the app gets stuck, crashes, and sometimes never loads any chats.
@@ -1211,14 +1110,12 @@ Fix (all in `data/Repository.kt` unless noted):
 - Removed the now-unused `com.googlecode.libphonenumber` dependency (`libs.versions.toml` + `app/build.gradle.kts`).
 - Removed the duplicated "Sending in N seconds…" banner that rendered twice on the chat screen (`ui/ChatScreen.kt`).
 Verified on a rooted emulator seeded with 15,000 provider SMS: first-launch import 6s, home list renders, a chat opens, no crash, warm relaunch provider pass 2s. New regression: `scripts/test-large-provider-startup.sh` (seed provider → fresh install → import/land/chat/relaunch + crash watch). Existing suites re-run clean: issue-183 split-threads 5/5, message-delete-undo 11/11, empty-chat-removal 11/11, initial-sync 2/2, import-mirrors 5/6 (step 6 is the third-party SMS-IE UI, flaky on the AVD).
-
 ## Issue #179 · Open app to view recent messages first (2026-09-11)
 
 ✅ Two parts:
 - Chat screen opened ~3 rows above the newest message: `scrollToItem(messages.size - 1)` ignored the 3 loading-skeleton rows (and optional "Load earlier" button) the LazyColumn renders ABOVE the message rows. Now scrolls to `listState.layoutInfo.totalItemsCount` with a fallback retry (`LaunchedEffect(messages.size)` + 80ms). File: `ui/ChatScreen.kt` · test: `scripts/test-issue-179-scroll.sh`
 - Home list scroll behaviour (final, after three user corrections). Auto-scrolling on every new message was rejected — it yanks the list while the user is reading; and the app must not first show the old position then visibly jump to the top on open. Rules: (a) app just opened at the top + message arrives → reveal the new conversation; (b) user has scrolled down + message arrives → leave their position untouched; (c) open/reopen → the newest (unread) rows are shown at the top directly, no jump. Implementation: the `LazyListState` is deliberately non-saveable and recreated on the empty→loaded transition (`remember(conversations.isNotEmpty()) { LazyListState(0,0) }`) — a saveable state restored the old offset (then jumped), and a single state reused across the empty first composition anchored to the last row once the list arrived (LazyColumn keeps the previously visible item), which is what showed old messages on open; `snapshotFlow` tracks `isScrollInProgress` to know if the user manually scrolled away (key-anchoring shifts while idle are ignored); a `LaunchedEffect(displayed)` reveals a conversation whose unread count increased only when the user has NOT scrolled away, and skips seeding on the empty first emission so the initial load never looks like a live arrival. File: `ui/ConversationsScreen.kt` · test: `scripts/test-issue-179-home-scroll.sh`
 Verified on emulator: open lands on the true newest row with `firstVisibleItemIndex=0` (no jump); opened-at-top + receive reveals the new row; scrolled-down + receive leaves the top row unchanged; force-stop → reopen lands on the top row.
-
 ## Issue #183 · Some imported conversations split into sent and received messages
 
 ✅ USER REPORT: after restoring an SMS Import/Export backup, the same contact appeared as two threads — one holding only sent messages, one only received.
@@ -1229,7 +1126,6 @@ Fix (all in `data/Repository.kt`):
 - `mergeSplitConversations()`: one-time/ongoing heal that folds already-split threads (fold messages, draft, archived flag, notification settings into the earliest row) — runs after every system sync and also covers backup `mergeDatabase` (restore no longer re-splits).
 - No schema change → no migration; blocked-numbers, trash, archive, drafts, reactions, lock, search are all keyed by conversation_id/separate tables and are untouched.
 Verified on emulator: regression script `scripts/test-issue-183-split-threads.sh` went from `4 passed, 1 failed` to `5 passed, 0 failed` (Mom = ONE conversation, 2 in + 2 out; control merged); a manufactured pre-fix split in the local DB was healed to a single thread on relaunch and the home list shows one `+1-555-123-4567` row.
-
 ## Issue · Backup import no longer repopulates the system SMS provider (2026-09-12)
 
 ✅ USER REPORT: backed up in-app, deleted every message from the app, re-imported the backup — messages showed in our app but the default Messaging app showed nothing, and SMS Import/Export exported `0 SMS`.
@@ -1238,18 +1134,15 @@ Fix (in `data/Repository.kt`):
 - New `pushLocalMessagesToProvider()`: best-effort mirror of non-deleted local messages into `Telephony.Sms.CONTENT_URI`. Address is joined from `conversations` (the `messages` table carries no address in the v14 schema), provider `sys_id`s already present are skipped (no re-import duplicates), and new provider `_id`s are written back to the local rows. Maps app status → provider status (`failed`→STATUS_FAILED, sent/delivered→STATUS_COMPLETE), preserves `date`/`sub_id`, and degrades silently when the app isn't the default handler or the provider rejects a row. Called on both the REPLACE and MERGE import paths.
 - First build failed the query with `no such column: address` (mirror SQL referenced `messages.address` which doesn't exist in v14) — fixed with a `JOIN conversations c ON c.id = m.conversation_id`.
 Verified on emulator: backup 2 messages → wipe provider + `pm clear` app → in-app restore → provider back to 2 rows (`RepoMirror: push: attempted=2 linked=2`), default Messaging shows the restored thread, SMS Import/Export exports `2 SMS(s) and 0 MMS(s) exported`. Regression: `scripts/test-import-mirrors-provider.sh` (new) covers the full chain.
-
 ## P0 · App lock auto-disables when no device credential exists (no dead "Turn off" control)
 
 ✅ Follow-up to the no-credential lockout fix. Instead of showing a "Turn off App lock" bypass button anyone could hit on an already-inert lock, the app now auto-disables App lock (`settings.appLockEnabled = false`) and shows an honest info screen: "App lock is off" / "App lock can't be used because this device has no screen lock... to verify it's you. Set one up to turn App lock back on." — buttons: `Set up screen lock` (opens device Settings.ACTION_BIOMETRIC_ENROLL) + `Got it` (dismiss → home). No dead control, no fake lock screen. Works for all `canAuth` outcomes other than SUCCESS (NONE_ENROLLED, NO_HARDWARE, etc.).
 Verified on emulator: cleared device credential → pref auto-flipped false, info screen appeared (no "Turn off" button) → "Got it" → home. Restored PIN+fingerprint → prompt path works again.
-
 ## P0 · Deleted messages no longer reappear after restart
 
 ✅ USER REPORT: messages deleted from home → Trash → Empty trash → restart → old messages reappeared.
 Root cause: `syncFromSystem()` re-imports every provider message whose `sys_id` is absent from the local DB on app launch/resume, but a local-only delete never touched the system SMS provider — so after Empty trash cleared local rows, the next launch's sync resurrected them from `content://sms`.
 Fix: permanent-delete paths now also delete the matching rows from the system SMS provider (app is the default SMS app, and `WRITE_SMS` added to the manifest as belt-and-suspenders). Applied in `emptyTrashSuspend()`, `purgeOldTrashSuspend()`, `deleteConversationSuspend()` via new `purgeProviderMessages()` (best-effort; skips on SecurityException). Verified on emulator: empty-trash of 15105550199 → provider row gone → cold restart → conversation stays gone (local msgs 0, provider 0 rows).
-
 ## P0 · Notification uses system default sound, not the bundled custom MP3
 
 ✅ USER REPORT: incoming SMS notifications played the app's bundled custom tone (`R.raw.notification_sound`) instead of the user's system default notification sound.
@@ -1259,14 +1152,12 @@ Fix (both layers):
 - `NotificationHelper.show()` sets `notification.sound` directly on the platform `Notification` so every post overrides any legacy/stale channel tone. NB: the buffer-level `NotificationCompat.Builder.setSound()` was discovered to be a no-op (emitted notification came back `sound=null` in dumpsys), which is why the field is set post-`build()`.
 - Settings "Receive sound" row now also refreshes the channel on toggle (`NotificationHelper.ensureChannel`); subtitle reads "Use the system notification sound when a message arrives". `playReceiveSound` removed; `playSound()` is send-sound only.
 Verified on emulator (`dumpsys notification --noredact`): fresh-install channel `mId='messages'` → `mSound=content://settings/system/notification_sound`; notification record → `sound=content://settings/system/notification_sound`. Old legacy channel would keep the stale tone but the per-notification sound now wins for playback unless the user has explicitly locked the channel's sound.
-
 ## P0 · Locking the latest message still leaked its snippet on the Main screen
 
 ✅ USER REPORT: after locking the newest message from the chat screen, the conversation list still showed the raw message text as the row snippet.
 Root cause: `Repository.setLockedSuspend()` only flipped `messages.locked`; the `conversations.snippet` column was never rewritten, so the home list kept showing the plain body of the now-locked message.
 Fix: `setLockedSuspend()` now calls new `refreshSnippetForLockToggle(messageId)` — only rewrites the snippet when the toggled message is that conversation's newest (`ORDER BY timestamp DESC, id DESC LIMIT 1`), setting `"@Lock"` (plain text, no emoji — user rejected the lock emoji as unprofessional) when locked, else the plain body / `Photo` / `Video` / `Voice message` / `Attachment` by media type. Verified on emulator: long-press "final sound check" → Lock → back to list → row shows `@Lock`; menu item gone/restored consistent with Forwarding toggle.
 Files: `data/Repository.kt`. Manual check reuses `scripts/test-message-lock.sh` flow (then check the home-row snippet).
-
 ## P0 · "Forward" context-menu item visible even when forwarding is disabled
 
 ✅ USER REPORT: the long-press context menu on a message showed "Forward" even though Forwarding was turned off in Settings.
@@ -1274,7 +1165,6 @@ Root cause: the `Forward` `DropdownMenuItem` was rendered unconditionally; only 
 Fix: `forwardingEnabled: Boolean` threaded from `ChatScreen` → `ChatMessageList` → `MessageRow` (default `false` on the row), and the Forward item is wrapped in `if (forwardingEnabled) { ... }`. Call site passes `vm.settings.forwardingEnabled`.
 Verified on emulator: Forwarding off → long-press shows only Copy/Lock; Forwarding on → Copy/Forward/Lock.
 Files: `ui/ChatScreen.kt`.
-
 ## P1 · Advanced settings: permanent delete + reverse swipe + link behaviour (#177/#178)
 
 ✅ NEW Settings → Advanced screen holding 4 toggles — Permanent delete (default off), Reverse swipe actions (default off), Highlight links (moved here from the main Settings list, default on), Link open warning (default on). All backed by SettingsStore prefs (`permanent_delete_enabled`, `reverse_swipe_enabled`, `link_open_warning_enabled`) via the existing `revision` StateFlow so toggles apply LIVE.
@@ -1285,7 +1175,6 @@ Files: `ui/ChatScreen.kt`.
 - Regression: `scripts/test-advanced-settings.sh` (22 checks, all passing) — asserts "Highlight links" absent from main Settings, the 4 Advanced toggles, link dialog/direct-open for both warning states, permanent-delete dialog shown + Cancelled non-destructively, reverse-swipe trash/archive + restore, and all prefs returned to defaults.
 
 Files: `ui/AdvancedSettingsScreen.kt` (new), `ui/SettingsScreen.kt`, `data/SettingsStore.kt`, `MainActivity.kt`, `ui/ConversationsScreen.kt`, `ui/ChatScreen.kt`, `scripts/test-advanced-settings.sh`, `scripts/env.sh`, `TODO.md`.
-
 ## P1 · Recognize phone numbers with parenthesized area codes (issue #176)
 
 ✅ USER REPORT: sending to numbers stored as `(555) 555-0123` was blocked with "You can't send messages to alphanumeric senders" — `isPhoneNumber()` only allowed digits and `+`, so parenthesized area codes failed the guard.
@@ -1299,7 +1188,6 @@ priority; each has acceptance criteria and file pointers. Verify on
 `emulator-5554` with `scripts/*.sh` before marking done.
 
 ---
-
 ## Phone normalization + display formatting (feature/phone-normalization)
 
 ✅ Implemented phone number normalization and display formatting (Material 3 pattern):
@@ -1315,7 +1203,6 @@ priority; each has acceptance criteria and file pointers. Verify on
 File: `data/PhoneNumberUtils.kt`, `data/Repository.kt`, `data/Models.kt`, `data/SettingsStore.kt`, `MessagesApplication.kt`, `ui/ChatScreen.kt`, `ui/ConversationsScreen.kt`, `ui/ContactDetailsScreen.kt`, `ui/TrashScreen.kt`, `ui/NewChatScreen.kt`, `ui/SettingsScreen.kt`, `proguard-rules.pro`, `scripts/test-phone-normalization.sh`
 
 ---
-
 ## Completed (DO NOT re-implement)
 
 ### Core Architecture
@@ -1389,7 +1276,6 @@ File: `data/PhoneNumberUtils.kt`, `data/Repository.kt`, `data/Models.kt`, `data/
 - ✅ Backup restore fix: encrypt/decrypt failed when the DB size made the ciphertext an exact multiple of GCM's 16-byte block — Android's provider returns `null` from `Cipher.doFinal()` when all input was already flushed by `update()`, so `write(null)` raised NPE inside `decrypt()`, the valid backup was misread as "legacy unencrypted", and import reported a misleading error; `update()`/`doFinal()` outputs are now null-guarded before write. Verify — test: `scripts/test-backup-restore.sh`
 - ✅ Import verified against PRE-FIX backups (10:53/11:02/11:10, created by the buggy encrypt): file format is byte-identical pre/post fix (12-byte IV + AES-GCM payload + tag), so an old backup imports cleanly AS LONG AS the same device-bound Android-Keystore key (`messages_backup_key`) still exists — i.e. the app was UPDATE-installed in place, not uninstalled. If the app was uninstalled/reinstalled, the key is gone and the old backup fails decrypt → falls to raw-copy → rejected as "Invalid or corrupted backup file" (correct: data is unrecoverable, by design). Emulator proof: backups made before the 21:17:37 fresh install fail to import, those made after restore fine.
 - ✅ `scripts/test-backup-restore.sh` rewritten for the current UI (avatar tap 975,226 → scroll → Backup/Import rows): creates a fresh backup, then imports the NEWEST .enc by filename (picker's first visible row is the OLDEST file, which may belong to a lost key and correctly fails); asserts the live `messages.db` mtime changes (epoch seconds via `toybox stat -c %Y`) and the home list renders after restart. Wired into `scripts/run-all-tests.sh`. NOTE: SAF-picker auto-scroll is flaky on the emulator (works manually); more swipes added but the rebuild picker occasionally misses rows.
-
 ## P0 · Real data only — Demo/F-Droid seeding removed
 
 ✅ ALL Demo/Dummy data removed per user request:
@@ -1397,63 +1283,51 @@ File: `data/PhoneNumberUtils.kt`, `data/Repository.kt`, `data/Models.kt`, `data/
 - `Repository.init` no longer seeds on empty DB; removed `systemSmsCount()` + `purgeDemoConversations()`
 - `Components.loadContactPhoto` no longer maps demo numbers to avatar resources (real contact photos only)
 - Verified: fresh `pm clear` + initial-sync imports ONLY real SMS from the system provider; home shows real numbers/messages, no Sarah/Mom/demo rows
-
 ## P0 · Import un-trashes restored conversations
 
 ✅ Blank-home-after-import fixed: `importDatabase()` now runs `UPDATE conversations SET deleted_at=0 WHERE deleted_at>0` after a successful swap, so conversations that were in the Trash when the backup was made are visible on the home screen after restore (user hit a blank home because the imported backup contained trashed conversations). CAVEAT: backups created BEFORE the demo-removal still contain seeded demo rows; make a fresh backup.
-
 ## P0 · install.sh fixed
 
 ✅ `scripts/install.sh` used a hardcoded `~/tools/gradle-9.2.1/...` path that doesn't exist → rewired to `./gradlew` with a robust JAVA_HOME fallback chain (`~/.local/java/jdk-21.*` → `~/tools/jdk21` → exported `$JAVA_HOME`); verified to build+install even when the shell exports an invalid JDK. Also fixed `env.sh` ADB default (`$HOME/Android/Sdk` → `$HOME/android`).
-
 ## P1 · Scheduled messages UI
 
 ✅ DONE. Long-press send button → M3 DatePickerDialog → TimePicker → saves to DB + sets AlarmManager alarm. Scheduled messages list with cancel in Settings.
-
 ## P2 · Quick reply from notification
 
 ✅ DONE. `RemoteInput` on notification + `QuickReplyReceiver` BroadcastReceiver sends SMS from notification inline reply. Registered in AndroidManifest.
 
 File: `sms/SmsSupport.kt`, `sms/QuickReplyReceiver.kt`
-
 ## P3 · Message locking
 
 ✅ DONE. `locked` column in messages table (DB v10), Lock/Unlock in message context menu, biometric/PIN prompt via `BiometricPrompt`, locked messages show "@Lock" (no emoji — user rejected the lock emoji) until authenticated, re-lock on chat exit. Test: `scripts/test-message-lock.sh`
 
 File: `data/Repository.kt`, `data/Models.kt`, `ui/ChatScreen.kt`
-
 ## Splash screen dark mode
 
 - ✅ Splash now follows dark mode: added `values-night/themes.xml` (dark Material parent), `values-v31` + `values-night-v31` with `windowSplashScreenBackground` matched to app surface (#F8F9FC light / #131314 dark). Verified brightness 238 light / 30 dark. Test: `scripts/test-splash.sh`
-
 ## Skeleton loading shimmer
 
 - ✅ Shimmer skeleton placeholder while content loads (8 rows with animated gradient circles/bars matching GM style). 400ms hold before real content appears.
-
 ## Demo data for F-Droid
 
 - ✅ 10 realistic conversations seeded on fresh install (Sarah, Mom, Work, Jake, Emma, Dad, Pizza Palace, Alex, Dr. Patel, Gym Buddy) with 3-5 messages each, unread badges, pinned item
 - ✅ 6 contact avatar PNGs (colored circles with initials) in `res/drawable-xxhdpi/`
 - ✅ `DemoData.kt` seeds conversations + messages when DB is empty; `loadContactPhoto` returns demo avatars for seeded numbers
 - ✅ F-Droid/README screenshots saved in `screenshots/fdroid/` (20 images: home/chat/settings/reply × dark/light, plus scheduled picker, trash, contact details, new chat, archive × dark/light; mirrored in `fastlane/.../phoneScreenshots`). Script: `scripts/take-fdroid-screenshots.sh` (all taps dump-derived, per-shot verify). Prereq: `scripts/insert-demo-contacts.sh` seeds the Contacts provider for the demo numbers
-
 ## Chat UI adjustments (user request)
 
 - ✅ Save-contact banner hidden in chat window (code commented out, easily restorable)
 - ✅ SIM selector moved from input pill to chat 3-dot menu (per-SIM rows with radio buttons, carrier names, persists selection); hidden on single-SIM devices. Test: `scripts/test-sim-menu.sh`
 - ✅ Notifications toggle removed from chat 3-dot menu (per-conversation toggle remains in Contact details screen)
 - ✅ Archive menu item fixed (was a dead control — onClick only closed the menu); now archives, toasts, returns to list. All chat-menu options verified: Add people→contact editor, Details, Archive/Unarchive, Delete→trash, Block/Unblock. Test: `scripts/test-chat-menu.sh`
-
 ## Contact details header photo
 
 - ✅ Header avatar now uses `PersonAvatar` (loads real contact photo) instead of hardcoded placeholder — matches the participant row which already showed the photo
-
 ## P2/P3/P5 follow-up fixes
 
 - ✅ Crash fix: DB self-healing in `Db.onOpen` — recreates `conversation_notifications` and adds missing `locked` column even when an intermediate APK shipped a broken migration
 - ✅ Message long-press fix: replaced `ClickableText` with plain `Text` (links handled natively by Compose) so the bubble's `combinedClickable` long-press fires; Copy/Lock menu reachable again
 - ✅ Verified: link taps still open browser (`test-links-and-senders.sh`), lock persists across restart
-
 ## Recent fixes
 
 - ✅ Back navigation on gesture devices: ~~`onBackPressed()` override in MainActivity~~ SUPERSEDED by unified BackHandler stack (see next entry); `enableOnBackInvokedCallback="false"` in manifest
@@ -1470,7 +1344,6 @@ File: `data/Repository.kt`, `data/Models.kt`, `ui/ChatScreen.kt`
 - ✅ Screen transitions: all routes animate via a single direction-aware `AnimatedContent` (forward = slide-in-from-right, back = slide-out-to-right, same-depth = fade); replaces instant `when(navRoute)` swaps and the chat↔details-only animation
 
 File: `MainActivity.kt`, `SettingsScreen.kt`, `SmsSupport.kt`, `AndroidManifest.xml`, `Components.kt`, `DemoData.kt`
-
 ## Back-stack fix (2026-08-24)
 
 - ✅ BUG: system BACK (button or gesture) from the contact profile screen jumped to the conversation LIST instead of returning to the chat — caused by the removed `onBackPressed()` override mapping `"details" -> "list"`
@@ -1481,7 +1354,6 @@ File: `MainActivity.kt`, `SettingsScreen.kt`, `SmsSupport.kt`, `AndroidManifest.
 - Test: `scripts/test-back-stack.sh` (8 checks, all passing); regression: `scripts/test-back-nav.sh` still green
 
 File: `MainActivity.kt`, `scripts/test-back-stack.sh`
-
 ## Storage & first-launch fixes (2026-08-24)
 
 - ✅ BUG: demo conversations seeded on devices with real SMS (seed ran whenever local table was empty, before system sync) — now seeds only when READ_SMS granted AND system provider empty; polluted installs are auto-purged on launch
@@ -1491,7 +1363,6 @@ File: `MainActivity.kt`, `scripts/test-back-stack.sh`
 - ✅ Fixed `env.sh center_of_contains` bounds regex; `test-back-stack.sh` no longer depends on demo rows
 
 File: `data/Repository.kt`, `data/DemoData.kt`, `sms/SmsReceiver.kt`, `ui/ConversationsScreen.kt`, `scripts/test-sms-mirror.sh`
-
 ## Initial-sync progress bar + OTP duplicate fix (2026-08-24)
 
 - ✅ BUG: first launch showed no progress indication while system SMS imported in background — determinate `LinearProgressIndicator` ("Loading messages") now renders under the home header while `Repository.initialSyncProgress` (0..1, null=idle) is active; bar only appears when there is pending work, dismisses on completion
@@ -1502,7 +1373,6 @@ File: `data/Repository.kt`, `data/DemoData.kt`, `sms/SmsReceiver.kt`, `ui/Conver
 - ✅ Verified: bulk-import bar render/dismissal (4k SMS), zero duplicate groups post-migration from fabricated v10 corruption (3 copies → 1), fresh OTP receive stores exactly 1 copy — test: `scripts/test-initial-sync.sh`
 
 File: `data/Repository.kt`, `sms/SmsReceiver.kt`, `MainActivity.kt`, `ui/ConversationsScreen.kt`
-
 ## P4 · Auto-delete old messages
 
 Settings option to auto-delete messages older than N days.
@@ -1511,17 +1381,14 @@ Settings option to auto-delete messages older than N days.
 - Cleanup logic on app launch or via WorkManager
 
 File: `data/SettingsStore.kt`, `data/Repository.kt`
-
 ## P5 · Custom notification settings per-conversation
 
 ✅ DONE. `conversation_notifications` table (DB v9, ON DELETE CASCADE), Repository methods, toggle in ContactDetailsScreen + ChatScreen 3-dot menu, NotificationHelper checks before posting.
-
 ## F-Droid auto-sync (2026-08-26)
 
 - ✅ `release.yml` now syncs the F-Droid metadata automatically: after the GitHub Release publishes, a `sync-fdroiddata` job clones `an1ndra/fdroiddata` (branch `com.anindra.messages`) with the `GITLAB_TOKEN` secret and rewrites versionName/versionCode/pinned commit/CurrentVersion(Code) in `metadata/com.anindra.messages.yml`, then pushes — updating fdroid MR !46632; no-op-safe on re-runs
 - ✅ Removed the duplicate "Update fdroiddata MR" step + `update_fdroiddata` input from `fdroid-release.yml` (Release workflow is now the single owner; no push race)
 - ✅ `fdroid-release.yml` deleted — one-click UI release-cutting dropped; releases are cut locally (bump + signed commit/tag push), `release.yml` handles everything after
-
 ## Contact picker truncation fix (2026-08-26)
 
 - ✅ Issue #98: NewChatScreen hard-capped contacts at 200 (`out.size < 200`) with no truncation indicator; worse, the picker's search filter ran POST-truncation, so contacts beyond #200 were unfindable by name
@@ -1529,7 +1396,6 @@ File: `data/SettingsStore.kt`, `data/Repository.kt`
 - ✅ Regression script seeds >200 uniquely-named ("ZzqNNN", sort-last) contacts via parallel content-provider workers, then asserts the LAST one appears when searched — test: `scripts/test-contacts-limit.sh`
 
 File: `ui/NewChatScreen.kt`, `scripts/test-contacts-limit.sh`
-
 ## Archive swipe UNDO (2026-08-26)
 
 - ✅ Issue #97: swipe-right archive fired silently while swipe-left delete showed an UNDO snackbar; also bottom-sheet "Archive" had zero feedback
@@ -1537,7 +1403,6 @@ File: `ui/NewChatScreen.kt`, `scripts/test-contacts-limit.sh`
 - ✅ Regression script swipes right on the topmost list row, asserts the snackbar + Undo action appear, taps Undo and asserts the row returns — test: `scripts/test-archive-undo.sh`
 
 File: `ui/ConversationsScreen.kt`, `scripts/test-archive-undo.sh`
-
 ## Quick-reply receiver threading fix (2026-08-26)
 
 - ✅ Issue #90 code fix: `QuickReplyReceiver` now uses `goAsync()` + `CoroutineScope(SupervisorJob() + Dispatchers.IO)` (ScheduledMessageSender pattern); DB write, SMS send and system-mirror all off the main thread with try/catch + `finish()` in `finally`; notification cancel moved after durable DB insert
@@ -1546,14 +1411,12 @@ File: `ui/ConversationsScreen.kt`, `scripts/test-archive-undo.sh`
 - ✅ Verified end-to-end with manual shade tap: `autoreplyping90` landed in system Sent box, crash buffer clean — test: `scripts/test-quick-reply.sh`
 
 File: `sms/QuickReplyReceiver.kt`, `scripts/test-quick-reply.sh`
-
 ## Chat list O(n²) fix (2026-08-26)
 
 - ✅ Issue #94: `messages.indexOfFirst { it.id == msg.id }` ran inside the LazyColumn `items` lambda — O(n) per composed item, O(n²) per frame during scroll; replaced with `itemsIndexed(messages, key = { _, msg -> msg.id })` so the index comes from LazyListScope directly (zero lookups, zero allocations)
 - ✅ Regression script opens a conversation, flings to top to assert the idx==0 "Today" divider renders (chat opens bottom-scrolled, so the first divider is lazily off-screen — assertion scrolls up first), plus asserts the last-own-message status line (`H:MM • SMS`) at the bottom — test: `scripts/test-chat-render.sh`
 
 File: `ui/ChatScreen.kt`, `scripts/test-chat-render.sh`
-
 ## Critical/high batch fixes (2026-08-26)
 
 - ✅ Issue #81 (critical): scheduled sends could lose text or leave ghost rows — `ScheduledMessageSender` now wraps the radio hand-off in its own try/catch: on throw, the stored message is marked `"failed"` (retriable "Not sent · Tap to retry") instead of staying `"sending"` forever; `deleteScheduledMessage` runs unconditionally once content is durably stored, so no zombie schedule entries can accumulate
@@ -1563,7 +1426,6 @@ File: `ui/ChatScreen.kt`, `scripts/test-chat-render.sh`
 - ⚠️ Pre-existing stale script noticed: `test-p2-p3-p5.sh` P3 step expects `resource-id="row_N"` nodes that no longer exist in ChatScreen — broken before today's changes, needs a separate refresh
 
 File: `sms/ScheduledMessageSender.kt`, `sms/SmsReceiver.kt`, `ui/ChatScreen.kt`, `scripts/test-scheduled-send.sh`
-
 ## Medium/low batch A fixes (2026-08-26)
 
 - ✅ Issue #89: `ensureChannel()` moved above the `canPost()` early-return in both `show()` and `showSendFailed()` — notify() with an unknown channel is a silent no-op, so the channel must exist before any bail-out; verified with a pm-clear cold install + injected SMS (notification posts)
@@ -1573,7 +1435,6 @@ File: `sms/ScheduledMessageSender.kt`, `sms/SmsReceiver.kt`, `ui/ChatScreen.kt`,
 - ✅ Verified: build green; `test-chat-render.sh` PASS ("Today" divider via new java.time path), cold-start + incoming-notification probe PASS
 
 File: `sms/SmsSupport.kt`, `MessagesApplication.kt`, `MainActivity.kt`, `ui/ConversationsScreen.kt`, `ui/Components.kt`
-
 ## Medium/low batch B fixes (2026-08-26)
 
 - ✅ Issue #92: `NotificationHelper` used `from.hashCode()` for notification ids and QuickReplyReceiver's PendingIntent, so two senders sharing a hash could overwrite each other's notification; `showSendFailed()` also collided with incoming ids. Now uses `(convoId ?: from.hashCode().toLong()).toInt()` as the stable notifId; `QuickReplyReceiver` reads `EXTRA_NOTIF_ID` from the intent (with hashCode fallback for stale intents); `showSendFailed` posts under a `"failed"` tag to decouple from incoming ids
@@ -1581,7 +1442,6 @@ File: `sms/SmsSupport.kt`, `MessagesApplication.kt`, `MainActivity.kt`, `ui/Conv
 - ✅ Verified: `test-delayed-send.sh` PASS (auto-send after 5s countdown, Cancel aborts with no Sent-box entry)
 
 File: `sms/SmsSupport.kt`, `sms/QuickReplyReceiver.kt`, `ui/ChatScreen.kt`
-
 ## Medium/low batch C fixes (2026-08-26)
 
 - ✅ Issue #88: `ContactDetailsScreen` had a "Search" `DetailActionButton` with `onClick = {}` — removed the button and its `Icons.Rounded.Search` import (hard rule #2: every visible control must do something real)
@@ -1589,7 +1449,6 @@ File: `sms/SmsSupport.kt`, `sms/QuickReplyReceiver.kt`, `ui/ChatScreen.kt`
 - ✅ Issue #99: `ChatScreen.kt` was 1341 lines with a ~640-line `ChatScreen` composable. Extracted three focused composables: `ChatTopBar` (top bar + 3-dot menu with SIM picker, archive, delete, block/unblock), `ChatMessageList` (LazyColumn with message rows, retry, forward, lock/unlock), `ChatSchedulePicker` (date + time picker flow). `ChatScreen` now delegates to these composables, reducing inline logic and improving maintainability
 
 File: `ui/ContactDetailsScreen.kt`, `data/SettingsStore.kt`, `ui/SettingsScreen.kt`, `ui/ChatScreen.kt`
-
 ## Performance batch D fixes (2026-08-26)
 
 - ✅ Issue #111: `ChatScreen` created a new `Executors.newSingleThreadExecutor()` on every recomposition. Wrapped in `remember { }` so the executor survives recomposition
@@ -1608,7 +1467,6 @@ File: `ui/ContactDetailsScreen.kt`, `data/SettingsStore.kt`, `ui/SettingsScreen.
 - ✅ Bugfix: `ChatTopBar` guarded block/unblock menu with `SettingsStore::blockingEnabled.javaClass != null` (always true). Replaced with proper `blockingEnabled: Boolean` parameter
 
 File: `ui/ChatScreen.kt`, `ui/ConversationsScreen.kt`, `data/Repository.kt`, `MainActivity.kt`, `ui/Components.kt`
-
 ## Security hardening (2026-08-27)
 
 - ✅ Issue #129: `allowBackup="false"` in AndroidManifest to prevent unencrypted ADB backups
@@ -1626,7 +1484,6 @@ File: `ui/ChatScreen.kt`, `ui/ConversationsScreen.kt`, `data/Repository.kt`, `Ma
 - ✅ Issue #145: Removed unused `NoConfirmationSmsSendService` stub from manifest
 
 File: `AndroidManifest.xml`, `sms/SmsSupport.kt`, `MainActivity.kt`, `ui/ChatScreen.kt`, `sms/SmsReceiver.kt`, `data/Repository.kt`, `data/BackupCrypto.kt`
-
 ## Stability bug fixes (2026-08-27)
 
 - ✅ Issue #146: `importDatabase()` crashed on corrupted/non-SQLite files — rewrote with `ImportResult` sealed class, pre-validation via `isValidSqliteFile()` (checks magic header), backup-before-swap, `db` changed from `val` to `var` for safe reinit
@@ -1636,7 +1493,6 @@ File: `AndroidManifest.xml`, `sms/SmsSupport.kt`, `MainActivity.kt`, `ui/ChatScr
 - ✅ Issue #150: `importDatabase()` failure silently swallowed — `ImportResult.Error` carries specific message; `SettingsScreen` shows "Import failed: {message}" toast
 
 File: `MainActivity.kt`, `data/Repository.kt`, `ui/ChatScreen.kt`, `ui/SettingsScreen.kt`
-
 ## Settings toggles: SIM indicator + send/receive sounds (2026-08-27)
 
 - ✅ Split single "Message sounds" toggle into separate "Send sound" and "Receive sound" toggles in SettingsStore + SettingsScreen
@@ -1645,11 +1501,9 @@ File: `MainActivity.kt`, `data/Repository.kt`, `ui/ChatScreen.kt`, `ui/SettingsS
 - ✅ Wired `sendSoundEnabled`/`receiveSoundEnabled` into `SmsSupport.playSound()`
 
 File: `data/SettingsStore.kt`, `ui/SettingsScreen.kt`, `ui/ChatScreen.kt`, `sms/SmsSupport.kt`
-
 ## Deferred
 
 - ✅ Issue #106: Implemented simple LIMIT200 pagination. `Repository.messages()` now accepts `limit`/`offset` params (default `Int.MAX_VALUE`/0 for backward compat). Added `messageCount()`. `ChatScreen` maintains `pageLimit` state starting at200; "Load earlier messages" button at top of chat list increases limit by200. No new dependencies.
-
 ## Progressive chat loading + visible conversations loading (2026-08-30)
 
 - ✅ Chat screen no longer loads every message at once: latest 40 render first with a 3-row shimmer skeleton, then 40 more load automatically as you scroll (capped at 400), then a "Load earlier messages" button appears for older history (`INITIAL_CHUNK`/`AUTO_CHUNK`/`AUTO_CAP`/`LOAD_EARLIER_STEP` in ChatScreen). Flows re-keyed on `remember(conversationId[, pageLimit])` because Compose `collectAsState` keys on the flow instance (verified in bytecode).
@@ -1659,7 +1513,6 @@ File: `data/SettingsStore.kt`, `ui/SettingsScreen.kt`, `ui/ChatScreen.kt`, `sms/
 - Note: READ_SMS is auto-granted (`GRANTED_BY_ROLE`) to the default SMS handler, overriding `pm revoke` — panel only manifests on first-run denial before the role is granted.
 
 File: `ui/ConversationsScreen.kt`, `ui/ChatScreen.kt`, `data/Repository.kt`, `MainActivity.kt` · test: `scripts/test-loading-screen.sh`
-
 ## Merge import option (2026-09-06)
 
 - ✅ Import is a SINGLE "Import messages" row that opens a dialog with two modes: "Merge with existing messages" (default, keeps current data + adds backup's missing messages/contacts, deduped, trash-lift, live refresh) and "Restore (replace all)" (explicit, destructive — file-swap replace + restart). No separate restore row
@@ -1672,7 +1525,6 @@ File: `ui/ConversationsScreen.kt`, `ui/ChatScreen.kt`, `data/Repository.kt`, `Ma
 - ✅ Test-script hardening: merge-import test matches conversations by last-message preview (number formatting is locale-dependent), force-stops for a clean home landing in Step 0, and navigate Back to the list in Step 4 (merge refreshes in place — no restart)
 
 File: `data/Repository.kt`, `MainActivity.kt`, `ui/SettingsScreen.kt`, `scripts/test-merge-import.sh`, `scripts/test-import-loading.sh`
-
 ## Settings toggles apply LIVE (no restart) — Drafts / Pinned / Swipe actions (2026-09-06)
 
 - ✅ USER REPORT: toggling Settings switches (Drafts, Pinned conversations, Swipe actions) did nothing until the app was restarted. Root cause: `ConversationsScreen` keyed `rowSettings` on the `vm.settings` singleton (`remember(vm.settings)`), so row-level settings froze at first composition; the swipe-key in `remember(conversations, showArchived, query)` similarly ignored settings changes.
@@ -1680,7 +1532,6 @@ File: `data/Repository.kt`, `MainActivity.kt`, `ui/SettingsScreen.kt`, `scripts/
 - ✅ Verified LIVE on emulator (no restart between toggles): Drafts toggle ON/OFF immediately shows/hides `Draft:` previews; Pinned OFF removes the pin-row from the long-press sheet; Swipe actions ON → full 900ms swipe trashes a row with UNDO, OFF → identical gesture does NOT trash (row shows as a long-press instead — emulator injected swipes are read as long-presses). All toggles restored to ON after testing; unit tests + `assembleDebug` pass.
 
 File: `ui/ConversationsScreen.kt`, `data/SettingsStore.kt`, `ui/ChatScreen.kt`, `ui/SettingsScreen.kt` · test: `scripts/test-settings-live.sh`
-
 ## Incoming-SMS notification silently dropped / never posted (2026-09-05)
 
 - ✅ BUG: with the app as default SMS handler, injected inbound SMS stored to the DB but NO system notification ever appeared — on the emulator (API 35) AND the vivo (API 36)
@@ -1691,14 +1542,161 @@ File: `ui/ConversationsScreen.kt`, `data/SettingsStore.kt`, `ui/ChatScreen.kt`, 
 - Resume-point: verify on the real vivo later (needs a release build signed with the vivo keystore `223e351c`, PM will replace the 1.0.14 build) — test: `scripts/test-notification-posts.sh`
 
 File: `sms/SmsReceiver.kt`, `sms/SmsSupport.kt`, `res/drawable/ic_reply.xml`
-
 ## Release v1.0.21 (2026-09-06)
 
 - ✅ Cut v1.0.21 at `7512e5a` (settings-live toggles fix + merge-import polish): versionCode 24, versionName "1.0.21"; tagged `v1.0.21`; pushed to `origin/main` — GitHub `release.yml` handles the release build (keystore from secrets), security gate, GitHub Release publish, and fdroiddata MR sync.
 - ✅ Build green locally (`assembleDebug`) before tagging.
-
 ## Regression guardrails
 
 After any task: run `scripts/run-all-tests.sh`, eyeball screenshots
 (01-home, 04-sent, 11-settings, 15-theme-dark), ensure build green, no new
 permissions beyond listed in AGENTS.md, and zero dead controls introduced.
+## Spam & blocked · one folder, M3 tabs, keyword messages, SIM always-on (2026-09-22)
+
+✅ USER REQUEST: fold the redundant "Blocked numbers" row into one **Spam &
+blocked** screen with Material 3 tabs (Conversations | Messages); park
+keyword-blocked SMS as messages (not the whole contact); keep the SIM switcher
+always visible.
+
+- Keyword-blocked SMS now soft-deletes just the message (`messages.blocked_reason`
+  + `deleted_at`; DB v20) and the conversation stays in the inbox; the SMS is
+  listed under **Spam & blocked → Messages**.
+- `SpamBlockedScreen` rebuilt with `PrimaryTabRow`/`Tab`: Conversations (blocked
+  numbers, Unblock) + Messages (keyword blocks, Delete). Removed the separate
+  `BlockedNumbersScreen`, its Settings row/route/strings and
+  `test-blocked-numbers-list.sh`.
+- SIM switcher renders whenever `sims.size > 1` (no draft/keyboard gate).
+
+Tests: `test-keywords.sh` 11/11 (message soft-deleted + listed under Messages,
+conversation in inbox), `test-spam-blocked.sh` 9/9, `test-sim-inputbar.sh` 7/7
+(visible while typing).
+## Spam & blocked folder · GM-like block behaviour (2026-09-22)
+
+✅ USER REQUEST (GM-like): blocking a number moves its conversation out of the
+inbox into a **Spam & blocked** folder (kept, recoverable), later messages from
+that number are stored there with no notification, and Unblock restores the
+thread. Reachable from **Settings → Spam & blocked** (below Trash); the overflow
+menu on the main list was removed. No Trash involvement.
+
+- DB v19 adds `conversations.blocked`; `Conversation.blocked`; `matchesView`
+  (`INBOX`/`ARCHIVED`/`SPAM_BLOCKED`) filters blocked out of the inbox and
+  archives. `Repository.receiveSpamMessage` stores without unread/notify;
+  `blockNumber`/`unblockNumber` flag the conversation. `SmsReceiver` routes a
+  blocked sender's SMS there instead of dropping it.
+- New `SpamBlockedScreen` (`Settings → Spam & blocked`) lists blocked threads
+  with a "Blocked" tag and Unblock; `ConversationsScreen` rows show a block
+  badge; blocking from a chat returns to the list with a "Moved to Spam &
+  blocked" toast.
+
+Tests: `ConversationFilterTest` (view partitioning) + `scripts/test-spam-blocked.sh`
+(block → leaves inbox → kept in the folder with badge → Unblock → back in inbox;
+9/9 on `emulator-5554`).
+## Settings · Blocked numbers list (2026-09-22)
+
+✅ USER REQUEST: a way to see blocked numbers. Settings → "Blocked numbers"
+(under Number blocking) opens `BlockedNumbersScreen` — each blocked number with
+an Unblock action, plus an empty state. The Settings row subtitle shows the
+count ("None" / "N blocked"). Wired through `AppViewModel.blockedNumbers()` (the
+previously-unused `Repository.blockedNumbers()`) and a `blocked` nav route.
+
+Tests: new `BlockedNumbersTest` (subtitle helper) + `scripts/test-blocked-numbers-list.sh`
+(block via the long-press sheet → number listed → Unblock → removed).
+## Trash · blocked messages kept + delete-reason tag (2026-09-22)
+
+✅ USER REQUEST: keyword-blocked messages are no longer dropped — they are
+stored and their conversation is moved to Trash (recoverable via Restore) with
+no notification. Trash rows carry a reason tag under the number: "Manually"
+(user) or "Keyword" (keyword block). Messages from a blocked number are still
+dropped entirely (never stored, never in Trash).
+
+- `Repository.receiveBlockedMessage` inserts the message and sets
+  `conversations.deleted_at` + `deleted_reason`; `SmsReceiver` routes a blocked
+  keyword (`KeywordFilter.route` → `blocked_keyword`) through it and drops
+  messages from a blocked sender (`isAddressBlocked`).
+- New `TrashReason` constants; DB v18 adds `conversations.deleted_reason`
+  (default `manual`); every manual trash path records `manual`. `TrashScreen`
+  renders a small reason tag.
+- `keywords_hint` now says matching messages go to Trash.
+
+Tests: `KeywordFilterTest` route cases + `TrashReasonTest`; `test-keywords.sh`
+(message kept, reason `blocked_keyword`, no notification, "Keyword" tag);
+`test-trash.sh` asserts the "Manually" tag.
+## Chat · emoji button setting + composer tweaks (2026-09-22)
+
+✅ USER REQUEST: add an Advanced option to show the emoji button in the message
+field (default off), move the attach button inside the field, and rename the
+field hint "Text message" → "Message". New `SettingsStore.emojiButtonEnabled`
+(`KEY_EMOJI_BUTTON`, default false) surfaced as Advanced → Appearance → "Emoji
+button"; `InputBar` takes `showEmojiButton` and only renders the emoji
+`IconButton` when set. The attach `AddCircleOutline` moved to the TextField
+`leadingIcon`; `text_placeholder` is now "Message".
+
+Tests: new `EmojiButtonSettingTest` (key + default contract) and
+`scripts/test-emoji-toggle.sh` run on dual-SIM (`--ez fake_dual_sim true`): 9/9 —
+SIM switcher present with the emoji off, both present when on, restored off.
+## Chat · SIM switcher icon redesign (2026-09-23)
+
+✅ USER REQUEST: the in-field SIM glyph is now a single tintable 24dp Fossify
+Commons outline (`ic_sim_vector`, white placeholder fill, tinted
+`onSurfaceVariant` like the other input-bar icons). The old cutout-style
+`ic_sim_1`/`ic_sim_2`/`ic_dual_sim` are deleted, along with `SimIcon`/`iconFor`.
+The slot number ("1"/"2", or "D" for 3+) is overlaid on the icon as a bold
+`labelSmall` in `colorScheme.surface` — a knockout numeral that stays legible on
+the `onSurfaceVariant` fill in both light (light numeral on dark card) and dark
+(dark numeral on light card) themes. Input-bar trailing row: 40dp clickable
+`Box`, SIM glyph left of the emoji, hidden while a draft exists.
+
+Tests: `SimIconDrawableTest` (white tint-only fill, 24dp, Fossify card shape,
+old icons gone) and new `SimBadgeColorTest` (icon `onSurfaceVariant` tint,
+label `colorScheme.surface`, no `Color.White`/`onPrimaryContainer`) kept green
+with `test-sim-inputbar.sh` (8/8: dual button present, slot numeral rendered,
+cycles + wraps the pref, hidden while typing, absent on single-SIM).
+## App · clock follows the device 12/24-hour setting (2026-09-22)
+
+✅ USER REQUEST: message times read "12:30 AM" even when the phone is set to a
+24-hour clock. Every in-app time now derives its pattern from the device via
+`android.text.format.DateFormat.is24HourFormat(context)` — 24-hour shows
+`00:30`, 12-hour shows `12:30 AM`, matching the phone.
+
+New pure `ui/TimeFormat.kt` (`is24HourFormat`, `timePattern`,
+`timeOnlyFormatter`, `dateTimeFormatter`, `formatDateTime`). Wired through
+`Components.formatTimeOnly`/`formatListTime`, `MessageGrouping.formatGroupLabel`,
+the chat bubble + group header, the message-details dialog, the schedule toast,
+the settings scheduled-message list, and `rememberTimePickerState(is24Hour=…)`.
+Removed the hard-coded `h:mm a` `SimpleDateFormat` sites in `ChatScreen`/
+`SettingsScreen`.
+
+Tests: `testDebugUnitTest` 138/138 (new `TimeFormatTest` 6/6: pattern switch,
+`00:30`/`12:30 AM`, date+time prefix, AM/PM absent from bubbles/group labels in
+24-hour mode). New `scripts/test-24h-time.sh` (flips `settings put system
+time_12_24 24|12`, relaunches, asserts HH:mm vs AM/PM in the chat dump, restores
+the original value) wired into `run-all-tests.sh`.
+## Issue #227 · in-field SIM switcher + Persian number bidi (2026-09-21)
+
+✅ USER REQUEST (two parts):
+
+1. **SIM button beside send.** Restored the in-field SIM switcher in the chat
+   input bar (the prototype removed in `5ba7a29`). New pure `data/SimSwitcher.kt`
+   (`iconFor`, `next`) backs it; `InputBar` takes `sims`/`currentSimId`/
+   `onCycleSim` and paints `ic_sim_1`/`ic_sim_2`/`ic_dual_sim` (tinted
+   `colorScheme.primary`, content-desc "Switch SIM") only for `sims.size > 1`
+   and an empty draft. `cycleSim()` now delegates to `SimSwitcher.next`. The
+   chat 3-dot menu SIM rows remain.
+2. **Persian number reversal.** Root cause reproduced on emulator: in an RTL
+   paragraph the space/`-`/`+`-separated number groups are laid out right-to-
+   left, so `+98 999 862 0453` painted as `0453 862 999 98+` (list titles,
+   message bodies, details). Fix is render-layer only (DB/identity untouched):
+   new pure `ui/BidiText.kt` wraps number runs in Unicode LRI/PDI
+   (`ltr()` for standalone numbers, `isolateNumberRuns()` + offset `remap()`
+   for bodies). `isolateNumberRuns` is a no-op unless the text's first strong
+   character is RTL — isolating an otherwise-LTR run would itself reorder it in
+   an RTL layout. Applied in `rememberLinkedText`/`styledBody` (preserving link
+   + OTP styling offsets) and to every number display (`formatPhoneNumber`,
+   which now isolates, plus `convo.display` sites in conversations/chat/contact
+   details/trash).
+
+Tests: `testDebugUnitTest` 132/132 (new `BidiTextTest` 7/7, `SimSwitcherTest`
+4/4). New `scripts/test-persian-numbers.sh` (4/4: RTL title + body isolated,
+LTR body untouched) and rewritten `scripts/test-sim-inputbar.sh` (6/6: dual-SIM
+button present, cycles the pref, hidden while typing, absent on single-SIM)
+using the `--ez fake_dual_sim true` hook. Both wired into `run-all-tests.sh`.

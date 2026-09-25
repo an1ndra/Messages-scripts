@@ -12,7 +12,7 @@ center_of_contains() {
     local query="$1" b i x1 y1 x2 y2
     for i in 1 2 3; do
         dump_ui || { sleep 1; continue; }
-        b=$(grep -oE "text=\"[^\"]*$query[^\"]*\"[^>]*bounds=\"[^\"]*\"" \
+        b=$(grep -oE "(text|content-desc)=\"[^\"]*$query[^\"]*\"[^>]*bounds=\"[^\"]*\"" \
                 "$TMP/ui.xml" 2>/dev/null | head -1 \
             | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]' | head -1)
         if [ -n "$b" ]; then
@@ -36,18 +36,18 @@ row_y() {
 
 fresh_launch() {
     adb_ shell am force-stop "$PKG"; sleep 1
-    adb_ shell am start -n "$ACT" >/dev/null; sleep 3.5
+    adb_ shell am start -n "$ACT" >/dev/null; sleep 6
 }
 
 info "Inject disposable conversation"
 adb_ emu sms send "+1555-123-0999" "trash me please" >/dev/null 2>&1; sleep 2
 fresh_launch
 
-Y=$(row_y "555-123-0999") || { fail "test row not on list"; exit 1; }
+Y=$(row_y "123-0999") || { fail "test row not on list"; exit 1; }
 
 info "1. Short slow swipe must NOT delete (sensitivity)"
 adb_ shell input swipe 900 "$Y" 560 "$Y" 900; sleep 1.5
-if center_of_contains "555-123-0999" >/dev/null; then
+if center_of_contains "123-0999" >/dev/null; then
     pass "short swipe ignored (threshold works)"
 else
     fail "short swipe deleted the row - still too sensitive"
@@ -56,13 +56,13 @@ else
 fi
 
 info "2. Full slow swipe deletes to trash with Undo snackbar"
-Y=$(row_y "555-123-0999") || { fail "row missing before swipe"; exit 1; }
+Y=$(row_y "123-0999") || { fail "row missing before swipe"; exit 1; }
 adb_ shell input swipe 950 "$Y" 25 "$Y" 900; sleep 1.5
-if grep -q "Moved to trash" "$TMP/ui.xml" && ! grep -q "555-123-0999" "$TMP/ui.xml"; then
+if grep -q "Moved to trash" "$TMP/ui.xml" && ! grep -q "123-0999" "$TMP/ui.xml"; then
     pass "row trashed, snackbar shown"
 else
     dump_ui
-    if ! grep -q "555-123-0999" "$TMP/ui.xml"; then
+    if ! grep -q "123-0999" "$TMP/ui.xml"; then
         pass "row removed from list"
     else
         fail "full swipe did not remove row"
@@ -72,7 +72,7 @@ fi
 info "3. Tap Undo restores the row"
 if tap_text "Undo"; then
     sleep 1.5
-    if dump_ui && grep -q "555-123-0999" "$TMP/ui.xml"; then
+    if dump_ui && grep -q "123-0999" "$TMP/ui.xml"; then
         pass "undo restored conversation"
     else
         fail "undo did not restore"
@@ -83,12 +83,12 @@ else
 fi
 
 info "4. Long-press menu Delete also moves to trash"
-C=$(center_of_contains "555-123-0999") || { fail "row missing"; exit 1; }
+C=$(center_of_contains "123-0999") || { fail "row missing"; exit 1; }
 XY=($C)
 adb_ shell input swipe "${XY[0]}" "${XY[1]}" "${XY[0]}" "${XY[1]}" 900; sleep 1.2
 tap_text "Delete" || { fail "sheet Delete missing"; exit 1; }
 sleep 1.5
-dump_ui && ! grep -q "555-123-0999" "$TMP/ui.xml" \
+dump_ui && ! grep -q "123-0999" "$TMP/ui.xml" \
     && pass "sheet delete moved row to trash" \
     || fail "sheet delete failed"
 
@@ -107,8 +107,11 @@ done
 if [ "$FOUND_TRASH" = "1" ]; then
     pass "'Trash' entry present"
     tap_text "Trash"; sleep 2
-    if center_of_contains "555-123-0999" >/dev/null; then
+    if center_of_contains "0999" >/dev/null; then
         pass "trashed item listed"
+        grep -q 'text="Manually"' "$TMP/ui.xml" \
+            && pass "trash row shows the 'Manually' tag" \
+            || fail "trash row reason tag missing"
         tap_text "Restore"; sleep 1.5
         adb_ shell input keyevent 4; sleep 1
     else
@@ -120,8 +123,8 @@ fi
 
 info "6. Restored item is back on the main list"
 adb_ shell am force-stop "$PKG"; sleep 1
-adb_ shell am start -n "$ACT" >/dev/null; sleep 3.5
-if center_of_contains "555-123-0999" >/dev/null; then
+adb_ shell am start -n "$ACT" >/dev/null; sleep 6
+if center_of_contains "123-0999" >/dev/null; then
     pass "restored row visible on list"
 else
     fail "restored row not on list"

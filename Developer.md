@@ -106,6 +106,7 @@ This repo is the upstream of the `scripts/` submodule in the Messages app.
 | Thread/parsing bugs | `test-issue-179-*.sh`, `test-issue-183-split-threads.sh`, `test-multipart-sms.sh`, `test-parentheses-number.sh`, `test-input-capitalization.sh`, `test-newline-input.sh`, `test-empty-chat-removal.sh`, `test-message-selection.sh` |
 | Navigation | `test-back-nav.sh`, `test-back-stack.sh` |
 | Chat UI | `test-chat-menu.sh`, `test-chat-render.sh`, `test-sim-menu.sh`, `test-sim-indicator.sh`, `test-sim-inputbar.sh` |
+| i18n/bidi | `test-persian-numbers.sh` |
 | Links/OTP | `test-links-and-senders.sh`, `test-link-warning.sh`, `test-hide-links.sh`, `test-otp.sh`, `test-otp-link-independence.sh` |
 | Notifications | `test-notifications.sh`, `test-notification-sound.sh`, `test-notification-posts.sh`, `test-issue-184-notification-name.sh`, `test-quick-reply.sh`, `test-sms-mirror.sh` |
 | Backup/import | `test-backup-restore.sh`, `test-import-loading.sh`, `test-import-mirrors-provider.sh`, `test-merge-import.sh`, `test-initial-sync.sh`, `test-large-provider-startup.sh` |

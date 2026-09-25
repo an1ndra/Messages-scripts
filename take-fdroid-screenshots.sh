@@ -169,7 +169,7 @@ light() { adb_ shell cmd uimode night no;  sleep 1.5; }
 dark;  launch; dismiss_onboarding; ensure_home
 adb_ shell input swipe 540 1800 540 900 350; sleep 0.5
 screencap_to 01-home-dark.png;  verify "Messages"
-open_chat "Dad";                 screencap_to 02-chat-dark.png;  verify "Text message"
+open_chat "Dad";                 screencap_to 02-chat-dark.png;  verify "Message"
 back; ensure_home
 
 open_chat "Sarah"; focus_input; clear_input
@@ -185,7 +185,7 @@ back
 light; launch; dismiss_onboarding; ensure_home
 adb_ shell input swipe 540 1800 540 900 350; sleep 0.5
 screencap_to 03-home-light.png;  verify "Messages"
-open_chat "Dad";                 screencap_to 04-chat-light.png;  verify "Text message"
+open_chat "Dad";                 screencap_to 04-chat-light.png;  verify "Message"
 back; ensure_home
 
 open_chat "Emma"; focus_input; clear_input

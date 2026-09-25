@@ -36,7 +36,7 @@ if grep -q 'Hello' "$TMP/ui.xml" && grep -q 'World' "$TMP/ui.xml"; then
 else
     echo "[FAIL] Multi-line text not found — Enter may have sent the message"
     info "Checking if message was sent..."
-    if grep -q 'Hello' "$TMP/ui.xml" && ! grep -q 'Text message' "$TMP/ui.xml"; then
+    if grep -q 'Hello' "$TMP/ui.xml" && ! grep -q 'Message' "$TMP/ui.xml"; then
         echo "[FAIL] Confirmed: Enter sent the message instead of inserting newline"
     fi
 fi
