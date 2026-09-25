@@ -109,9 +109,15 @@ if [ "$FOUND_TRASH" = "1" ]; then
     tap_text "Trash"; sleep 2
     if center_of_contains "0999" >/dev/null; then
         pass "trashed item listed"
-        grep -q 'text="Manually"' "$TMP/ui.xml" \
-            && pass "trash row shows the 'Manually' tag" \
-            || fail "trash row reason tag missing"
+        # A manually trashed row shows the deletion date, not a reason tag: the
+        # tag is only for keyword-blocked rows, and lives in test-keywords.sh.
+        # This used to assert text="Manually", which the app never rendered.
+        grep -q "Deleted" "$TMP/ui.xml" \
+            && pass "trash row shows the deletion date" \
+            || fail "trash row missing the deletion date"
+        ! grep -q "Keyword" "$TMP/ui.xml" \
+            && pass "manually trashed row carries no reason tag" \
+            || fail "manually trashed row wrongly shows a reason tag"
         tap_text "Restore"; sleep 1.5
         adb_ shell input keyevent 4; sleep 1
     else

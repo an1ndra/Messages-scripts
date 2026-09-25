@@ -5,6 +5,89 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Four long-standing test failures, all test bugs (2026-09-25)
+
+Found while merging #247 and #248. Each was confirmed to fail on clean
+`Develop`, and **every one turned out to be a broken assertion or a silent
+abort in the script — no app code was wrong and none needed changing.**
+
+### 1. `test-privacy-features.sh` aborted silently at step 2
+
+`set -euo pipefail` plus this:
+
+```bash
+get_privacy_pref() {
+    … | grep 'privacy_mode' | sed …
+}
+```
+
+`privacy_mode` is **absent from the prefs XML until the user actually toggles
+it**, because `SettingsStore` falls back to the default in code. So `grep`
+exited 1, and the assignment `CURRENT=$(get_privacy_pref)` killed the whole
+script with no message and exit 1. Every later step had never once run — the
+test had been "failing" at step 2 for as long as it had existed.
+
+Now defaults to `false` and tolerates the missing key. With that fixed the test
+reaches step 3 for the first time, and a second fragility showed up: it opened
+the notification shade with a single swipe and a single dump, so a shade that
+wasn't ready yet made the title assertion fail while the body assertion passed
+(consistent with a *closed* shade, where neither is visible). It now retries the
+swipe and polls.
+
+### 2. `test-trash.sh` asserted a string that has never existed
+
+It checked `text="Manually"` on a manually trashed row. There is no `Manually`
+string anywhere in `res/`, and never was in this flow: the Trash screen renders
+the **deletion date** for a manual row, and a reason tag only for a
+keyword-blocked one. The assertion was added in `a158feb` ("keyword-blocked
+messages land in Trash with a reason tag") for the keyword scenario and ended up
+sitting in the manual one, then survived the redesign that moved keyword
+messages to Spam & blocked.
+
+Now asserts the real behaviour: the date is shown, and a manual row carries no
+reason tag.
+
+**Left alone, worth a decision:** `TrashScreen`'s `TrashReasonTag()` branch is
+now unreachable. Nothing sets `conversations.deleted_reason = 'blocked_keyword'`
+any more — since the Spam & blocked redesign only the **message** row gets that
+reason (`Repository.receiveBlockedMessage`). The tag can therefore only appear on
+rows written by an older build, so it may be worth keeping as legacy-data
+labelling or removing as dead UI. Not touched here.
+
+### 3. `test-alphanumeric-sender.sh` matched against a bidi-isolated header
+
+It asserted `text="A1-SRB"` on the chat header. The header is actually
+`\u2066A1-SRB\u2069` — wrapped in Unicode LTR isolates by `BidiText.ltr()` so the
+sender ID cannot be reordered inside RTL text, which is the whole point of the
+feature. The app is right; the exact-match grep could never fire. New
+`strip_isolates` helper in `env.sh`.
+
+### 4. `test-spam-blocked.sh` raced the loading skeleton
+
+"Unblock restores it to the inbox" did `sleep 6` then one dump. The conversation
+list renders a **loading skeleton while the startup sync settles**, so the row is
+simply absent from that dump. It passed 3 of 4 runs. Now polls via the new
+`wait_for_text`, which is the fix the earlier `ui_tags | grep -q` note in this
+file called for but which was never applied to this assertion.
+
+### `env.sh` additions
+- `wait_for_text "<text>" [attempts]` — polls past the startup skeleton. Uses
+  `grep -c`, never `grep -q`.
+- `strip_isolates` — removes U+2066/U+2069 so assertions can match visible text.
+
+### Screenshots removed
+`receive-sms.sh` called `shot` twice on **every** invocation, so any test using
+that helper silently wrote PNGs — against the rule that screenshots need the
+user's permission. Both `shot` calls are gone; `07-list-with-unread.png` and
+`06-incoming-notification.png` were deleted. The privacy test still passes 5/5
+and asserts through uiautomator dumps only.
+
+### Results
+`test-trash.sh` 10/10 · `test-alphanumeric-sender.sh` 8/8 ·
+`test-spam-blocked.sh` 9/9 · `test-privacy-features.sh` 5/5, each re-run to
+confirm stability. No JUnit test added, because no app code changed — the defect
+was in the tests themselves.
+
 ## Grouped notifications: expanding shows the conversation (#219-09-25)
 
 ✅ USER SUGGESTION (#219 comment 5827316702): "make notification shows all messages

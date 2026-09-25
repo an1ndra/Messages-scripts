@@ -88,9 +88,10 @@ info "Unblock restores it to the inbox"
 tap_text "Unblock" >/dev/null 2>&1; sleep 1.5
 [ "$(conv_blocked)" = "0" ] && ok "conversation unblocked" || bad "conversation still blocked"
 adb_ shell am force-stop "$PKG"; sleep 1
-adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 6
-dump_ui
-grep -q "$TAIL" "$TMP/ui.xml" \
+adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 4
+# Poll: the list renders a loading skeleton while the startup sync settles, so a
+# single dump after a fixed sleep races it and the row is simply absent.
+wait_for_text "$TAIL" 12 \
     && ok "conversation back in the inbox" \
     || bad "conversation not restored to the inbox"
 

@@ -13,7 +13,13 @@ ok() { TOTAL=$((TOTAL+1)); PASSED=$((PASSED+1)); echo "  ✅ $1"; }
 fail() { TOTAL=$((TOTAL+1)); FAILED=$((FAILED+1)); echo "  ❌ $1"; }
 
 get_privacy_pref() {
-    adb_ shell run-as "$PKG" cat /data/data/$PKG/shared_prefs/messages_settings.xml 2>&1 | grep 'privacy_mode' | sed 's/.*value="\([^"]*\)".*/\1/'
+    # The key is absent from the prefs XML until the user actually toggles it,
+    # because SettingsStore falls back to the default in code. grep then exits 1,
+    # which under `set -euo pipefail` would abort the whole script silently.
+    local v
+    v=$(adb_ shell run-as "$PKG" cat /data/data/$PKG/shared_prefs/messages_settings.xml 2>/dev/null \
+        | grep 'privacy_mode' | sed 's/.*value="\([^"]*\)".*/\1/' || true)
+    printf '%s' "${v:-false}"
 }
 
 scroll_until() {
@@ -73,13 +79,23 @@ adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" >/dev/null; sleep 3.5
 "$SCRIPT_DIR/receive-sms.sh" +15551230010 "Your OTP is 847291" 2>&1 | tail -1
 sleep 4
-adb_ shell input swipe 540 10 540 500 400; sleep 2.5
-dump_ui >/dev/null
+# Open the shade, retrying: one swipe can land before the shade is ready, and a
+# closed shade makes the next assertion fail for the wrong reason.
+SHADE=0
+for _ in 1 2 3; do
+    adb_ shell input swipe 540 10 540 500 400
+    sleep 2
+    if dump_ui >/dev/null 2>&1 && grep -c "Notification" "$TMP/ui.xml" >/dev/null 2>&1; then
+        SHADE=1; break
+    fi
+    adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
+done
 
-if grep -q '"New message"' "$TMP/ui.xml"; then
+if wait_for_text "New message" 6; then
     ok "Notification shows 'New message' placeholder"
 else
-    fail "Notification missing 'New message' placeholder"
+    [ "$SHADE" = "1" ] && fail "Notification missing 'New message' placeholder" \
+        || fail "could not open the notification shade"
 fi
 if grep -q '"Your OTP is 847291"' "$TMP/ui.xml"; then
     fail "Notification still shows message body"

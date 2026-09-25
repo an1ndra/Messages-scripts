@@ -118,7 +118,10 @@ else
 fi
 adb_ shell am start -n "$ACT" --es open_conversation_address "$SENDER" >/dev/null 2>&1
 sleep 2
-if dump_ui && grep -q "text=\"$SENDER\"" "$TMP/ui.xml"; then
+# The header wraps a number-less sender in Unicode LTR isolates (U+2066 … U+2069)
+# so the ID cannot be reordered inside RTL text, so the raw attribute is
+# "\u2066A1-SRB\u2069" and an exact match on the bare ID never fires.
+if dump_ui && strip_isolates < "$TMP/ui.xml" | grep -q "text=\"$SENDER\""; then
     ok "chat header shows '$SENDER'"
 else
     bad "chat header lost the sender ID"
