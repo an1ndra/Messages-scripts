@@ -5,6 +5,70 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Grouped notifications: expanding shows the conversation (#219-09-25)
+
+✅ USER SUGGESTION (#219 comment 5827316702): "make notification shows all messages
+of 1 person when we extend that notification instead of just showing last
+message, but that's not issue or bug".
+
+Each post replaced the record with a `BigTextStyle` body, so expanding showed one
+long message and nothing of what came before it. Now
+`NotificationCompat.MessagingStyle`, carrying the sender's recent messages, the
+conversation title, and a `Person` per side.
+
+The notification id was already stable and untagged per conversation, which is
+what makes the grouping possible — the same key that dismissed one conversation's
+notification now accumulates that conversation's history.
+
+### It has to be rebuilt, not appended
+
+`notify(id, …)` **replaces** the record. So the history cannot be added to
+incrementally: every post re-reads the last few messages
+(`Repository.recentMessageLines`) and re-adds them. `NotificationHistory.window`
+keeps the newest 5, oldest first (the order MessagingStyle expects) and drops
+blank lines, which the system would otherwise render as empty rows.
+
+### `setGroupConversation(true)` had to go
+
+The first version set it, on the assumption that it was needed to make the
+notification behave like a conversation. It made Android mint an **extra system
+record** with id `2147483647` and key `…|ranker_group|…` — a phantom third
+notification that broke the record count and the per-conversation dismissal. The
+history renders correctly without it, and the script now asserts no `ranker_group`
+record appears so it cannot creep back.
+
+### The `grep -q` / `pipefail` trap, again
+`record_exists() { block_for_id … | grep -q "NotificationRecord"; }` reported
+"no notification record" *while the very next assertion read three message lines
+out of the same block*. `grep -q` exits on its first match, `awk` upstream dies of
+SIGPIPE, and `set -o pipefail` turns that into a false negative. `blk_has()` uses
+`grep -c` instead. This is the same trap already recorded for `ui_tags | grep -q`
+earlier in this file.
+
+### Tests
+- `NotificationHistoryTest` (6) — **227 JUnit / 0 failures**
+- `test-grouped-notifications.sh` **15/15**, verified to **fail before the fix**:
+  ```
+  [FAIL] the record carries 0 of 3 messages
+  [FAIL] the record is not a MessagingStyle
+  [FAIL] the record has no conversation title
+  [FAIL] expected 5 lines after 8 messages, got 0
+  [FAIL] the first sender's history changed to 0 lines
+  ```
+  Asserts one record per sender, the 5-line cap, the newest line last, two senders
+  never sharing or clobbering history, per-conversation dismissal still working,
+  and `number=1` unchanged so the launcher badge is unaffected.
+- debug and R8-minified release both build
+
+### Pre-existing failures, unrelated to this change
+All three confirmed to fail identically on clean `Develop`:
+- `test-alphanumeric-sender.sh` — "chat header lost the sender ID"
+- `test-privacy-features.sh` — stalls at step 2, "Enable privacy mode"
+- `test-trash.sh` / `test-spam-blocked.sh` — see the retention entry above
+
+`test-notification-badge.sh` still passes 7/7, which is the important one: the
+badge invariant (`number=1` per record) survives the restyle.
+
 ## Retention: purge Spam & blocked too, and make the window configurable (2026-09-25)
 
 ✅ USER SUGGESTION (#219 comment 5827316702): "just like everything is purged in
