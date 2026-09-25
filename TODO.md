@@ -2213,3 +2213,30 @@ the package, so it failed whenever another conversation or Android's autogenerat
 `ranker_group` summary was present. Now scoped to its own conversation id, and
 the record pattern allows the `user=UserHandle{0}` field that dumpsys prints
 between `pkg` and `id`.
+
+## Issue #219 comment · Spam & Blocked delete and Empty (2026-09-25)
+
+USER REPORT: deleting a blocked message did nothing if you left the screen, a
+blocked conversation could only be unblocked (never deleted), and neither tab had
+an Empty action.
+
+✅ The delete was issued from a coroutine that only resumed after the snackbar
+returned, in a `rememberCoroutineScope` that leaving the screen cancels — so the
+delete silently never ran. The message is now deleted on tap and the snackbar
+only offers Undo, which re-inserts the row soft-deleted with its original
+`blocked_reason` (added to `BlockedMessage`/`BLOCKED_SELECT`) so it lands back in
+the blocked folder rather than the normal chat. New `deleteBlockedConversation`
+(purges the blocked messages, drops the block), `deleteAllBlockedMessages`, and
+`unblockAllNumbers` for the Conversations tab, plus a per-row Delete beside
+Unblock and a per-tab Empty in the app bar behind a confirm dialog.
+
+Tests: `FolderRowsTest` +1 and `BlockedMessage.blockedReason` asserted.
+`test-spam-blocked.sh` 16/16, new section seeds the blocked state and covers all
+three fixes — verified failing against the pre-change build (delete "cancelled
+by leaving the screen", no Empty action, no Delete action).
+
+NOTE: the pre-existing "conversation back in the inbox" assertion used
+`wait_for_text`, which never scrolls, so with the rows earlier scripts leave
+behind the restored conversation sat below the fold. Replaced with a local
+scrolling poll. Confirmed pre-existing: it fails identically on the build
+without these changes.
