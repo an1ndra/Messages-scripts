@@ -5,7 +5,8 @@
 # makes the app see two SIMs (T-Mobile/SIM 1, Vodafone/SIM 2 with subId 7) and
 # the dual path is exercised for real:
 #   - dual-SIM  -> "Switch SIM" button beside the send button; tap cycles the
-#                  selected SIM (pref changes, toast confirms); hidden while typing
+#                  selected SIM (pref changes, toast confirms); stays visible
+#                  for the whole draft, including after the keyboard is closed
 #   - single-SIM -> button absent
 # Before the fix there was no in-field control at all, so the dual assertions
 # fail. Restores the SIM preference at the end.
@@ -81,13 +82,23 @@ tap_text "Switch SIM" >/dev/null 2>&1; sleep 1.5
 p2=$(pref_get)
 [ "$p2" = "$p0" ] && ok "pref wrapped back to $p0" || bad "pref did not wrap (p2=$p2 expected=$p0)"
 
-info "Hides while typing"
+info "Stays visible for the whole draft"
 tap_edittext >/dev/null 2>&1; sleep 1
 type_text "hi" >/dev/null 2>&1; sleep 1
 dump_ui
 grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
-    && bad "Switch SIM still visible while typing" \
-    || ok "Switch SIM hidden while typing"
+    && ok "Switch SIM still visible while typing" \
+    || bad "Switch SIM hidden while typing"
+
+# The reported bug (#219): visibility was gated on the draft being empty, so
+# dismissing the keyboard left the control gone. Dismiss without clearing.
+adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1.5
+dump_ui
+grep -q 'content-desc="Switch SIM"' "$TMP/ui.xml" \
+    && ok "Switch SIM visible after dismissing the keyboard" \
+    || bad "Switch SIM missing after dismissing the keyboard"
+
+tap_edittext >/dev/null 2>&1; sleep 1
 for _ in 1 2 3 4; do adb_ shell input keyevent 67 >/dev/null 2>&1; done
 sleep 1
 dump_ui

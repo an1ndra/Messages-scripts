@@ -5,6 +5,79 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #219 follow-up: SIM switch hidden + trashed thread resurrected (2026-09-25)
+
+✅ USER REPORT (#219 comment 5827316702). The same comment confirms the earlier
+#219 notification fix and the spam contact names now work. Two bugs came out of
+it, and both were already known-but-regressed rather than new.
+
+### 1. The SIM switch fix had been reverted, and the test enforced the bug
+
+The composer gated the control on `sims.size > 1 && draft.isBlank()`, so typing
+hid it and dismissing the keyboard never brought it back, because the draft was
+still nonblank. There was no IME state in the condition at all.
+
+This was fixed once already and then lost:
+
+- `2a61769` (Sep 22 12:42) SIM switcher ships with the `draft.isBlank()` gate
+- `e637b71` (Sep 22 19:01) "…+ SIM always visible" removes the gate — the fix
+- `f0d6a77` (Sep 22 20:43) `Revert "Merge pull request #233…"` **reintroduces
+  the gate 1h42m later**, collateral from untangling the spam-blocked stack
+- `2cc3566` (Sep 25) PR #243 changes the icon design and slot numeral only
+
+The reply "Fixed it need to merge it" on the issue was accurate about intent, but
+the fix had already been reverted the previous evening, so nothing flagged it.
+
+`test-sim-inputbar.sh` made it durable: commit `dd1d830` flipped the expectation
+to "hidden while typing" to match the code, and its return-check only passed
+because it cleared the draft with four backspaces instead of dismissing the
+keyboard — i.e. it tested the workaround, not the reported sequence.
+
+Now `SimSwitcher.shouldShowSwitch(simCount)` is the single rule for showing the
+control (composer and three-dot menu), the gate is gone, and the script asserts
+the reported sequence: type → dismiss keyboard → still there.
+
+### 2. A keyword-blocked message resurrected a trashed conversation
+
+`receiveBlockedMessage()` called `getOrCreateConversationBlocking()`, which
+resets `conversations.deleted_at = 0` so an ordinary new message revives a
+trashed thread. For a blocked message that is wrong: the message is stored
+soft-deleted, so the conversation came back into the inbox with nothing in it
+(the snippet only ever picks up non-deleted messages) — a row the user had
+emptied, reappearing blank.
+
+`InboundIngest.restoresTrashedConversation(kind)` now gates it: only
+`InboundKind.NORMAL` restores. `receiveSpamMessage()` had the same latent bug
+and now passes `InboundKind.BLOCKED_NUMBER`.
+
+Two comments described the old Trash behaviour and had to go, since they made
+the current code look broken on read:
+- `SmsReceiver.kt` "move its conversation to Trash"
+- `Repository.kt` "recoverable via Trash → Restore"
+
+Neither ever happened since `e637b71`. Blocked messages live in
+**Spam & blocked → Messages**; the Trash message query deliberately excludes
+them (`FolderRows.TRASH_SELECT` has `blocked_reason=''`).
+
+### Tests
+- `SimSwitcherTest` +1, `InboundIngestTest` (3) — **218 JUnit / 0 failures**
+- `test-sim-inputbar.sh` **9/9**, `test-keywords.sh` **19/19**
+- Both verified to **fail before the fix**:
+  ```
+  [FAIL] Switch SIM missing after dismissing the keyboard
+  [FAIL] conversation was resurrected into the inbox (deleted_at='0')
+  ```
+- debug and R8-minified release both build
+
+### Still open from the same comment (suggestions, not bugs — no rush)
+- 30-day auto-purge exists for Trash only (`purgeOldTrashSuspend`, keyed on
+  `conversations.deleted_at > 0`). It covers neither keyword-blocked messages
+  (conversation stays active) nor blocked-number conversations
+  (`conversations.blocked = 1`), so both accumulate forever. Making retention
+  user-configurable means threading a setting into the current `days = 30`.
+- Notifications use `BigTextStyle`, so expanding one dumps the whole text.
+  Grouping per conversation with inline reply needs `MessagingStyle`.
+
 ## Comment density pass (2026-09-25)
 
 ✅ USER REQUEST on the badge work (#244): the code had picked up far more

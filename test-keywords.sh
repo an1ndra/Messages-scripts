@@ -2,14 +2,16 @@
 # Regression for the "Blocked keywords" option (Settings -> Advanced ->
 # Blocked keywords). A message whose body contains a blocked keyword is hidden
 # from its conversation and parked under Spam & blocked -> Messages (kept, no
-# notification/sound); the conversation itself stays in the inbox. A normal
-# message still arrives. The keyword is added/removed through the UI.
+# notification/sound); the conversation itself stays in the inbox, and one that
+# was already trashed is not pulled back out. A normal message still arrives.
+# The keyword is added/removed through the UI.
 source "$(dirname "$0")/env.sh"
 
 KW="ZZBLOCK$RANDOM"
 NORMAL_BODY="normal hello $RANDOM$RANDOM"
 SENDER="+1555000$(( RANDOM % 9000 + 1000 ))"
 NORMAL_SENDER="+1555000$(( RANDOM % 9000 + 1000 ))"
+TRASHED_SENDER="+15551234560"
 
 PASS=0; FAIL=0
 ok()  { echo "[PASS] $1"; PASS=$((PASS + 1)); }
@@ -214,6 +216,33 @@ grep -q "$KW" "$TMP/ui.xml" \
     && ok "Undo restored the blocked message" \
     || bad "Undo did not restore the message"
 [ "$(db_count "$KW")" = "1" ] && ok "message still in the database after Undo" || bad "message lost after Undo"
+adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
+
+info "A trashed conversation is not resurrected by a keyword-blocked message"
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 3
+adb_ emu sms send "$TRASHED_SENDER" "trash me first $RANDOM$RANDOM" >/dev/null 2>&1; sleep 4
+C=$(center_of_contains "123-4560") || C=""
+if [ -n "$C" ]; then
+    XY=($C)
+    adb_ shell input swipe "${XY[0]}" "${XY[1]}" "${XY[0]}" "${XY[1]}" 900 >/dev/null 2>&1
+    sleep 1.2
+    tap_text "Delete" >/dev/null 2>&1; sleep 1.5
+else
+    bad "seed row for the trashed-conversation check not found"
+fi
+TRASH_MARK="trashseed$RANDOM"
+adb_ emu sms send "$TRASHED_SENDER" "$TRASH_MARK $KW promo" >/dev/null 2>&1; sleep 4
+TRASH_CONV_DEL=$(conv_deleted_at "$TRASH_MARK")
+if [ -n "$TRASH_CONV_DEL" ] && [ "$TRASH_CONV_DEL" -gt 0 ] 2>/dev/null; then
+    ok "conversation stays trashed after a keyword-blocked message (deleted_at=$TRASH_CONV_DEL)"
+else
+    bad "conversation was resurrected into the inbox (deleted_at='$TRASH_CONV_DEL')"
+fi
+TRASH_REASON=$(msg_blocked_reason "$TRASH_MARK")
+[ "$TRASH_REASON" = "blocked_keyword" ] \
+    && ok "blocked message recorded against the trashed conversation" \
+    || bad "blocked message not recorded (reason='$TRASH_REASON')"
 adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
 
 info "Removing the keyword restores delivery"
