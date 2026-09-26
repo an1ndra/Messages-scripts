@@ -117,7 +117,7 @@ grep -q 'content-desc="[^"]*Blocked' "$TMP/ui.xml" \
     || bad "blocked designation missing"
 
 info "Unblock restores it to the inbox"
-tap_text "Unblock" >/dev/null 2>&1; sleep 1.5
+c=$(center_of_contains "Unblock") && adb_ shell input tap $c; sleep 1.5
 [ "$(conv_blocked)" = "0" ] && ok "conversation unblocked" || bad "conversation still blocked"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 4
@@ -198,9 +198,12 @@ info "A blocked conversation can be deleted, not just unblocked"
 open_spam_blocked
 tap_text "Conversations" >/dev/null 2>&1; sleep 2
 dump_ui
-grep -q 'text="Delete"' "$TMP/ui.xml" \
+grep -q 'content-desc="Delete"' "$TMP/ui.xml" \
     && ok "a Delete action is offered on the blocked conversation" \
     || bad "no Delete action on the blocked conversation"
+grep -q 'content-desc="Unblock"' "$TMP/ui.xml" \
+    && ok "the row also offers Unblock, as its own control" \
+    || bad "no Unblock control on the blocked conversation"
 c=$(center_of_contains "Delete") && adb_ shell input tap $c
 sleep 2.5
 [ "$(conv_blocked_flag)" = "0" ] \
