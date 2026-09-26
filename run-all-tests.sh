@@ -41,5 +41,6 @@ run bash "$S/test-mms-import.sh"
 run bash "$S/test-backup-sim-coil.sh"
 run bash "$S/test-bubble-corners.sh"
 run bash "$S/test-codeql-cleanup.sh"
+run bash "$S/test-translations.sh"
 
 info "ALL DONE — screenshots in $SHOTS_DIR"
