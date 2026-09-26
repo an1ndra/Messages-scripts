@@ -2291,3 +2291,27 @@ reading the shackle arc's start point (y=136) as the top of the art when its
 apex is at y=10, which pushed it negative and let VectorDrawable's clip eat the
 whole shackle. The numbers are now measured by rasterising the source SVG and
 reading the alpha bbox, and the file says so.
+
+## Spam & Blocked action icons
+
+The app-bar Empty action and both per-row deletes all drew a bin, so "clear the
+whole tab" and "delete this one thing" were indistinguishable by glyph. Empty is
+now a bin on its own, matching the trash already in the app bar for "Empty trash"
+in the Trash folder, and a per-message delete is an X.
+
+Empty is icon-only, so its label moved onto the icon as a content description -
+verified present in the dump as `content-desc="Empty"`, without which the control
+is announced as just "button". The per-message X is pinned to 22.dp, which is
+what the bin it replaced already was.
+
+The padlock was nudged up 4% to 13.26x18.36dp, which is 6.8% over the Material
+bin's ink height rather than matching it, and the size band in
+`VectorDrawableTest` was tightened around that value so a later edit cannot
+quietly shrink it back.
+
+`test-spam-blocked.sh` 17/17. The app-bar assertion moved from `text="Empty"` to
+`content-desc="Empty"`, since the action no longer has a text label.
+
+Fixed a latent bug in `VectorDrawableTest`: it asserted the old 357x370 viewport,
+so when the drawable was corrected to the measured 360x498 bounds the assertion
+was left stale and passing for the wrong reason.

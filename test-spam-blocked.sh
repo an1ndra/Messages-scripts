@@ -178,7 +178,8 @@ info "Empty clears the Messages tab"
 open_spam_blocked
 tap_text "Messages" >/dev/null 2>&1; sleep 2
 dump_ui
-grep -q 'text="Empty"' "$TMP/ui.xml" \
+# The app-bar action is a bin icon, so its label is a content description.
+grep -q 'content-desc="Empty"' "$TMP/ui.xml" \
     && ok "an Empty action is offered" \
     || bad "no Empty action in the app bar"
 tap_text "Empty" >/dev/null 2>&1; sleep 1.5
