@@ -932,6 +932,64 @@ assert the name and a `…0010` number line; fails before the fix).
 `develop-build.yml`, `rc.yml`, `security.yml`, `virustotal.yml`,
 `release.yml`) to `ubuntu-24.04` so CI stays deterministic. `ubuntu-26.04` is
 available for an explicit test run when we want to validate the new image.
+## Screenshots · F-Droid set rebuilt on contacts with real names + photos (2026-09-26)
+
+✅ USER REQUEST: add dummy contacts to the emulator and re-take the F-Droid
+screenshots, with each contact saved in the phone book under a proper name and
+image. Picked, with the user: generate monogram avatars for everyone (rather
+than reuse the six sample photos the AVD ships), align the seeded inbox to the
+phone book, and curate one clean numbered set.
+
+**Why every avatar used to be a placeholder.** Two independent faults:
+
+1. *The inbox and the phone book used different numbers.* `seed-demo-conversations.sh`
+   seeded `+1555771xxx` while `insert-demo-contacts.sh` created `+1555123xxxx`.
+   `PersonAvatar` resolves a photo with `ContactsContract
+   phone_lookup/<conversation address>`, so no conversation ever matched a
+   contact. Both scripts now read one roster from `demo-data.sh`, and
+   `seed-demo-conversations.sh` refuses to run if a conversation number is
+   missing from it.
+2. *The provider's display name was being rebuilt from given+family.*
+   `data10` (display name style) must stay UNDEFINED: with FULL_NAME the
+   provider joins the parts the wrong way round and "Work Group" reached the
+   conversation list as "GroupWork" (and "Sarah Chen" as "ChenSarah"). The
+   earlier note below about fixing this "by clearing the family-name field" was
+   a workaround for the same thing; `test-demo-contacts.sh` now asserts
+   `raw_contacts.display_name` so it cannot regress.
+
+**Photo storage, for the record.** The provider keeps a contact photo as a
+thumbnail blob in `data.data15` of the mimetype=photo row, with `data14` and
+`contacts.photo_file_id` left NULL — then `contacts/<id>/photo` serves the
+thumbnail. `content` cannot express a blob (`--bind x:b:` is *boolean*), so
+those writes go through `sqlite3` as root. Setting `data14`/a `photo_files`
+row instead makes the provider serve a file from the photo store, and a missing
+file renders as a bare coloured circle with no glyph, because `PersonAvatar`
+only draws the silhouette when the URI resolves to null.
+
+Also fixed along the way: the old seeder passed multi-word names unquoted, so
+the device shell split them and the insert failed **silently** — that is why
+the old phone book had "Pizza Palace", "Dr. Patel" and "Gym Buddy" showing as
+bare numbers. And `photo_files`/stale `data14` from an earlier manual attempt
+now get cleared on every seed.
+
+**New/rewritten here:** `demo-data.sh` (canonical roster), `make-demo-avatars.py`
+(monogram generator, drawn from the app's own avatar palette in
+`ui/Components.kt`), `test-demo-contacts.sh` (91 assertions, re-seeds then
+checks alignment, names, thumbnail decodability and photo-store hygiene),
+`take-fdroid-screenshots.sh` (rewritten; the old one still targeted a 20-image
+dark/light set and had grown duplicate helpers). Set is now 15 shots:
+`01-conversations` … `15-settings-dark`.
+
+`seed-demo-conversations.sh --wipe` now also empties the telephony provider.
+The stock AVD image ships ~400 sample messages and `syncFromSystem()`
+re-imports whatever is still there on the next launch, so wiping only
+`messages.db` left the screenshots buried in junk rows.
+
+The AVD is still touchy: it ANRed and then crashed mid-run twice, so
+`take-fdroid-screenshots.sh` aborts outright if the device stops responding
+rather than overwriting good shots with broken ones. No app code changed, so
+there is no JUnit test to add — `test-demo-contacts.sh` is the guard.
+
 ## Screenshots · dummy-chat set with profile photos (2026-09-21)
 
 ✅ USER REQUEST: refresh the app screenshots with useful dummy chats and real
