@@ -5,6 +5,134 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Video/audio MMS were labelled "Photo" (found while verifying the PDU rewrite)
+
+✅ Found by asking "does video actually work?" instead of assuming the image
+test covered it. Present since the initial commit, **not** caused by the PDU
+rewrite below.
+
+- `AppViewModel.sendMediaMessage` hardcoded `repo.sendMedia(conversationId,
+  "image", …)` for every attachment. The transmitted MMS was always correct —
+  the part was stored as `video/mp4` and the SMIL carried `<video src=…>` — but
+  `media_type` drove the bubble and conversation-list label, so a video showed
+  as **"Photo"** (`Repository.kt:659`, `:908`).
+- Now derived from the resolved mime via `MmsSupport.defaultAttachmentMime`, the
+  same call the composer already uses, so the label cannot disagree with the
+  bytes on the wire.
+- Verified on the emulator by driving a real `.mp4` through the probe: part
+  stored as `video/mp4`, 668 bytes in and 668 bytes out byte-identical, SMIL
+  emitted `<video src="image"/>`, `media_type=video`, no crash. The image path
+  re-checked after the change and still reports `image`.
+
+Tests: `AttachmentTypeTest` (4) — **310 JUnit / 0 failures** — covering
+image/video/audio/unknown mime and the null-mime extension fallback.
+
+File: `MainActivity.kt` ·
+tests: `AttachmentTypeTest`
+
+## Vendored AOSP MMS stack deleted; the PDU is composed by hand (2026-09-26)
+
+✅ INTERNAL REFACTOR of the #236 send path. `MmsComposer` built the m-Send.req
+with `PduPersister` + `PduComposer` from the 27k-LOC vendored `android-smsmms`
+module and persisted it with a full provider round-trip. Both are gone.
+
+- **Why the module was mostly dead weight:** of 143 files / 27,174 LOC, only
+  **39 classes / 9,605 LOC** were reachable from the single app file that
+  imported it, and just **9 classes / 3,628 LOC** were the actual encode path.
+  89 classes (~17,500 LOC) were never referenced. Reachability was measured by
+  a transitive import walk, not estimated.
+- **The blocker was testability, not size.** `PduComposer(Context, GenericPdu)`
+  calls `context.getContentResolver()` in its constructor and
+  `appendHeader(FROM)` calls `TextUtils.isEmpty`, both of which throw
+  "not mocked" in a plain JVM test. So `MmsComposer` had **no JUnit test for its
+  entire life** and AGENTS.md rule 5 was unsatisfiable for it. The replacement
+  has no `android.*` import on the encode path, so the PDU is finally testable.
+- New `sms/MmsPdu.kt` (pure Kotlin), `sms/MmsSmil.kt` (static SMIL),
+  `sms/MmsOutbox.kt` (hand-rolled provider writes). Two AOSP behaviours that look
+  like bugs and are **not** — kept deliberately: the Content-Type parameters are
+  emitted **start (`0x8A`) before type (`0x89`)**, and `X-Mms-Message-Class`
+  precedes `X-Mms-Expiry`. Content-ID keeps its angle brackets while the SMIL
+  `src` must not; the two are kept in lockstep.
+- **Byte-identity was proven, not assumed.** A temporary debug probe composed
+  both encoders in-process on the emulator with identical inputs and diffed the
+  bytes: `equal=true` at 433/383/468/488/629 bytes across caption, no-caption,
+  40-char, 200-char and accented-caption fixtures. The AOSP output was then
+  frozen as golden constants in `MmsPduTest` and the probe deleted. The first
+  diff was informative rather than alarming: my harness appended the SMIL part
+  last, but AOSP's `addSmil` inserts at **index 0**, which matters because the
+  multipart `start=`/`type=` parameters are taken from part 0.
+- Two AOSP behaviours were deliberately **not** copied:
+  `appendShortInteger` silently truncates anything >127 (a UCS-2 charset would
+  encode to a byte that still parses, as a *different* charset), so it now
+  `require`s 0..127; and `longInteger(0)` emitted a bare `00`, violating
+  `Multi-octet-integer = 1*30 OCTET`, so a zero now emits `01 00`.
+- `From` was a real bug in the first draft: `SendReq.prepareFromAddress` reads
+  the device MSISDN, so the header is address-present-token when the SIM
+  reports a number and insert-address-token when it does not. `test-mms-pdu-bytes.sh`
+  confirms this AVD takes the **address-present** branch, so hardcoding the
+  token would have been wrong in the field.
+- The provider write is now hand-rolled. Three verified footguns, each of which
+  fails **silently** (the provider returns null rather than throwing):
+  an `address` key in the `pdu` values kills the insert outright
+  (`table pdu has no column named address`), so `thread_id` is computed in-app;
+  `part`/`addr` use the keys `mid`/`chset`, not `msg_id`/`charset`; and
+  `sub_id` does not exist on those tables before provider schema v68, so setting
+  it breaks API 29. Also: `application/smil` and `text/plain` must carry their
+  payload in `text` **at insert** (the provider only builds its FTS index then,
+  and rejects a `_data` for them), while binary parts get a provider-created
+  `_data` written via `openOutputStream`.
+- A plain JUnit differential against `PduComposer` is **impossible** for the
+  reason above; the device-side diff is the only true equivalence proof.
+- Removed with the module: the `implementation(project(":android-smsmms"))`
+  dependency, the `settings.gradle.kts` include, `useLibrary("org.apache.http.legacy")`,
+  the Timber dependency, 10 R8 keep/dontwarn rules, and the CodeQL
+  `paths-ignore` exclusion (which existed only because the vendored fork was
+  451 of 455 open alerts). CodeQL now scans only our own code.
+
+Tests: `MmsPduTest` (40) — **306 JUnit / 0 failures** — pinning both golden
+vectors byte-for-byte, the `8C 80` prefix the framework's
+`MmsService.isRawPduSendReq` hard-codes, the `8D 92` version, both `From`
+shapes, `/TYPE=PLMN`, the Content-Type value-length counting only the
+content-type-value (over-counting is the classic hand-rolled bug), the per-part
+`headerLength`/`dataLength` pair summing exactly to the PDU length, and the
+WSP boundaries a hand port gets wrong: value-length at exactly 31, uintvar
+rollover, and text-string quoting at `0x7F` (unquoted) vs `0x80` (quoted).
+`test-mms-send.sh` stays **8/8 unchanged** — it is the behavioural record for
+#236 and every assertion is a contract with the provider, not the encoder. New
+`test-mms-pdu-bytes.sh` (**20/20**) asserts the real wire bytes from a
+`MmsPdu`-tagged logcat dump keyed by transaction id, joined to the provider row
+on `tr_id` rather than `ORDER BY _id DESC LIMIT 1`, which races a concurrent
+send. All three MMS scripts are now in `run-all-tests.sh`; `test-mms-send.sh`
+and `test-mms-download.sh` were **absent from the sweep**, so neither MMS
+regression ran in the full pass.
+This is a refactor, so "fails before the fix" has no meaning; the equivalent
+guarantee is identical bytes before and after, established by the device diff
+and locked in by the golden vectors.
+
+Two harness bugs worth fixing regardless of this change:
+- `test-mms-send.sh`'s app-row assertion can be satisfied by the app's own sync:
+  `MmsSupport.isImportable(2, 128)` is true, so a `syncFromSystem()` inside the
+  window re-imports the outbox row as a second `messages` row with
+  `status='sent'` and a later id, which `ORDER BY id DESC LIMIT 1` then picks.
+  Filter on `media_uri LIKE '%$MARKER%'`, as `test-mms-pdu-bytes.sh` does. It
+  also sets the SMS role with `|| true`, so a role failure surfaces four
+  assertions later as a misleading message.
+- `./gradlew --rerun-tasks` corrupts
+  `app/build/intermediates/compile_and_runtime_r_class_jar` in this repo and
+  then fails with phantom test errors. Use `--rerun` on the test task.
+
+Note: the app still cannot distinguish a real delivery from an MMSC rejection —
+`SmsStatusReceiver` uses only the broadcast result code, and `MmsRequest` sets
+`RESULT_OK` for any 2xx response regardless of the `m-send.conf`
+`X-Mms-Response-Status`. Delivery-Report is also still `VALUE_NO`, so there is no
+positive delivery signal at all. Both are pre-existing and untouched here; both
+are one-line fixes and worth an issue.
+
+File: `sms/MmsPdu.kt`, `sms/MmsSmil.kt`, `sms/MmsOutbox.kt`, `sms/MmsComposer.kt`,
+`settings.gradle.kts`, `app/build.gradle.kts`, `app/proguard-rules.pro`,
+`.github/workflows/security.yml` ·
+tests: `MmsPduTest`, `test-mms-pdu-bytes.sh`, `test-mms-send.sh`, `run-all-tests.sh`
+
 ## Four long-standing test failures, all test bugs (2026-09-25)
 
 Found while merging #247 and #248. Each was confirmed to fail on clean
