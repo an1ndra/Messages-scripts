@@ -25,14 +25,16 @@ ADDR_T="+1555970${MARK: -3}"
 ADDR_K="+1555971${MARK: -3}"
 ADDR_B="+1555972${MARK: -3}"
 ADDR_R="+1555973${MARK: -3}"
+ADDR_T2="+1555974${MARK: -3}"
+ADDR_KEEP="+1555975${MARK: -3}"
 
 sql() {
     adb_ shell "run-as $PKG sqlite3 databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r' && return 0
     adb_ shell "su -c \"sqlite3 /data/data/$PKG/databases/messages.db \\\"$1\\\"\"" 2>/dev/null | tr -d '\r' || true
 }
 
-convo() {  # address, timestamp, blocked, deleted_at
-    sql "INSERT INTO conversations(address,name,snippet,timestamp,unread_count,last_is_me,archived,blocked,pinned,draft,draft_date,deleted_at,deleted_reason) VALUES('$1','$MARK','$MARK',$2,0,0,0,$3,0,'',0,$4,'$MARK');" >/dev/null
+convo() {  # address, timestamp, blocked, deleted_at, blocked_at
+    sql "INSERT INTO conversations(address,name,snippet,timestamp,unread_count,last_is_me,archived,blocked,blocked_at,pinned,draft,draft_date,deleted_at,deleted_reason) VALUES('$1','$MARK','$MARK',$2,0,0,0,$3,${5:-0},0,'',0,$4,'$MARK');" >/dev/null
     sql "SELECT id FROM conversations WHERE address='$1';" | tr -d '\n'
 }
 
@@ -54,19 +56,30 @@ restart() {
 # would silently change what the first purge assertions see.
 adb_ shell "run-as $PKG sed -i '/name=\"retention_/d' shared_prefs/messages_settings.xml" >/dev/null 2>&1
 
+# The blocked_at column arrives via a migration, which only runs when the app
+# opens the database, so the seed below needs an already-migrated schema.
+restart
+
 info "Seeding one row per retention bucket (old vs fresh)"
 CT=$(convo "$ADDR_T" "$OLD" 0 "$OLD")
 msg "$CT" "$MARK trashed-old" "$OLD" "$OLD" ""
 CK=$(convo "$ADDR_K" "$OLD" 0 0)
 msg "$CK" "$MARK keyword-old" "$OLD" "$OLD" "blocked_keyword"
-CB=$(convo "$ADDR_B" "$OLD" 1 0)
+CB=$(convo "$ADDR_B" "$OLD" 1 0 "$OLD")
 msg "$CB" "$MARK blockednum-old" "$OLD" 0 ""
 CR=$(convo "$ADDR_R" "$FRESH" 0 0)
 msg "$CR" "$MARK keyword-fresh" "$FRESH" "$FRESH" "blocked_keyword"
+# Blocked long ago, but still being written to: aging by last activity meant
+# every new delivery reset the clock and the sender could never be purged.
+CT2=$(convo "$ADDR_T2" "$FRESH" 1 0 "$OLD")
+msg "$CT2" "$MARK blocked-active" "$FRESH" 0 ""
+# Blocked recently: must survive even though the messages in it are old.
+CKeep=$(convo "$ADDR_KEEP" "$OLD" 1 0 "$FRESH")
+msg "$CKeep" "$MARK blocked-recent" "$OLD" 0 ""
 
-[ -n "$CT" ] && [ -n "$CK" ] && [ -n "$CB" ] && [ -n "$CR" ] \
-    && pass "seeded four conversations" \
-    || { fail "seeding failed (ids: $CT/$CK/$CB/$CR)"; exit 1; }
+[ -n "$CT" ] && [ -n "$CK" ] && [ -n "$CB" ] && [ -n "$CR" ] && [ -n "$CT2" ] && [ -n "$CKeep" ] \
+    && pass "seeded six conversations" \
+    || { fail "seeding failed (ids: $CT/$CK/$CB/$CR/$CT2/$CKeep)"; exit 1; }
 
 info "30-day default purges old rows in every bucket"
 restart
@@ -85,6 +98,15 @@ restart
 [ "$(count_msgs "$MARK keyword-fresh")" = "1" ] \
     && pass "message inside the window is kept" \
     || fail "message inside the window was purged early"
+[ "$(count_msgs "$MARK blocked-active")" = "0" ] \
+    && pass "blocked sender still receiving messages is purged once the block ages" \
+    || fail "blocked sender kept alive by its own new messages"
+[ "$(count_convo "$ADDR_T2")" = "0" ] \
+    && pass "its conversation row is removed too" \
+    || fail "conversation row for the still-active blocked sender survived"
+[ "$(count_msgs "$MARK blocked-recent")" = "1" ] \
+    && pass "a recently blocked sender is kept" \
+    || fail "recently blocked sender was purged early"
 
 info "A shorter window purges sooner"
 sql "UPDATE messages SET deleted_at=$OLD, blocked_reason='blocked_keyword' WHERE body LIKE '%$MARK keyword-fresh%';" >/dev/null
