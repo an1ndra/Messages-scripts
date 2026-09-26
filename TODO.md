@@ -2240,3 +2240,34 @@ NOTE: the pre-existing "conversation back in the inbox" assertion used
 behind the restored conversation sat below the fold. Replaced with a local
 scrolling poll. Confirmed pre-existing: it fails identically on the build
 without these changes.
+
+## Issue #219 comment · blocked senders never aged out (2026-09-25)
+
+USER REPORT: a blocked sender that keeps receiving messages never ages out of
+Spam & Blocked, so the folder only ever grows.
+
+✅ `BLOCKED_CONVERSATION_SQL` aged blocked senders by `conversations.timestamp`,
+which is last activity — so every new delivery from the sender reset its own
+clock and the purge could never reach it. The old comment treated that as
+deliberate ("a sender who keeps texting is not purged out from under the user"),
+but the user reads it as unbounded growth, and it was the wrong side of the
+trade: a *recently* blocked sender whose messages happened to be old was purged
+immediately, which the same test also caught.
+
+New `conversations.blocked_at` (schema v21), set when a number is blocked and
+cleared when it is unblocked or bulk-cleared. Blocked inbound keeps the original
+value (`CASE WHEN blocked_at>0 THEN blocked_at ELSE ? END`) so a long-running
+block is not restarted by each new message. The predicate is now
+`blocked=1 AND blocked_at>0 AND blocked_at<?`; the `blocked_at>0` guard leaves a
+row whose block date is unknown out of the purge. Migration backfills
+`blocked_at=timestamp` for already-blocked conversations, so they get a full
+window from the upgrade instead of being purged on first run.
+
+Tests: `RetentionPolicyTest` — `blockedSendersAreAgedByWhenTheyWereBlockedNotBy
+LastActivity` (renamed, it asserted the old contract) and
+`blockedSendersWithAnUnknownBlockDateAreLeftAlone`. `test-retention.sh` 40/40,
+new rows cover a long-blocked sender still being written to (must be purged) and
+a recently blocked sender with old messages (must be kept) — all three new
+assertions fail against the old predicate. The seed now restarts the app first,
+because `blocked_at` arrives via a migration that only runs when the app opens
+the database.
