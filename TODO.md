@@ -2271,3 +2271,23 @@ a recently blocked sender with old messages (must be kept) — all three new
 assertions fail against the old predicate. The seed now restarts the app first,
 because `blocked_at` arrives via a migration that only runs when the app opens
 the database.
+
+## Spam & Blocked row icon actions
+
+The blocked-conversation row used two text buttons, which is heavy in a list row
+and inconsistent with the Messages tab beside it where Delete is already an
+icon. Both are now IconButtons: a bin for Delete, a padlock for Unblock, tinted
+and labelled the way `TrashScreen` already does it.
+
+`test-spam-blocked.sh` 17/17. Two assertions were matching the old text buttons
+and now read `content-desc`; added one that Unblock is its own control rather
+than folded into the row.
+
+The padlock is a hand-traced vector, so `VectorDrawableTest` (app) guards it: the
+viewport must stay on the artwork's measured ink bounds, no transform group may
+come back, and the declared dp size must stay in the band that optically matches
+a Material glyph. That last one exists because the bounds were got wrong twice -
+reading the shackle arc's start point (y=136) as the top of the art when its
+apex is at y=10, which pushed it negative and let VectorDrawable's clip eat the
+whole shackle. The numbers are now measured by rasterising the source SVG and
+reading the alpha bbox, and the file says so.
