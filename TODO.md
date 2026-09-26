@@ -2315,3 +2315,47 @@ quietly shrink it back.
 Fixed a latent bug in `VectorDrawableTest`: it asserted the old 357x370 viewport,
 so when the drawable was corrected to the measured 360x498 bounds the assertion
 was left stale and passing for the wrong reason.
+
+## Spam & Blocked undo + unified row icons
+
+**Undo on caught messages.** Each row in Spam & Blocked > Messages now offers an
+undo arrow beside the X. It returns the message to its conversation, and is only
+enabled once the message would no longer be caught - while a matching keyword is
+still on the block list, restoring would just hide it again.
+
+`blocked_reason` records only *that* a row was caught, never which keyword, so
+the gate (`SpamRestore.canReturnToChat`) asks whether any keyword currently on
+the list still matches the body. Six JUnit cases cover it, including a blank
+entry on the list, which must not make every message unrestorable.
+
+**One icon language across Spam & Blocked and Trash.** They had drifted: the same
+X was red in Trash and grey in Spam, and restore was grey in Trash and blue in
+Spam. Now derived from one rule - undo `primary`, permanent delete `error`,
+neutral `onSurfaceVariant`. The padlock is gone; the conversation row uses undo
+for unblock and X for delete like everywhere else.
+
+**`ic_padlock` and its test removed.** The icon became unused, and leaving an
+asset plus a test that only guarded that one asset is dead weight. Both are in
+#256 if they are wanted back.
+
+**`IconTint` for dark mode.** A disabled control used a fixed 0.38 alpha of
+`onSurfaceVariant`. On a dark surface that lands near 2.2:1, under the 3:1 that
+UI components need, and the icon reads as missing rather than disabled. Dark mode
+now keeps 0.62.
+
+## Traps worth remembering
+
+- **A Compose `IconButton`'s disabled state is on the clickable parent View, not
+  on the node carrying the content description.** The `content-desc` node reports
+  `enabled="true"` either way, so grepping it reports every control as enabled.
+  `undo_states()` walks up to the nearest `clickable` ancestor; without that this
+  looks like the gate silently does nothing.
+- **`blocked_keywords` is a string-set**, so the prefs entry must be a `<set>`
+  element. A plain `<string>` of the same name makes `getStringSet` throw
+  `ClassCastException` and crashes the app on opening the screen.
+- **`db()` in this script wraps the statement in single quotes** for the remote
+  shell, so SQL literals in it have to be escaped. `dbq()` pipes over stdin and
+  sidesteps that; use it for anything non-trivial.
+- Sections that empty a folder affect **every** row in it, not just their own
+  seeded markers, so a later section may find nothing. Re-seed rather than
+  asserting against an empty tab.

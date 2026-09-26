@@ -58,6 +58,13 @@ wait_for_text_scrolling() {
     return 1
 }
 
+# db() wraps the statement in single quotes for the remote shell, so any SQL
+# literal in it has to be escaped. Piping over stdin avoids that second round of
+# parsing entirely; "you won a $1,000" used to arrive as "a ,000" through db().
+dbq() {
+    printf '%s' "$1" | adb_ shell "run-as $PKG sqlite3 databases/messages.db" 2>/dev/null | tr -d '\r'
+}
+
 cleanup() {
     adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"DELETE FROM blocked_numbers WHERE number LIKE \\\"%$TAIL%\\\";\"'" >/dev/null 2>&1
     local ids
@@ -130,6 +137,7 @@ wait_for_text_scrolling "$TAIL" 14 \
 info "Deleting a blocked message sticks even if you leave straight away (#219)"
 DTAIL=$(printf '%04d' $((RANDOM % 10000)))
 DSENDER="+1555124$DTAIL"
+DPREFIX="spam-del"
 DPROBE="spam-del-$DTAIL"
 DPROBE2="spam-del2-$DTAIL"
 NOW=$(($(date +%s) * 1000))
@@ -144,6 +152,50 @@ db "INSERT INTO blocked_numbers(number,timestamp) VALUES('$DSENDER',$NOW);" >/de
 db "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,deleted_at,blocked_reason) SELECT id,\\\"$DPROBE\\\",$NOW,0,\\\"received\\\",$NOW,\\\"keyword\\\" FROM conversations WHERE address=\\\"$DSENDER\\\";" >/dev/null
 db "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,deleted_at,blocked_reason) SELECT id,\\\"$DPROBE2\\\",$NOW,0,\\\"received\\\",$NOW,\\\"keyword\\\" FROM conversations WHERE address=\\\"$DSENDER\\\";" >/dev/null
 [ "$(blocked_msgs)" = "2" ] && ok "seeded two blocked messages" || bad "could not seed blocked messages"
+
+# The enabled state of a Compose IconButton lands on the clickable View that wraps
+# the icon, not on the node carrying the content description - the description node
+# reports enabled="true" either way. Walking up to the clickable ancestor is the
+# only way to see a disabled control; grepping the description node instead passes
+# for the wrong reason.
+undo_states() {
+    dump_ui >/dev/null 2>&1
+    python3 - "$TMP/ui.xml" <<'PYEOF'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+parent = {c: p for p in root.iter() for c in p}
+out = []
+for n in root.iter():
+    if n.get('content-desc') != 'Undo':
+        continue
+    q = parent.get(n)
+    while q is not None and q.get('clickable') != 'true':
+        q = parent.get(q)
+    out.append(q.get('enabled', 'true') if q is not None else 'true')
+print(' '.join(out))
+PYEOF
+}
+
+# blockedKeywords is a string-set, so the prefs entry must be a <set> element.
+# A plain <string> of the same name makes getStringSet throw ClassCastException,
+# which crashes the app on opening this screen.
+set_blocked_keywords() {
+    local kw="${1:-}"
+    local f="/data/data/$PKG/shared_prefs/messages_settings.xml"
+    local cur clean
+    cur=$(adb_ shell "run-as $PKG cat $f" 2>/dev/null | tr -d '\r')
+    clean=$(printf '%s\n' "$cur" | grep -v 'blocked_keywords')
+    if [ -n "$kw" ]; then
+        printf '%s\n' "$clean" | sed "s#<map>#<map><set name=\"blocked_keywords\"><string>$kw</string></set>#" \
+            | adb_ shell "run-as $PKG sh -c 'cat > $f'" >/dev/null 2>&1
+    else
+        printf '%s\n' "$clean" | adb_ shell "run-as $PKG sh -c 'cat > $f'" >/dev/null 2>&1
+    fi
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1
+    sleep 1
+    adb_ shell am start -n "$ACT" >/dev/null 2>&1
+    sleep 4
+}
 
 open_spam_blocked() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
@@ -174,7 +226,62 @@ sleep 3
     && ok "the delete was applied even though the screen was left" \
     || bad "the delete was cancelled by leaving the screen (still $(blocked_msgs))"
 
+info "Undo is offered only once the keyword no longer catches the message"
+open_spam_blocked
+tap_text "Messages" >/dev/null 2>&1; sleep 2
+states=$(undo_states)
+n=$(printf '%s' "$states" | wc -w)
+[ "$n" -ge 1 ] && ok "every row offers an Undo control ($n rows)" || bad "no Undo controls found"
+case "$states" in
+    *false*) bad "Undo is disabled with an empty block list: $states" ;;
+    *) ok "all Undo controls enabled with an empty block list" ;;
+esac
+
+# Block a keyword matching exactly one seeded row. The other seeded row must stay
+# enabled, which is what proves the gate is per message and not global.
+set_blocked_keywords "$DPREFIX"
+open_spam_blocked
+tap_text "Messages" >/dev/null 2>&1; sleep 2
+states=$(undo_states)
+n=$(printf '%s' "$states" | wc -w)
+dis=$(printf '%s' "$states" | tr ' ' '\n' | grep -c false)
+[ -n "$n" ] && [ "$dis" = "$n" ] \
+    && ok "every message the keyword catches has Undo disabled ($dis of $n)" \
+    || bad "expected all $n Undo controls disabled, got $dis ($states)"
+
+set_blocked_keywords ""
+open_spam_blocked
+tap_text "Messages" >/dev/null 2>&1; sleep 2
+case "$(undo_states)" in
+    *false*) bad "Undo stayed disabled after clearing the block list" ;;
+    *) ok "Undo is enabled again once the keyword is removed" ;;
+esac
+
+info "Undo puts the message back, X removes it for good"
+before=$(blocked_msgs)
+c=$(center_of_contains "Undo") && adb_ shell input tap $c
+sleep 2
+[ "$(blocked_msgs)" = "$((before - 1))" ] \
+    && ok "Undo returned the message to its conversation" \
+    || bad "Undo did not change the folder ($before -> $(blocked_msgs))"
+after_undo=$(blocked_msgs)
+if [ "$after_undo" -ge 1 ]; then
+    c=$(center_of_contains "Delete") && adb_ shell input tap $c
+    sleep 2
+    [ "$(blocked_msgs)" = "$((after_undo - 1))" ] \
+        && ok "X removed the message" \
+        || bad "X did not remove the message ($after_undo -> $(blocked_msgs))"
+else
+    ok "folder emptied by the undo, nothing left for X to remove"
+fi
+
 info "Empty clears the Messages tab"
+# The Undo section above drains the folder, and the app-bar action is only offered
+# while the tab has rows, so seed again rather than asserting against an empty tab.
+dbq "INSERT OR IGNORE INTO conversations(address,name,snippet,timestamp,unread_count,blocked,blocked_at) VALUES('$DSENDER','$DSENDER','$DPROBE',$NOW,0,1,$NOW);" >/dev/null
+dbq "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,deleted_at,blocked_reason) SELECT id,'$DPROBE',$NOW,0,'received',$NOW,'keyword' FROM conversations WHERE address='$DSENDER';" >/dev/null
+dbq "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,deleted_at,blocked_reason) SELECT id,'$DPROBE2',$NOW,0,'received',$NOW,'keyword' FROM conversations WHERE address='$DSENDER';" >/dev/null
+[ -n "$(blocked_msgs)" ] && [ "$(blocked_msgs)" -ge 1 ] && ok "re-seeded blocked messages for the Empty check" || bad "could not re-seed"
 open_spam_blocked
 tap_text "Messages" >/dev/null 2>&1; sleep 2
 dump_ui

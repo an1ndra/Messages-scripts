@@ -111,7 +111,8 @@ verify() {
     dump_ui >/dev/null
     if python3 - "$TMP/ui.xml" "$1" <<'PY'
 import re,sys
-sys.exit(0 if re.search(r'text="[^"]*'+re.escape(sys.argv[2])+r'[^"]*"', open(sys.argv[1]).read()) else 1)
+# Icon-only actions carry their label in content-desc, not text.
+sys.exit(0 if re.search(r'(?:text|content-desc)="[^"]*'+re.escape(sys.argv[2])+r'[^"]*"', open(sys.argv[1]).read()) else 1)
 PY
     then echo "  OK  [$1]"
     else echo "  !!  MISSING [$1]"
@@ -163,6 +164,46 @@ print((int(m.group(1))+int(m.group(3)))//2,(int(m.group(2))+int(m.group(4)))//2)
 }
 
 dark()  { adb_ shell cmd uimode night yes; sleep 1.5; }
+open_spam_blocked() { # $1 = tab to select, "Conversations" (default) or "Messages"
+    tap_settings
+    for _ in 1 2; do adb_ shell input swipe 540 1700 540 700 250; sleep 1.5; done
+    c=$(rowxy "Spam &amp; Blocked") || { echo "  !! Spam & Blocked row not found"; return 1; }
+    tapxy ${c% *} ${c#* }
+    if [ "${1:-}" = "Messages" ]; then
+        c=$(center_of_contains "Messages") && adb_ shell input tap $c && sleep 2
+    fi
+}
+
+open_auto_delete() {
+    tap_settings
+    for _ in 1 2 3 4; do
+        dump_ui >/dev/null
+        grep -q "Auto-delete" "$TMP/ui.xml" && break
+        adb_ shell input swipe 540 1700 540 900 250 >/dev/null 2>&1; sleep 1
+    done
+    c=$(rowxy "Auto-delete") && { tapxy ${c% *} ${c#* }; sleep 1.5; }
+}
+
+# An expanded MessagingStyle notification: the grouped history added in #251.
+shot_grouped_notification() { # $1 = output name
+    adb_ shell am force-stop "$PKG"; sleep 1
+    adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 4
+    local n="+1555900${RANDOM:0:4}"
+    for i in 1 2 3; do
+        adb_ emu sms send "$n" "Grouped shot line $i" >/dev/null 2>&1
+        sleep 3
+    done
+    sleep 3
+    adb_ shell cmd statusbar expand-notifications >/dev/null 2>&1; sleep 2
+    for _ in 1 2 3; do
+        dump_ui >/dev/null
+        grep -q "Grouped shot line" "$TMP/ui.xml" && break
+        adb_ shell input swipe 540 900 540 1500 300 >/dev/null 2>&1; sleep 1
+    done
+    screencap_to "$1"
+    adb_ shell cmd statusbar collapse >/dev/null 2>&1; sleep 1
+}
+
 light() { adb_ shell cmd uimode night no;  sleep 1.5; }
 
 # ============ CORE: home / chat / reply / settings ============
@@ -261,3 +302,16 @@ tap_cd "Archived" || back
 echo ""
 echo "=== DONE ==="
 ls -lh "$SHOTS"
+
+# --- Recent additions (#251 notifications, #253 Spam & Blocked, #254 retention) ---
+# Light only, and named to match the curated set already in phoneScreenshots
+# (01-conversations.png ... 07-settings.png) rather than this script's own
+# dark/light scheme, which is out of step with what is committed.
+light
+launch; dismiss_onboarding; ensure_home
+open_spam_blocked "Conversations"; screencap_to 08-spam-blocked.png
+open_spam_blocked "Messages";     screencap_to 09-spam-blocked-messages.png
+back; ensure_home
+open_auto_delete;                 screencap_to 10-auto-delete.png
+back; ensure_home
+shot_grouped_notification 11-notification-grouped.png
