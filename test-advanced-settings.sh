@@ -150,7 +150,7 @@ back_to_home
 dump_ui
 tap_text "$TARGET" || { echo "[FAIL] target row not found"; FAIL=$((FAIL + 1)); exit 1; }
 sleep 2
-tap_edittext || tap_desc "Text message"
+tap_edittext || tap_desc "Message"
 sleep 0.8
 type_text "Visit https://example.com/check it now"; sleep 0.8
 adb_ shell input keyevent 4; sleep 0.6

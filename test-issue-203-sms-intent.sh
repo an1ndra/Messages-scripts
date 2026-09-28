@@ -79,10 +79,10 @@ assert_chat_open() {
     local label="$1" i
     for i in 1 2 3; do
         dump_ui || { sleep 1; continue; }
-        grep -q 'text="Text message"' "$TMP/ui.xml" && break
+        grep -q 'text="Message"' "$TMP/ui.xml" && break
         sleep 1
     done
-    if grep -q 'text="Text message"' "$TMP/ui.xml"; then
+    if grep -q 'text="Message"' "$TMP/ui.xml"; then
         ok "$label: chat screen opened"
     else
         bad "$label: chat screen NOT opened (still on list)"

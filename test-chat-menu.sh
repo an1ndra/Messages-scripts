@@ -50,7 +50,7 @@ dump_ui >/dev/null
 if grep -q 'text="Unarchive"' "$TMP/ui.xml"; then
   U=$(center_of_contains "Unarchive") && adb_ shell input tap $U; sleep 2
   dump_ui >/dev/null
-  grep -qE 'text="(Text message)"|content-desc="Search"' "$TMP/ui.xml" && ok "unarchive returns to chat/list" || no "unarchive odd state"
+  grep -qE 'text="(Message)"|content-desc="Search"' "$TMP/ui.xml" && ok "unarchive returns to chat/list" || no "unarchive odd state"
 else
   echo "  (no Unarchive item — will restore via list un-archive later)"
   adb_ shell input keyevent 4 >/dev/null

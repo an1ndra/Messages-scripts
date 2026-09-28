@@ -36,6 +36,29 @@ dump_ui() {
 # many nodes onto one line, so line-based greps over ui.xml are unreliable.
 ui_tags() { grep -oE '<node[^>]*>' "$TMP/ui.xml"; }
 
+# The conversation list shows a loading skeleton while the startup sync settles,
+# so a single dump after a fixed sleep races it and the row is simply absent.
+# Poll instead. $1 = text to wait for, $2 = attempts (default 10).
+# Uses grep -c, never grep -q: -q exits on first match and kills the upstream
+# pipeline under `set -o pipefail`.
+wait_for_text() {
+    local target="$1" tries="${2:-10}" i
+    for i in $(seq 1 "$tries"); do
+        dump_ui >/dev/null 2>&1 || true
+        if grep -c "$target" "$TMP/ui.xml" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# Strip the Unicode bidi isolates (U+2066 LRI … U+2069 PDI) that BidiText.ltr()
+# wraps values in, so an assertion can match the visible text.
+strip_isolates() {
+    python3 -c 'import sys; s=sys.stdin.read(); print(s.replace("⁦","").replace("⁩",""), end="")'
+}
+
 # Escape ERE metacharacters so queries like "+1-555-333-4444" match literally.
 re_escape() {
     python3 -c 'import re, sys; sys.stdout.write(re.escape(sys.stdin.read().rstrip("\n")))' <<< "$1"

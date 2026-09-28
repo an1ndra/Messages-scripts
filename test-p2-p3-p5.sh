@@ -10,7 +10,7 @@ adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" >/dev/null; sleep 3.5
 C=$(center_of_contains "555-123-0777") || { fail "no 0777 row"; }
 adb_ shell input tap $C; sleep 2
-dump_ui && grep -q '"Text message"' "$TMP/ui.xml" && echo "IN CHAT" || { fail "not in chat"; }
+dump_ui && grep -q '"Message"' "$TMP/ui.xml" && echo "IN CHAT" || { fail "not in chat"; }
 
 info "Long-press a message to open context menu"
 ROWS=$(grep -oE 'resource-id="[^"]*row_[0-9]+"' "$TMP/ui.xml" 2>/dev/null || true)

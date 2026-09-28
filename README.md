@@ -1,7 +1,8 @@
 # Messages — UI test scripts
 
 Manual test drivers for the Messages app on `emulator-5554`.
-Some scripts save step-by-step PNGs to `screenshots/` so you can verify later.
+Tests assert state from **uiautomator dumps**; `shot` saves PNGs to
+`screenshots/` only as visual evidence.
 
 ## Quick start
 

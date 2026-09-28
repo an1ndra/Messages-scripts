@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Regression for the "Blocked keywords" option (Settings -> Advanced ->
-# Blocked keywords). A message whose body contains a blocked keyword must be
-# dropped entirely: not stored in the app and no notification (so no sound).
-# A normal message still arrives. The keyword is added/removed through the UI.
+# Blocked keywords). A message whose body contains a blocked keyword is hidden
+# from its conversation and parked under Spam & blocked -> Messages (kept, no
+# notification/sound); the conversation itself stays in the inbox, and one that
+# was already trashed is not pulled back out. A normal message still arrives.
+# The keyword is added/removed through the UI.
 source "$(dirname "$0")/env.sh"
 
 KW="ZZBLOCK$RANDOM"
 NORMAL_BODY="normal hello $RANDOM$RANDOM"
 SENDER="+1555000$(( RANDOM % 9000 + 1000 ))"
 NORMAL_SENDER="+1555000$(( RANDOM % 9000 + 1000 ))"
+TRASHED_SENDER="+15551234560"
 
 PASS=0; FAIL=0
 ok()  { echo "[PASS] $1"; PASS=$((PASS + 1)); }
@@ -35,6 +38,48 @@ PY
 
 db_count() {
     adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT COUNT(*) FROM messages WHERE body LIKE \\\"%$1%\\\";\"'" 2>/dev/null | tr -d '\r'
+}
+
+db_count_visible() {
+    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT COUNT(*) FROM messages WHERE body LIKE \\\"%$1%\\\" AND (deleted_at=0 OR blocked_reason=\\\"\\\");\"'" 2>/dev/null | tr -d '\r'
+}
+
+# deleted_at of the conversation carrying the message whose body contains $1
+conv_deleted_at() {
+    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT c.deleted_at FROM conversations c JOIN messages m ON m.conversation_id=c.id WHERE m.body LIKE \\\"%$1%\\\" ORDER BY m.id DESC LIMIT 1;\"'" 2>/dev/null | tr -d '\r'
+}
+
+# deleted_reason of the conversation carrying the message whose body contains $1
+conv_deleted_reason() {
+    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT c.deleted_reason FROM conversations c JOIN messages m ON m.conversation_id=c.id WHERE m.body LIKE \\\"%$1%\\\" ORDER BY m.id DESC LIMIT 1;\"'" 2>/dev/null | tr -d '\r'
+}
+
+# deleted_at / blocked_reason of the message whose body contains $1
+msg_deleted_at() {
+    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT deleted_at FROM messages WHERE body LIKE \\\"%$1%\\\" ORDER BY id DESC LIMIT 1;\"'" 2>/dev/null | tr -d '\r'
+}
+msg_blocked_reason() {
+    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \"SELECT blocked_reason FROM messages WHERE body LIKE \\\"%$1%\\\" ORDER BY id DESC LIMIT 1;\"'" 2>/dev/null | tr -d '\r'
+}
+
+# Tap a node by its text/content-desc regardless of attribute order.
+tap_label() {
+    dump_ui || return 1
+    local b
+    b=$(python3 - "$1" "$TMP/ui.xml" <<'PY'
+import re, sys
+label, path = sys.argv[1], sys.argv[2]
+for m in re.finditer(r'<node[^>]*>', open(path).read()):
+    tag = m.group(0)
+    if f'text="{label}"' in tag or f'content-desc="{label}"' in tag:
+        b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', tag)
+        if b:
+            x1, y1, x2, y2 = map(int, b.groups())
+            print((x1 + x2)//2, (y1 + y2)//2)
+            break
+PY
+)
+    [ -n "$b" ] && adb_ shell input tap $b
 }
 
 tap_edittext_here() {
@@ -70,6 +115,8 @@ open_keywords() {
 }
 
 cleanup() {
+    adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \
+        \"DELETE FROM conversations WHERE id IN (SELECT conversation_id FROM messages WHERE body LIKE \\\"%$KW%\\\");\"'" >/dev/null 2>&1
     adb_ shell "run-as $PKG sh -c 'sqlite3 databases/messages.db \
         \"DELETE FROM messages WHERE body LIKE \\\"%$KW%\\\";\"'" >/dev/null 2>&1
     # clear the blocklist so the test leaves no residue
@@ -114,20 +161,97 @@ grep -q "text=\"$KW\"" "$TMP/ui.xml" && ok "keyword listed in the dialog" || bad
 tap_text "Close" >/dev/null 2>&1; sleep 1
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 
-info "Blocked message is dropped (not stored, no notification)"
+info "Blocked message is parked in Spam & blocked (conversation stays in the inbox)"
 adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 3
 adb_ emu sms send "$SENDER" "$KW promo offer" >/dev/null 2>&1; sleep 4
 adb_ emu sms send "$NORMAL_SENDER" "$NORMAL_BODY" >/dev/null 2>&1; sleep 4
 BLOCKED=$(db_count "$KW")
 NORMAL=$(db_count "$NORMAL_BODY")
-[ "$BLOCKED" = "0" ] && ok "blocked message NOT stored" || bad "blocked message stored ($BLOCKED)"
+[ "$BLOCKED" = "1" ] && ok "blocked message kept in the database" || bad "blocked message missing ($BLOCKED)"
+VISIBLE=$(db_count_visible "$KW")
+[ "$VISIBLE" = "0" ] && ok "blocked message not shown in the chat" || bad "blocked message visible in chat ($VISIBLE)"
+MSG_DEL=$(msg_deleted_at "$KW")
+if [ -n "$MSG_DEL" ] && [ "$MSG_DEL" -gt 0 ] 2>/dev/null; then
+    ok "blocked message soft-deleted (deleted_at=$MSG_DEL)"
+else
+    bad "blocked message not soft-deleted (deleted_at='$MSG_DEL')"
+fi
+REASON=$(msg_blocked_reason "$KW")
+[ "$REASON" = "blocked_keyword" ] && ok "message marked blocked_keyword" || bad "wrong blocked_reason ('$REASON')"
+CONV_DEL=$(conv_deleted_at "$KW")
+[ "$CONV_DEL" = "0" ] && ok "conversation stays in the inbox" || bad "conversation was trashed (deleted_at='$CONV_DEL')"
 [ "$NORMAL" = "1" ] && ok "normal message stored" || bad "normal message missing ($NORMAL)"
 NOTIF=$(adb_ shell dumpsys notification --noredact 2>/dev/null | grep -c "$KW")
 [ "$NOTIF" = "0" ] && ok "no notification for the blocked message" || bad "notification posted for blocked message ($NOTIF)"
+NORMAL_NOTIF=$(adb_ shell dumpsys notification --noredact 2>/dev/null | grep -c "$NORMAL_BODY")
+[ "$NORMAL_NOTIF" -ge 1 ] && ok "notification posted for the normal message" || bad "no notification for the normal message"
+
+info "Spam & blocked > Messages lists the blocked SMS"
+adb_ shell am force-stop "$PKG"; sleep 1
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 3
+for i in $(seq 1 8); do
+    dump_ui
+    grep -q 'Spam &amp; Blocked' "$TMP/ui.xml" && break
+    adb_ shell input swipe 540 1700 540 900 300 >/dev/null 2>&1; sleep 0.7
+done
+c=$(center_of_contains "Spam &amp; Blocked") && adb_ shell input tap $c; sleep 1.5
+tap_text "Messages" >/dev/null 2>&1; sleep 1
+dump_ui
+grep -q "$KW" "$TMP/ui.xml" \
+    && ok "blocked SMS listed under Spam & blocked > Messages" \
+    || bad "blocked SMS not listed in the folder"
+
+info "Delete is undoable before it sticks"
+tap_label "Delete"; sleep 1
+dump_ui
+grep -q "Message deleted" "$TMP/ui.xml" \
+    && ok "snackbar shown after delete" \
+    || bad "no delete snackbar"
+grep -q "$KW" "$TMP/ui.xml" \
+    && bad "message still listed right after delete" \
+    || ok "message hidden right after delete"
+tap_label "Undo"; sleep 1.5
+dump_ui
+grep -q "$KW" "$TMP/ui.xml" \
+    && ok "Undo restored the blocked message" \
+    || bad "Undo did not restore the message"
+[ "$(db_count "$KW")" = "1" ] && ok "message still in the database after Undo" || bad "message lost after Undo"
+adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
+
+info "A trashed conversation is not resurrected by a keyword-blocked message"
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 3
+adb_ emu sms send "$TRASHED_SENDER" "trash me first $RANDOM$RANDOM" >/dev/null 2>&1; sleep 4
+C=$(center_of_contains "123-4560") || C=""
+if [ -n "$C" ]; then
+    XY=($C)
+    adb_ shell input swipe "${XY[0]}" "${XY[1]}" "${XY[0]}" "${XY[1]}" 900 >/dev/null 2>&1
+    sleep 1.2
+    tap_text "Delete" >/dev/null 2>&1; sleep 1.5
+else
+    bad "seed row for the trashed-conversation check not found"
+fi
+TRASH_MARK="trashseed$RANDOM"
+adb_ emu sms send "$TRASHED_SENDER" "$TRASH_MARK $KW promo" >/dev/null 2>&1; sleep 4
+TRASH_CONV_DEL=$(conv_deleted_at "$TRASH_MARK")
+if [ -n "$TRASH_CONV_DEL" ] && [ "$TRASH_CONV_DEL" -gt 0 ] 2>/dev/null; then
+    ok "conversation stays trashed after a keyword-blocked message (deleted_at=$TRASH_CONV_DEL)"
+else
+    bad "conversation was resurrected into the inbox (deleted_at='$TRASH_CONV_DEL')"
+fi
+TRASH_REASON=$(msg_blocked_reason "$TRASH_MARK")
+[ "$TRASH_REASON" = "blocked_keyword" ] \
+    && ok "blocked message recorded against the trashed conversation" \
+    || bad "blocked message not recorded (reason='$TRASH_REASON')"
+adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
 
 info "Removing the keyword restores delivery"
 open_keywords
-tap_text "Remove keyword" >/dev/null 2>&1; sleep 1
+for i in 1 2 3 4 5; do
+    dump_ui || break
+    grep -q 'content-desc="Remove keyword"' "$TMP/ui.xml" || break
+    tap_text "Remove keyword" >/dev/null 2>&1; sleep 0.6
+done
 if [ -z "$(pref_get blocked_keywords)" ]; then
     ok "blocklist cleared"
 else

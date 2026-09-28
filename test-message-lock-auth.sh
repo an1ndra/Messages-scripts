@@ -35,7 +35,7 @@ adb_ shell am start -n "$ACT"; sleep 3
 C=$(center_of "LockAuthTest") || C=$(center_of_contains "$MARK") || { bad "conversation row not found"; exit 1; }
 adb_ shell input tap $C; sleep 2
 dump_ui
-if grep -q '"Text message"' "$TMP/ui.xml"; then ok "chat opened"; else bad "chat not opened"; exit 1; fi
+if grep -q '"Message"' "$TMP/ui.xml"; then ok "chat opened"; else bad "chat not opened"; exit 1; fi
 
 info "Long-press the message -> selection menu -> Lock"
 M=$(center_of_contains "$MARK") || { bad "message not found"; exit 1; }

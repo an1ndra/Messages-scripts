@@ -17,6 +17,7 @@ run bash "$S/theme.sh" dark
 run bash "$S/theme.sh" light
 run bash "$S/theme.sh" system
 run bash "$S/test-notification-posts.sh"
+run bash "$S/test-notification-icon.sh"
 run bash "$S/test-backup-restore.sh"
 run bash "$S/test-issue-183-split-threads.sh"
 run bash "$S/test-import-mirrors-provider.sh"
@@ -31,5 +32,15 @@ run bash "$S/test-display-mode.sh"
 run bash "$S/test-keywords.sh"
 run bash "$S/test-android12-launch.sh"
 run bash "$S/test-fake-dual-sim.sh"
+run bash "$S/test-sim-inputbar.sh"
+run bash "$S/test-persian-numbers.sh"
+run bash "$S/test-24h-time.sh"
+run bash "$S/test-emoji-toggle.sh"
+run bash "$S/test-spam-blocked.sh"
+run bash "$S/test-mms-import.sh"
+run bash "$S/test-backup-sim-coil.sh"
+run bash "$S/test-bubble-corners.sh"
+run bash "$S/test-codeql-cleanup.sh"
+run bash "$S/test-translations.sh"
 
 info "ALL DONE — screenshots in $SHOTS_DIR"
