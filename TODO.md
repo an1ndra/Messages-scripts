@@ -5,6 +5,139 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issues #264 / #265 / #266 / #281 — forward send, settings scroll, unread-at-top default, schedule crash (2026-09-29)
+
+Branch `fix/issues-264-265-266`. All four fixed, each with a JUnit test and a
+`test-*.sh` that was confirmed to **fail on the pre-fix build and pass after**.
+
+| Issue | Fix | JUnit | Script |
+|---|---|---|---|
+| #264 forward stuck on "Sending…" | `forwardMessage` now completes the send | `ForwardPlanTest` | `test-forward-send.sh` |
+| #264 image forwarded as a text caption | forward branches on `mediaType` | `ForwardPlanTest` | `test-forward-mms.sh` |
+| #265 Advanced resets scroll on back | scroll state hoisted per screen | `SettingsScrollStateTest` | `test-advanced-scroll-back.sh` |
+| #266 "Unread at top" on by default | default flipped off, sort extracted | `ConversationListTest` | `test-unread-at-top-default.sh` |
+| #281 scheduling closes the app | UTC date bug + uncaught throw | `ScheduledTimeTest` | `test-schedule-no-crash.sh` |
+
+**#264 — forward never reached the framework.** `forwardMessage()` stopped after
+`repo.sendText()`, which writes `status = "sending"`. It never called
+`SmsSender.send()`, so no `SmsStatusReceiver` PendingIntent existed and nothing
+could ever flip the row to `sent`/`failed`. It now does both halves, marks the
+row `failed` and shows the send-failed notification if the framework declines,
+and branches on `mediaType` like `retryMessage()` does — an image message used
+to be forwarded as an SMS carrying its (often empty) caption.
+`ForwardPlan` holds the text-vs-MMS decision so it is unit tested. Verified
+pre-fix: the row sat on `sending` and nothing reached the system Sent box.
+
+**#265 — the hoisting pattern.** Settings screens are swapped by a `navRoute`
+string through `AnimatedContent`, so the outgoing composable is disposed and
+rebuilt. `settingsScroll` was already hoisted for exactly this reason;
+`AdvancedSettingsScreen` instead called `rememberScrollState()` inline, and
+`TrashScreen`/`SpamBlockedScreen` passed no `state =` to their `LazyColumn`s at
+all. All of them now take the state as a parameter and `MainActivity` hoists one
+per screen. **Trash and Spam each have two tabs, so they need two states each** —
+a single shared one would make switching tabs and back jump.
+
+**#265 recurred twice more — the same bug, two other screens.** Auditing every
+caller of `rememberScrollState()` / `rememberLazyListState()` afterwards turned up
+`AccessibilityScreen` and `ContactDetailsScreen`, both route screens creating
+their own state inline, both now hoisted. The durable guard is
+`SettingsScrollStateTest.noRouteScreenCreatesItsOwnScrollState`, which reads
+MainActivity's own `"route" -> Screen(` map and fails on any screen in it that
+calls either factory in its *body* (default parameter values are allowed, since
+the caller passes a hoisted state). Adding a route screen is therefore covered
+without touching the test. Verified it fails with a precise message when
+reverted. `ChatScreen` is exempt on purpose: it is meant to re-open at the newest
+message (#179), and `ConversationsScreen` is rendered outside the `AnimatedContent`
+so it is never disposed.
+
+**#266 — the default, and why the list jumped.** `unread_at_top_enabled`
+defaulted to `true`, so every fresh install got a list that re-sorts under the
+user. Flipped to `false` via a new `DEFAULTS_UNREAD_AT_TOP` constant. The
+filter/sort moved out of the composable into `ConversationList` so it is unit
+testable, which is the part the issue actually asked for.
+
+The issue also suggested gating the "reveal a newly-unread conversation" effect
+on `unreadAtTop`. **That was tried and reverted** — it breaks `test-trash` step 3
+("Tap Undo restores the row") 3/3, because the effect's `scrollToItem()` turns out
+to be load-bearing: skipping it leaves a restored conversation above the viewport,
+so Undo reads as "did nothing". The effect is left exactly as it was. The `!userScrolledAway`
+guard already there is what stops it overriding a scroll position the user set.
+
+**Deliberately not done:** #264 notes forward uses the SIM selected in settings
+rather than the SIM the original arrived on, and calls that "a separate question"
+— which it is, and it changes which SIM a send uses, so it is a product call
+rather than a bug fix. #265 suggests switching `settingsScroll` to
+`rememberSaveable`; that is already satisfied — `rememberScrollState` resolves
+`ScrollState.Companion.getSaver()` into a `remember(...)`, verified in the
+bytecode, so it survives rotation and process death without it.
+
+**#281 — two defects chained.** Material's `DatePicker` returns **midnight UTC**
+of the tapped day; the time step read it as a local instant, so west of
+Greenwich picking "today" produced yesterday. And `addScheduledMessage()`
+rejects a non-future timestamp with `require(...)`, which threw out of a
+fire-and-forget `launch` on a bare `SupervisorJob` — reaching the default
+uncaught handler and killing the process. That is the reported crash, and
+`test-schedule-no-crash.sh` reproduces it exactly on a pre-fix build:
+
+```
+java.lang.IllegalArgumentException: Scheduled time must be in the future
+    at com.anindra.messages.data.Repository.addScheduledMessage(Repository.kt:1396)
+    at com.anindra.messages.AppViewModel$scheduleMessage$1.invokeSuspend(MainActivity.kt:596)
+```
+
+`ScheduledTime.resolve()` reads the picker value as a calendar date, applies the
+time in the device zone, and rolls a time that already passed today forward so
+the scheduler always gets a future instant. The throw is also contained now
+(`runCatching` + a result callback, and a `CoroutineExceptionHandler` on the
+view-model scope that records a crash report instead of taking the process down).
+
+## Traps worth remembering (2026-09-29)
+
+- **These scripts share one emulator and it accumulates state.** `test-trash`,
+  `test-scheduled-send`, `test-retention` and the two new forward scripts all
+  leave rows behind, and `test-forward-mms.sh` / `test-mms-send.sh` toggle
+  `adb root`, which restarts adbd. A sweep run *after* a long session of
+  iterations produced failures that were pure pollution — `test-trash` could not
+  find its own seeded row. A regression sweep is only meaningful from a freshly
+  booted emulator, and the failing counts from a dirty one should be discarded
+  rather than investigated.
+- **Never run a background test sweep while rebuilding or reinstalling the APK.**
+  Doing that mid-run swapped the app out from under the scripts and produced
+  "15 passed, 9 failed" numbers that meant nothing.
+- **Material's `DatePicker` works in UTC; `TimePicker` does not.** Mixing the two
+  shifts the date by a day for anyone not on UTC, which is why "schedule for
+  today" could land yesterday. Always re-anchor a picker value through
+  `Instant.ofEpochMilli(x).atZone(ZoneOffset.UTC).toLocalDate()` before treating
+  it as a local instant.
+- **`Accessibility options` only exists once `Accessibility mode` is on.** The
+  `Accessibility mode` row in Advanced is a *toggle*; tapping it does not
+  navigate. A script that wants the Accessibility screen has to enable the mode
+  first and restore it afterwards, or it silently asserts against Advanced twice.
+- **A screen's own title is not a usable "am I on this screen" sentinel** when
+  the screen scrolls — after a back that correctly restores the scroll offset,
+  the first row is legitimately off screen. Wait on a row that is on screen at
+  the offset you expect, and use the first row only for the *initial* open.
+- **The system Sent box keeps rows across runs.** A fixed text marker lets a
+  stale row from a previous run satisfy a "did the framework take it" assertion.
+  Use a marker unique per run (`$(date +%s)`) or the assertion passes even when
+  the code is broken.
+- **toybox `date` handles `-d @<epoch>` but not `-d tomorrow`.** Do the "+1 day"
+  arithmetic on the host from a device-reported `date +%Y%m%d`.
+- **A `require(...)` inside a `scope.launch` on a bare `SupervisorJob` is a
+  process kill**, not a logged error: with no `CoroutineExceptionHandler` the
+  throw reaches `Thread`'s default handler. Validation that can fail on user
+  input belongs in a `runCatching` with a result callback, and the view-model
+  scope wants a handler regardless.
+- **An image bubble's accessibility label lands on a node sized to the image**
+  (2px for a 2px test PNG) and it is on `content-desc`, not `text`. A long-press
+  has to target the *clickable* ancestor, so widen from the label's point to the
+  tightest clickable node that contains it.
+- **`test-settings-scroll-retention.sh` has a pre-existing bug** and was not
+  touched: it greps for `"Advanced settings"`, but `settings_advanced_title` is
+  just `"Advanced"`, so its "Advanced settings did not open" assertion fails on
+  clean `Develop` too. Worth fixing separately — use a row unique to Advanced
+  (e.g. `"Accessibility mode"`) rather than the title.
+
 ## Four long-standing test failures, all test bugs (2026-09-25)
 
 Found while merging #247 and #248. Each was confirmed to fail on clean
