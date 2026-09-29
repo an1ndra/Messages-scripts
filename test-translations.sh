@@ -66,14 +66,40 @@ def read_dir(d):
 
 
 base, _, _ = read_dir(os.path.join(res, 'values'))
-locales = sorted(d for d in os.listdir(res) if re.match(r'^values-[a-z]{2}(-r[A-Z]{2})?$', d))
+
+# Declared languages come from locales_config.xml, the same list Crowdin drives
+# off, so adding a language is a one-file change instead of three.
+cfg = os.path.join(res, 'xml', 'locales_config.xml')
+declared = set(re.findall(r'android:name="([^"]+)"', open(cfg, encoding='utf-8').read()))
+declared.discard('en')
+
+
+def tag_for(name):
+    if not name.startswith('values-'):
+        return None
+    m = re.match(r'^values-([a-z]{2})(?:-r([A-Z]{2}))?$', name)
+    if not m:
+        return None
+    return m.group(1) if not m.group(2) else '%s-%s' % (m.group(1), m.group(2))
+
+
+locales = sorted(d for d in os.listdir(res) if tag_for(d) is not None)
+shipped = {tag_for(d) for d in locales}
 print('base keys: %d, locales: %d' % (len(base), len(locales)))
-assert len(locales) == 12, 'expected 12 locale dirs, found %d' % len(locales)
+if shipped != declared:
+    print('LOCALE DRIFT declared-only=%s shipped-only=%s'
+          % (sorted(declared - shipped), sorted(shipped - declared)))
+    sys.exit(1)
 
 fails = 0
 for loc in locales:
     d = os.path.join(res, loc)
     values, order, _ = read_dir(d)
+    # Crowdin creates values-<lang>/ as soon as a language is added to the
+    # project, before anyone translates it. Tolerated; must stay declared.
+    if not values:
+        print('EMPTY %s declared but untranslated, skipped' % loc)
+        continue
     missing = sorted(set(base) - set(values))
     extra = sorted(set(values) - set(base))
     if missing:
@@ -97,9 +123,47 @@ for loc in locales:
 sys.exit(1 if fails else 0)
 PY
 if [ $? -eq 0 ]; then
-    ok "12 locales complete, placeholders/order/duplicates clean, no English leftovers"
+    ok "locale parity clean, placeholders/order/duplicates clean, no English leftovers"
 else
     bad "resource parity check reported problems"
+fi
+
+info "Crowdin config matches the shipped locale directories"
+python3 - "$PROJECT_DIR" <<'PY'
+import os, re, sys
+root = sys.argv[1]
+res = os.path.join(root, 'app/src/main/res')
+path = os.path.join(root, 'crowdin.yml')
+if not os.path.isfile(path):
+    print('MISSING crowdin.yml - Crowdin cannot resolve file patterns')
+    sys.exit(1)
+text = open(path, encoding='utf-8').read()
+fails = 0
+if 'values-%android_code%' not in text:
+    print('CONFIG translation pattern is not values-%%android_code%%'); fails += 1
+# Crowdin offers es-ES only; without this it exports values-es-rES and es-MX
+# users silently fall back to English.
+if 'es-ES: es' not in text:
+    print('CONFIG missing languages_mapping es-ES -> es'); fails += 1
+# Apostrophes are backslash escaped throughout the repo; the Crowdin default
+# ('' doubling) would corrupt French.
+if re.search(r'escape_quotes:\s*2', text) is None:
+    print('CONFIG missing escape_quotes: 2'); fails += 1
+declared = set(re.findall(r'android:name="([^"]+)"',
+                          open(os.path.join(res, 'xml/locales_config.xml'), encoding='utf-8').read()))
+declared.discard('en')
+if 'hi-IN' in declared:
+    print('CONFIG locales_config.xml still declares hi-IN, Crowdin only has "hi"'); fails += 1
+if os.path.isdir(os.path.join(res, 'values-hi-rIN')):
+    print('CONFIG values-hi-rIN still present, Crowdin exports values-hi'); fails += 1
+if not os.path.isdir(os.path.join(res, 'values-hi')):
+    print('CONFIG values-hi missing'); fails += 1
+sys.exit(1 if fails else 0)
+PY
+if [ $? -eq 0 ]; then
+    ok "crowdin.yml aligned with the shipped resource directories"
+else
+    bad "crowdin.yml is out of step with the shipped locales"
 fi
 
 info "Device: app launches with the new resources"
