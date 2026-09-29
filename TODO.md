@@ -58,13 +58,31 @@ reverted to `hi-IN`. `./gradlew testDebugUnitTest` 267/267 green;
 
 ### Still open
 
-- **Translations not imported yet.** The one-time import was configured on the
-  first integration, which had to be deleted to force a branch-list refresh, so
-  it never ran. `Sync Now ▾ → Sync Translations to Crowdin` is the manual path.
-  All 29 project languages still read 0%.
+- **The one-time import pulled in only 4 of the 12 shipped languages.**
+  Reports show 5,339 words against a 1,358-word source (~3.9x = four languages).
+  In: zh-CN 98%, zh-TW 98%, pt-BR 97%, es-ES 98%. At 0%: **ar, de, fr, ja,
+  ko, pl, ru**. The split is exact — every language whose Crowdin code carries a
+  region imported, every plain two-letter code did not. `hi` is not in the
+  project at all.
+  Strong suspect is the `languages_mapping: android_code: {es-ES: es}` block,
+  added in the same change: a *partial* mapping appears to break default
+  resolution for every language it does not mention. Reverted it to isolate
+  the cause. The config check now validates the general invariant (if a mapping
+  exists, every shipped locale must resolve to a directory that exists) rather
+  than hardcoding `es-ES: es`, so a partial mapping cannot come back unnoticed.
+- **`es-ES` is still unresolved.** Crowdin only offers `es-ES`, whose
+  `%android_code%` is `es-rES`, so without a mapping Spanish exports to
+  `values-es-rES/` and es-MX users fall back to English. Deliberately left
+  unmapped while the import bug is isolated. Note the config check reads the
+  tags in `locales_config.xml` (which say `es`) and so cannot see this on its
+  own — it will be caught once a complete mapping is added, but not before.
+  Also note `values-es-rES` only serves Spain, so renaming the directory is not
+  a fix; the mapping is the only real option.
 - **Project language list is Crowdin's 29 defaults**, not the 12 shipped
-  languages — `hi` is absent entirely and `es-ES` stands in for `es`. Needs
-  trimming to the shipped set plus `hi`.
+  languages. Needs trimming, and `hi` adding.
+- **"Export only when fully translated" is off** on every language. Until it
+  is on, a partial language exports a `values-<lang>/` with missing keys and
+  `TranslationParityTest` fails on the `l10n_main` PR.
 - **Date/time patterns are hardcoded in English order** in
   `ui/Components.kt` (`MMM d`, `EEE, MMM d`), `ui/MessageGrouping.kt`
   (`EEEE, MMM d`, `EEEE, MMM d, yyyy`) and `ui/TimeFormat.kt`. French needs

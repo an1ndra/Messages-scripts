@@ -141,19 +141,35 @@ text = open(path, encoding='utf-8').read()
 fails = 0
 if 'values-%android_code%' not in text:
     print('CONFIG translation pattern is not values-%%android_code%%'); fails += 1
-# Crowdin offers es-ES only; without this it exports values-es-rES and es-MX
-# users silently fall back to English.
-if 'es-ES: es' not in text:
-    print('CONFIG missing languages_mapping es-ES -> es'); fails += 1
-# Apostrophes are backslash escaped throughout the repo; the Crowdin default
-# ('' doubling) would corrupt French.
 if re.search(r'escape_quotes:\s*2', text) is None:
     print('CONFIG missing escape_quotes: 2'); fails += 1
+if 'hi-IN' in text:
+    print('CONFIG crowdin.yml mentions hi-IN, Crowdin only has "hi"'); fails += 1
+
+# A partial android_code mapping is worse than none: an import with only
+# `es-ES: es` present pulled in zh-CN / zh-TW / pt-BR / es and left every plain
+# two-letter locale (ar, de, fr, ja, ko, pl, ru) at 0%. So when a mapping exists
+# it must resolve every shipped locale to a directory that actually exists.
 declared = set(re.findall(r'android:name="([^"]+)"',
                           open(os.path.join(res, 'xml/locales_config.xml'), encoding='utf-8').read()))
 declared.discard('en')
-if 'hi-IN' in declared:
-    print('CONFIG locales_config.xml still declares hi-IN, Crowdin only has "hi"'); fails += 1
+mapping = {}
+m = re.search(r'android_code:\s*\n((?:\s+\S+:\s*\S+\n)+)', text)
+if m:
+    for line in m.group(1).strip().splitlines():
+        k, _, v = line.strip().partition(':')
+        if k and v:
+            mapping[k.strip()] = v.strip().strip('\'"')
+stale = sorted(set(mapping) - declared)
+if stale:
+    print('CONFIG mapping has entries not in locales_config.xml: %s' % stale)
+    fails += 1
+for tag in sorted(declared):
+    code = mapping.get(tag, tag)
+    want = 'values-%s' % code.replace('-', '-r', 1)
+    if not os.path.isdir(os.path.join(res, want)):
+        print('CONFIG %s resolves to %s/ which does not exist' % (tag, want))
+        fails += 1
 if os.path.isdir(os.path.join(res, 'values-hi-rIN')):
     print('CONFIG values-hi-rIN still present, Crowdin exports values-hi'); fails += 1
 if not os.path.isdir(os.path.join(res, 'values-hi')):
