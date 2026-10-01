@@ -12,7 +12,9 @@ pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1"; FAIL=1; }
 
 TEST_NUM="+1555-123-0731"
-QUERY="555-123-0731"
+# The row shows the number grouped as "(555) 123-0731", so match the subscriber
+# part only -- searching the full number misses once grouping kicks in.
+QUERY="123-0731"
 
 row_y() {
     local c
@@ -44,6 +46,33 @@ restore_row_from_trash() {
     adb_ shell input keyevent 4; sleep 1.5
 }
 
+# The swipe below travels leftward, and "Swipe left" is the setting that
+# governs a leftward gesture. Pin it to Delete explicitly so this script keeps
+# testing the distance threshold rather than which default happens to sit on
+# which side -- the defaults (left=Archive, right=Delete) used to be relied on
+# while the app still had the two directions swapped.
+set_swipe_left_delete() {
+    adb_ shell am force-stop "$PKG"; sleep 1
+    adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null; sleep 4
+    dump_ui >/dev/null
+    tap_text "Inbox settings" >/dev/null || return 1
+    sleep 2.5
+    local i
+    for i in 0 1 2 3 4 5 6; do
+        dump_ui >/dev/null
+        if center_of "Swipe left" >/dev/null; then
+            tap_text "Swipe left" >/dev/null || return 1
+            sleep 2
+            tap_text "Delete" >/dev/null || return 1
+            sleep 2
+            return 0
+        fi
+        [ "$i" -eq 3 ] && adb_ shell input swipe 540 1700 540 700 300
+        sleep 0.7
+    done
+    return 1
+}
+
 ensure_row() {
     fresh_launch
     row_y >/dev/null && return 0
@@ -57,6 +86,11 @@ ensure_row() {
 info "Ensuring disposable row $TEST_NUM"
 ensure_row || { fail "could not prepare test row"; exit 1; }
 pass "test row on list"
+
+info "Pointing 'Swipe left' at Delete (the gesture below travels leftward)"
+set_swipe_left_delete || { fail "could not set the left swipe action"; exit 1; }
+fresh_launch
+pass "left swipe = Delete"
 
 info "1. Short slow swipe (~31% travel) must NOT delete"
 Y=$(row_y) || { fail "row missing"; exit 1; }
