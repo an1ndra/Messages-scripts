@@ -146,6 +146,28 @@ if re.search(r'escape_quotes:\s*2', text) is None:
 if 'hi-IN' in text:
     print('CONFIG crowdin.yml mentions hi-IN, Crowdin only has "hi"'); fails += 1
 
+# upload_translations pushes the repo's locale files over whatever a translator
+# has done in Crowdin but not yet merged, silently reverting their work on the
+# next scheduled run. It was needed once to re-seed after the duplicated file
+# trees were wiped; it must never come back.
+wf = os.path.join(root, '.github/workflows/crowdin.yml')
+if not os.path.isfile(wf):
+    print('MISSING .github/workflows/crowdin.yml'); fails += 1
+else:
+    wtext = open(wf, encoding='utf-8').read()
+    if re.search(r'upload_translations:\s*true', wtext):
+        print('WORKFLOW upload_translations: true would overwrite translator work')
+        print('WORKFLOW   with the repo locale files on every run')
+        fails += 1
+    for required, why in (
+        (r'upload_sources:\s*true', 'sources must be pushed to Crowdin'),
+        (r'download_translations:\s*true', 'translations must come back'),
+        (r'skip_untranslated_files:\s*true', 'English must not overwrite partial files'),
+        (r'create_pull_request:\s*true', 'translations must arrive as a PR'),
+    ):
+        if re.search(required, wtext) is None:
+            print('WORKFLOW missing %s (%s)' % (required, why)); fails += 1
+
 # A partial android_code mapping is worse than none: an import with only
 # `es-ES: es` present pulled in zh-CN / zh-TW / pt-BR / es and left every plain
 # two-letter locale (ar, de, fr, ja, ko, pl, ru) at 0%. So when a mapping exists

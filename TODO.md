@@ -5,6 +5,79 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Crowdin sync repaired, and dates finally follow the locale (2026-10-02)
+
+Finishes the community-translation setup for #175.
+
+### The duplicate file trees
+
+Crowdin held **822** strings for a project with 411. Two leftovers sat at the
+project root alongside the real tree:
+
+- `main/app/src/main/res/values/` — empty, "Nothing to translate"
+- `strings*.xml` flat at the root — the pre-`preserve_hierarchy` copy, and the
+  one the translations were attached to
+
+That is also why French read **48%**: 410 translated on the flat copy, 410
+untranslated on the nested one, averaged. Not a real number.
+
+`preserve_hierarchy: true` was never the problem — the run log shows correct
+paths. It only applies to uploads made *after* it was set, so the old flat files
+had to be deleted by hand. Both leftovers deleted; now **411 strings, one
+tree**, and the 12 languages sit at **97-98%**.
+
+### `upload_translations` removed
+
+It was a one-off repair left enabled after the wipe, and it is destructive:
+every scheduled run pushes the repo's locale files over whatever a translator
+has improved in Crowdin but not yet merged. Guarded in `CrowdinWorkflowTest`
+(7 cases) and in `test-translations.sh`, so it cannot come back silently.
+
+**Consequence worth remembering:** hand-editing `values-fr/strings.xml` is now
+one-way. The app ships your edit, but Crowdin never hears about it, and the next
+export for that language overwrites it with Crowdin's stored copy. There is no
+setting that gives both durability and translator safety.
+
+### Locale-aware dates
+
+`"MMM d"`, `"EEE, MMM d"` and `"EEEE, MMM d, yyyy"` were literal patterns.
+Field order is CLDR data, not formatting trivia, so French rendered `sept. 26`
+where it reads `26 sept.`, and Japanese `9月 26` instead of `9月26日`.
+
+Replaced with skeletons (`DatePatterns.kt`) resolved per locale through
+`DateFormat.getBestDateTimePattern`, cached **per locale** — the old top-level
+`val`s captured `Locale.getDefault()` at class-init, so a per-app language
+change left the process formatting in the old language forever.
+
+`formatGroupLabel` also hardcoded the English string `"Yesterday"`; it now takes
+the resolved label from `R.string.time_yesterday`.
+
+### Verification
+
+- `test-date-locale.sh` (new): switches the per-app locale via
+  `cmd locale set-app-locales`, backdates one conversation so the row falls
+  through to the date branch, and asserts the **order** of day and month in
+  en / fr / de / ja. English is the control.
+- Fails before the fix (5 assertions, `sept. 26` / `Sept. 26` / `9月 26`) and
+  passes after (8/8).
+- Conversation rows expose sender+snippet+timestamp through `content-desc`
+  because the row merges into one a11y node. Scraping `text=` finds only the
+  title and the FAB — the trap that made the first run of this script report
+  nothing at all.
+
+### Still open
+
+- **Moderated project joining is OFF.** `realgooseman` joined as Translator
+  unmoderated. Turn it on in Settings -> Privacy & collaboration.
+- **`test-chat-render.sh` fails** on a clean API 36 AVD: it greps `text=` for
+  conversation rows, send-status and day dividers, all of which are
+  `content-desc`. Pre-existing, unrelated to the date work, left unfixed rather
+  than half-patched.
+- `emulator-5554` holds a v24 database (`feat/combine-branches-with-ui-toggle`
+  is `DB_VERSION = 24`, `main` is 21). Installing `main` over it crashes on
+  launch with `Can't downgrade database from version 24 to 21`. Verification
+  was done on a second AVD, `emulator-5556`.
+
 ## Crowdin community translations: locale plumbing made data-driven (2026-09-29)
 
 Sets up the Crowdin panel for issue #175 so native speakers can correct strings
