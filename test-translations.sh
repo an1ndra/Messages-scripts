@@ -160,13 +160,23 @@ if m:
         k, _, v = line.strip().partition(':')
         if k and v:
             mapping[k.strip()] = v.strip().strip('\'"')
-stale = sorted(set(mapping) - declared)
+stale = sorted(k for k in mapping if k not in declared and mapping[k] not in declared)
 if stale:
-    print('CONFIG mapping has entries not in locales_config.xml: %s' % stale)
+    print('CONFIG mapping has entries matching no locale: %s' % stale)
+    fails += 1
+# A locale is pinned when it appears as a mapping key (pt-BR) or as a mapped
+# value (es-ES -> es, since locales_config calls Spanish plain "es").
+unpinned = sorted(t for t in declared if t not in mapping and t not in set(mapping.values()))
+if unpinned:
+    print('CONFIG locales relying on Crowdin default resolution: %s' % unpinned)
+    print('CONFIG   defaults region-qualify bare codes (ar -> ar-rSA, es-ES -> es-rES),')
+    print('CONFIG   which invented values-af-rZA / values-ar-rZA and left the real dirs empty.')
     fails += 1
 for tag in sorted(declared):
-    code = mapping.get(tag, tag)
-    want = 'values-%s' % code.replace('-', '-r', 1)
+    # A mapping value is already an android_code (pt-rBR). An unmapped tag falls
+    # back to the documented default, which region-qualifies it (pt-BR -> pt-rBR).
+    code = mapping.get(tag) or (tag.replace('-', '-r', 1) if '-' in tag else tag)
+    want = 'values-%s' % code
     if not os.path.isdir(os.path.join(res, want)):
         print('CONFIG %s resolves to %s/ which does not exist' % (tag, want))
         fails += 1
