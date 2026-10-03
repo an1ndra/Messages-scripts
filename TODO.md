@@ -5,6 +5,433 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## `:mms` module: three regression scripts (2026-10-03)
+
+Branch `feat/own-mms-package`. The new `:mms` Gradle module (package
+`com.anindra.messages.mms`) replaces the vendored `android-smsmms`. It is **not
+yet wired into the app** — `app/build.gradle.kts` still depends only on
+`:android-smsmms`, and `grep -r com.anindra.messages.mms app/src` is empty — so
+none of these scripts assume new UI exists.
+
+| Script | Covers | Needs an emulator |
+|---|---|---|
+| `test-mms-pdu.sh` (6/6) | `:mms` PDU + SMIL unit tests, counted from the JUnit XML | no |
+| `test-mms-codec.sh` (21/21) | the three golden PDU vectors, octet for octet | no |
+| `test-mms-store.sh` (6/6) | provider persistence: the store contract tests | no |
+
+**All three are emulator-free.** They run `./gradlew :mms:testDebugUnitTest`
+and read `mms/build/test-results/testDebugUnitTest/`, because the PDU and SMIL
+layers are deliberately free of `android.*` imports (`mms/build.gradle.kts`
+comments this) so they run under plain JUnit. None of them writes to the
+telephony provider database, so they need neither `adb root` nor a writable
+`mmssms.db` — the opposite of `test-mms-send.sh` / `test-mms-import.sh`, which
+are emulator-only for exactly that reason. That is what makes them usable as a
+pre-commit gate rather than as device sweeps.
+
+### Counts come from the XML, not from Gradle's console
+
+`--tests` filters are applied and the numbers are summed from the `<testsuite>`
+attributes with `xml.etree`, so a `[PASS] 141 PDU/SMIL tests ran` line is the
+count the test task recorded. The results directory is deleted first: a stale
+XML from a previous green run is exactly how a script ends up passing on broken
+code. `--rerun-tasks` is there for the same reason — Gradle's up-to-date check
+would otherwise skip the run that is supposed to be the evidence.
+
+`test-mms-pdu.sh` also requires all nine PDU/SMIL test classes to report a
+result file. A `--tests` filter that silently matches nothing still exits 0, so
+"the task ran" is not by itself evidence that anything was tested.
+
+### `test-mms-codec.sh` is the one that matters, because a vector can stop being checked
+
+`PduComposerTest` pins three PDUs octet for octet: an 11-octet
+M-NotifyResp.ind, a 45-octet M-ReadRec.ind, a 105-octet one-part M-Send.req.
+Nothing else would notice if those went away — the parser accepts whatever the
+composer produced, so a round-trip test cannot see a wrong header order, and
+deleting the assertion leaves the suite green. **Renaming or deleting a golden
+test is therefore a silent wire-format regression**, and the script is built to
+catch that first:
+
+- the expected octets are **read out of the test source, never restated here**.
+  Each vector is parsed from inside that one function's own `hexOf(...)` call,
+  so a hex literal in a neighbouring test cannot be swept into it, and the test
+  file stays the single copy. Restating the octets in the script would be a
+  second copy that can drift from the first.
+- the three lengths (11 / 45 / 105) are asserted, so a shortened vector fails
+  even if the composer and the vector were edited in lockstep.
+- each vector is cross-checked against the **production** field codes, read
+  from `MessageType.kt` and `HeaderField.kt` rather than hardcoded — including
+  `HeaderField.MMS_VERSION_1_2`, evaluated from its `(1 shl 4) or 2` source form
+  so the short-integer encoding of MMS 1.2 is pinned too. Kotlin's `or`/`shl`
+  are bitwise, which Python spells `|`/`<<`. If a constant is renamed the
+  script **aborts loudly** instead of skipping the check.
+- structural invariants that a hand-edited vector still has to satisfy: each
+  text field null-terminated, and the M-Send.req body entry's declared
+  header/data lengths accounting for exactly the octets that follow.
+- finally it runs the three named tests and reads each `<testcase>` by name.
+
+### `test-mms-store.sh` is a stand-in, and says so
+
+The brief was to exercise provider persistence through the app's own
+Diagnostics surface rather than emulator-only database writes, *if such a
+surface exists*. **It does not.** `DiagnosticsReport` has exactly one MMS line,
+`MMS carrier config:` — a per-SIM dump of `CarrierConfigManager` keys from
+`SimMmsProbe.carrierFacts`. Nothing in the report reads `content://mms`, so
+there is no way to seed a message through Diagnostics and read it back, and
+nothing to assert against. Inventing that probe would be inventing UI.
+
+So the script covers the persistence contract where it is specified today: the
+store package's JVM tests, which drive `TelephonyMmsStore` against a
+`FakeContentResolver`. It names all 23 guarantees it requires
+(`boxValuesAreTheProviders`, `fiveIsFailedAndNotATemporaryBox`,
+`pendingQueueAsksForDueRetryableRowsOnly`, `subIdProbeRunsOnceAndItsAnswerIsReused`, …)
+so a renamed or deleted one fails the script even though the suite stays green.
+
+**Follow-up when `:mms` is wired in:** extend `DiagnosticsReport` to report
+provider state (row counts per box, a probe verdict) and rewrite this as a
+`uiautomator` script asserting that text. That covers the *real* provider
+rather than the fake, which is the whole point of the Diagnostics route.
+
+### Verification — every script proven to fail
+
+A script that passes on broken code is worse than no script, so each was run
+against deliberately broken code. `--rerun-tasks` matters here: without it
+Gradle skips the run and the script reads the previous green XML.
+
+| Script | What was broken | Observed |
+|---|---|---|
+| `test-mms-pdu.sh` | `PduComposer.encodeContentType` start/type parameter order swapped | `[FAIL] 2 failing PDU/SMIL tests`, exit 1 |
+| `test-mms-codec.sh` | same swap | `[FAIL] failing vector test(s): aOnePartSendReqIsPinnedOctetForOctet` |
+| `test-mms-codec.sh` | golden test **renamed** | `[FAIL] PduComposerTest has no @Test named aNotifyRespIsExactlyElevenOctets…` + `only 2 of 3 reported a result` |
+| `test-mms-codec.sh` | golden test **deleted** | both the missing-vector line and `only 1 of 3` |
+| `test-mms-codec.sh` | vector **edited** to match a swapped composer | `[FAIL] failing vector test(s): aOnePartSendReqIsPinnedOctetForOctet` |
+| `test-mms-codec.sh` | MMS-Version header dropped **and** vector + length + name updated in lockstep | `[FAIL] pins 9 octets, not the 11 the wire format requires` + `[FAIL] opens <Message-Type 0x83> <MMS-Version 0x92>` |
+| `test-mms-store.sh` | `TelephonyMmsStore` never writes `sub_id` on persist | `[FAIL] 2 failing store tests` (`persistWritesMessagePartsAndAddresses`, `subIdProbeRunsOnceAndItsAnswerIsReused`) |
+| `test-mms-store.sh` | `boxValuesAreTheProviders` **deleted** | `[FAIL] these provider guarantees are no longer asserted: boxValuesAreTheProviders` |
+
+The MMS-Version row is the one that matters most: it is a change that keeps the
+JUnit test, its vector, its length and its name all self-consistent, and only
+the cross-check against the production constants catches it.
+
+### Two traps worth keeping
+
+- **A regex over JUnit XML silently mis-parses.** The obvious
+  `<testcase name="…"[^>]*(?:/>|>.*?</testcase>)` cannot match a self-closing
+  `<testcase …/>` when the alternation's second branch is tried first across
+  lines, so only *some* test names are found — and the script reports "only 1 of
+  3 named vector tests reported a result" for a run where all three ran. Use
+  `xml.etree.ElementTree`, which gets this right.
+- **Gradle failed with `java.io.EOFException`** on `:mms:testDebugUnitTest` once,
+  with no compiler error and a `[PASS] the :mms test task produced results`
+  line above it. A concurrent build in the same tree was the cause; a re-run
+  was green. Not reproducible, and not attributable to these scripts — noted so
+  the next agent does not chase it.
+
+**Not in `run-all-tests.sh`.** That sweep installs the APK and drives the
+emulator; these three need neither, so adding them would only lengthen a sweep
+they do not belong to. Run them directly.
+
+## Telephony declared as an optional hardware feature (2026-09-30)
+
+Lint flagged `PermissionImpliesUnsupportedChromeOsHardware` six times, once per
+SMS/MMS/phone-state permission. The manifest requested `SEND_SMS`, `RECEIVE_SMS`,
+`READ_SMS`, `WRITE_SMS`, `RECEIVE_MMS`, `RECEIVE_WAP_PUSH` and `READ_PHONE_STATE`
+but declared no `<uses-feature>` at all, so the platform inferred
+`android.hardware.telephony` as **required**. Google Play filters on that
+implied feature, which would have hidden the app from ChromeOS and
+telephony-less tablets — the exact devices where the simulated-SIM path is the
+only thing that works.
+
+One opt-out before `<application>` fixes all six:
+
+```xml
+<uses-feature
+    android:name="android.hardware.telephony"
+    android:required="false" />
+```
+
+`aapt2 dump badging` on the installed APK is the proof, and it is worth reading
+the two states side by side — this is not a cosmetic manifest annotation:
+
+| | telephony line in badging |
+|---|---|
+| before | `uses-feature: name='android.hardware.telephony'` (required) |
+| after | `uses-feature-not-required: name='android.hardware.telephony'` |
+
+**Verification**
+
+- `ManifestTelephonyFeatureTest` (5 tests) parses the source manifest and
+  asserts the feature is declared exactly once, is `required="false"`, is a
+  direct child of `<manifest>` before `<application>`, and that every
+  telephony-implying permission actually declared is covered by the opt-out.
+  The parser must set `isNamespaceAware = true` or `getAttributeNS` silently
+  returns `""` for `android:*` and the tests pass vacuously.
+- `scripts/test-telephony-feature-optional.sh` — pulls `base.apk` off the device
+  and runs `aapt2 dump badging` on it, so a manifest that is right in source but
+  dropped by the merge pipeline still fails. Also relaunches the app to confirm
+  the optional feature did not break startup.
+
+Confirmed both fail before the fix and pass after. Ran on the Android 11
+(`Pixel_Android11`, SDK 30) emulator. `:app:lintDebug` errors went 80 → 74, the
+exact six removed; the remaining 74 are pre-existing and unrelated.
+
+## Permission-gated SIM/carrier reads: explicit `SecurityException` (2026-09-30)
+
+Follow-on to the telephony `<uses-feature>` work. Lint flagged four
+`MissingPermission` errors — `getConfigForSubId` in `MmsCarrierConfig` and
+`SimMmsProbe`, `activeSubscriptionInfoList` in `SimCard` and `PhoneNumberUtils`.
+
+**This was a signal problem, not a crash.** Every one of the four sites already
+handled the denial at runtime: two used `runCatching { }` and two used
+`catch (_: Exception)`, and `SecurityException` is an `Exception`. Lint's
+`PermissionDetector` credits neither — it wants an explicit
+`catch (SecurityException)` or a `checkPermission` call — so a *handled*
+degradation read as an unhandled crash. Each call now sits in an explicit
+`catch (_: SecurityException)` returning a documented default:
+
+| site | default on denial |
+|---|---|
+| `MmsCarrierConfig.load` | null bundle → `MmsConfig` falls back to the AOSP MMS limits |
+| `SimMmsProbe.carrierConfig` | null config → `SimMmsCheck` reports the SIM unknown |
+| `SimCards.load` | empty SIM list |
+| `SimCards.ownNumber` | null `SimCard.number` (READ_PHONE_NUMBERS is never requested) |
+| `PhoneNumberUtils.resolveRegion` | the locale's country |
+
+`ownNumber` is extracted from the inline `runCatching` so its "blank → null"
+rule is readable; the rest are one-line catch changes.
+
+**A pre-flight `checkSelfPermission` would have been the wrong fix.** The grant
+can be revoked between the check and the call, so the catch is load-bearing.
+A `checkSelfPermission` guard would also have meant skipping the read
+entirely, losing the degradation to a locale default.
+
+**Rejected: a shared `orDefaultOnDenied { }` helper.** Wrapping the reads in one
+inline helper looked like the obvious cleanup, but lint does not see through the
+lambda — all four errors came straight back (74 errors instead of 70). The
+`SecurityException` catch has to be lexically in the calling method.
+
+**Verification**
+
+- `PermissionGuardTest` (3 tests) — source-level, because a JVM test has no
+  package manager to revoke against. Asserts each gated call is followed within
+  15 lines by a `catch (_: SecurityException)`, and that no `runCatching`
+  creeps back in. **Confirmed 3/3 fail against the original code.**
+- `scripts/test-permission-denied-degrades.sh` — the runtime half: revokes
+  READ_PHONE_STATE and READ_PHONE_NUMBERS with `pm revoke`, relaunches,
+  navigates Settings → Advanced → MMS support (the one screen that exercises
+  both changed call sites via `SimMmsProbe.run`), and asserts no fatal. With the
+  permissions denied the screen renders "No active SIM found", which is the
+  degradation actually being observed rather than assumed. Re-grants on exit.
+  **This script also passes against the original code** — correctly so, since the
+  original was runtime-safe. It is a characterization test that locks the
+  guarantee in, not a fail-before/pass-after regression; `PermissionGuardTest`
+  is the one that discriminates.
+
+Gotcha worth keeping: logcat splits a fatal across two lines
+(`FATAL EXCEPTION: main` / `Process: <pkg>`), so the crash detector needs
+`grep -A3` before matching the package name — filtering on `FATAL EXCEPTION`
+alone matches nothing and the count is silently always 0. `grep -c` also exits 1
+on a zero count, so a `|| echo 0` guard appends a second line and every
+`[ -gt 0 ]` downstream errors out instead of failing. Both were caught by
+running the detector against synthetic log fixtures.
+
+`:app:lintDebug` errors 74 → 70; the remaining 70 are pre-existing and unrelated.
+
+## Per-direction swipe actions + settings redesign (2026-09-27)
+
+Two pieces of work that share the settings-row component.
+
+### Swipe actions are configured per direction
+
+There was a single "Swipe actions" on/off switch plus a "Reverse swipe actions"
+switch, which can only express three states: both-off, archive-left, or
+delete-left. Google Messages lets you pick an action per side, so left and right
+now hold independent `SwipeAction` values.
+
+`data/SwipeAction.kt` is the new enum (`OFF`, `ARCHIVE`, `DELETE`,
+`MARK_READ_UNREAD`, `PIN`, `BLOCK`). `storageValue` is asserted by
+`SwipeActionTest` because these are persisted ints — renumbering would silently
+repoint an existing user's configuration at a different action.
+
+**Migration.** `swipe_left_action` / `swipe_right_action` default to *absent*,
+not to a value. On first read, if they are absent, the pair is derived from the
+old `swipe_actions_enabled` + `reverse_swipe_enabled` booleans and written, so it
+happens exactly once:
+
+| old state | left | right |
+|---|---|---|
+| `enabled=false` | OFF | OFF |
+| `enabled=true`, `reverse=false` | ARCHIVE | DELETE |
+| `enabled=true`, `reverse=true` | DELETE | ARCHIVE |
+
+`reverse_swipe_enabled` stays readable so a downgrade does not crash, but nothing
+writes it any more. `swipe_actions_enabled` lost its property entirely — with
+OFF available per direction there is no separate master switch to get out of
+sync, and `swipeEnabled` is now derived as `left != OFF || right != OFF`.
+
+A direction set to OFF is disabled with
+`enableDismissFromStartToEnd` / `enableDismissFromEndToStart`, not just made
+inert, so the row cannot be swiped that way at all. The 0.65 threshold and its
+`confirmValueChange` guard are untouched.
+
+**Every action is undoable** through a shared `withUndo` snackbar helper —
+archive, delete, mark read/unread, pin and block all offer Undo. This needed two
+new repository primitives (`setReadSuspend`, and `unpin`/`setPinned` on the
+view model) because the existing ones could only move state one way.
+
+### The picker is a settings row with a live preview
+
+Modelled on quik (`quik-sms/quik`, the QKSMS successor — *not* Fossify, which
+has no swipe settings at all). Its two rows carry the current action as a
+subtitle, a trailing all-caps "CHANGE", and a **mock conversation row** showing
+the real swipe colour and icon.
+
+`SwipeActionPreview` reuses the gesture's own `background()`, `iconTint()` and
+`icon()` helpers, so the preview cannot drift from the behaviour it advertises,
+and it positions the icon with the same `SWIPE_ICON_INSET` token the real
+`backgroundContent` uses. The disabled option is labelled "None" to match quik,
+and the row's summary uses the neutral "Mark read/unread" rather than the
+direction-dependent wording the swipe background needs for TalkBack — hence the
+split into `labelRes()` and `a11yLabelRes()`.
+
+`SettingsRow` grew two optional slots, `trailing` and `preview`. The clickable
+moved from the inner `Row` to a wrapping `Column` so the preview is part of the
+tap target, as it is in quik.
+
+### Two bugs the preview itself exposed
+
+Both were invisible in code review and only showed up in a pixel measurement of
+a screenshot:
+
+1. **The colour block was not flush with the row edge.** The preview `Row` packed
+   its children at the start, so a trailing block ended ~48dp short of the edge
+   and left a visible gap. Fixed by giving the mock row `weight(1f)`.
+2. **The icon was centred in the block** rather than inset from the row's edge,
+   which is where the real gesture puts it. Now 24dp from the outer edge.
+
+Measured after the fix at 420dpi (1dp = 2.625px), both previews: block exactly
+252px = 96.0dp, flush against the correct edge, glyph inset 29.0dp / 30.1dp from
+the outer edge, vertical centre offset 0px. The ~5dp over the nominal 24dp is
+the vector glyph's own padding inside its 24dp box, and it matches on both
+sides.
+
+`SwipeDirection.resolveAction()` and `revealsTrailingEdge` are pure and
+unit-tested so the composable cannot re-introduce either.
+
+### Two test bugs found on the way
+
+- `test-swipe-threshold.sh` searched for `555-123-0731`, but the row renders the
+  number grouped as `(555) 123-0731`, so it never found its row and reported
+  "could not prepare test row". It now matches the subscriber part only.
+- The picker dialog's rows were only clickable on the radio itself; tapping the
+  label did nothing. Now `Modifier.selectable` on the row, matching the M3
+  single-choice pattern.
+
+### Tests
+
+- `SwipeActionTest` — storage-value stability, round-trip, unknown-value
+  fallback, and the three legacy migration cases.
+- `SwipeDirectionTest` — per-direction resolution, OFF not leaking across
+  directions, the revealed edge, and the preview token geometry (icon fits the
+  block; the mock fits a 360dp screen).
+- `test-swipe-actions.sh` — all six actions per direction through the real UI
+  and the persisted value, both directions differing at once, "None" surviving a
+  full leftward swipe, delete-plus-undo round trip, and the legacy migration
+  (including that the new keys get written).
+- `test-swipe-threshold.sh` — unchanged behaviour, still green.
+
+## MMS carrier-config parity with GrapheneOS Messages — core hardening (2026-09-27)
+
+The send/download path read **nothing** from `CarrierConfigManager`; every MMS
+limit was hardcoded. On a carrier that caps image size or message size, the app
+composed an oversized PDU, handed it to the network, and the user got a bare
+"Not sent" with no way to tell the attachment was too big. Delivery and read
+reports were always `VALUE_NO` regardless of the carrier.
+
+Three new pure-logic seams carry the logic, all unit-tested:
+
+- `data/MmsConfig.kt` — per-SIM values plus a `CarrierValues` interface so
+  `from()` is testable with a fake. The `KEY_*` names mirror the public
+  `CarrierConfigManager.KEY_MMS_*` constants; I pulled the literal strings out
+  of `android.jar` with `javap -constants` rather than trusting memory, which is
+  what caught that the keys are `maxMessageSize` / `enabledNotifyWapMMSC` and not
+  the longer `MMS_*` spellings. `MmsConfigTest` asserts those strings directly,
+  since a rename upstream would otherwise silently revert every limit.
+
+  Only the six values the send path enforces are modelled. `recipientLimit` and
+  the SMS-to-MMS thresholds are applied by the platform from the overrides
+  bundle, so they were dropped rather than kept as a second source of truth that
+  can disagree with it.
+- `data/MmsImageSizing.kt` — `fitWithin` (cap + aspect ratio) and `sampleSize`
+  (power-of-two subsampling that stays at or above target).
+- `data/MmsRetry.kt` — GrapheneOS's AUTO_RETRY / MANUAL_RETRY / NO_RETRY split
+  with exponential backoff, replacing a flat 5-minute cooldown that treated a
+  missing data network the same as a carrier 404.
+
+`sms/MmsCarrierConfig.kt` is the thin Android adapter and caches per
+subscription, invalidated on resume so a SIM swap is picked up.
+
+### Three things that only showed up on the device
+
+- **`CarrierConfig` is not in `android.jar` at all** (hidden system API), so the
+  constants have to come from `CarrierConfigManager` and the key strings are
+  literal. `getConfigByComponentForSubId` is the non-deprecated replacement for
+  `getConfigForSubId` and it returns an **empty bundle for this app**, which
+  would silently discard every limit — verified on API 36. `getConfigForSubId` is
+  used with a `@Suppress("DEPRECATION")` and a comment saying why.
+- **Subsampling alone cannot hit the cap.** 900x600 at `inSampleSize=8` decodes
+  to 113x75, not 100x67, because subsampling only lands on powers of two. The
+  first version logged `900x600 -> 112x75` against a 100x100 cap; the explicit
+  `createScaledBitmap` to `target` is what actually enforces it. The
+  `test-mms-carrier-config.sh` downscale assertion is what caught this.
+- **`enabledMMS` defaults to false on the AOSP emulator**, so an
+  `if (!config.enabled) reject` guard made every MMS send fail and broke
+  `test-mms-send.sh`. The guard was dropped: the platform already refuses MMS for
+  a carrier that disables it, and duplicating the check only risks disagreeing
+  with the platform.
+
+### Also fixed while in here
+
+- The composer read the whole attachment with `readBytes()` — an OOM risk on a
+  large photo. Now streamed with a hard cap; oversize raises the same
+  `TOO_LARGE` outcome as the composed-PDU check.
+- `MmsSupport.shouldRetryDownload` / `DOWNLOAD_RETRY_COOLDOWN_MS` removed as dead
+  code, with the covering test moved to `MmsRetryTest`.
+- `MmsDownloadReceiver` never read the result code the platform delivers, so
+  every failure was silently identical. It now classifies.
+
+### Tests
+
+- `MmsConfigTest` (7), `MmsRetryTest` (9), `MmsImageSizingTest` (8) — 289 unit
+  tests green, no failures.
+- `scripts/test-mms-carrier-config.sh` (8) — drives **real** carrier config via
+  `cmd phone cc set-value` and asserts downscale, the size cap, and the report
+  headers. Verified it fails on the pre-fix build: 3 failures (no downscale,
+  `d_rpt`/`rr` both 0x81).
+- `scripts/test-mms-retry.sh` (7) — asserts the request is made once, the result
+  is classified, and the row is released from backoff on a non-transient
+  outcome. Verified failing on the pre-fix downloader: 3 failures.
+- Unaffected: `test-mms-send` (8), `test-mms-download` (5), `test-mms-import` (5).
+- `test-chat-render.sh` and `test-multipart-sms.sh` fail, but they fail
+  identically on a stashed baseline — pre-existing, not from this work.
+
+### Traps worth remembering
+
+- **`cmd phone cc set-value` rejects a bare `false`** ("Unable to parse null /
+  false as a BOOLEAN") and `null` is not accepted for a boolean either, so a
+  boolean override **cannot be reset to false** once set true. The only way back
+  is `cmd phone cc clear-values -s SLOT`, which drops *every* override on the
+  slot. Both scripts therefore save each key up front and re-read after every
+  write, because a rejected write leaves the previous value silently in place and
+  the test would otherwise pass against stale config.
+- **`get-value` output is column-aligned and padded**, so the value is the last
+  whitespace-separated field, and `get-value` **lags the write** — a single
+  read-back races and reports a false failure.
+- **The provider persists the `image/*` part row without its data blob** (both
+  `_data` and `text` are null), so SQLite cannot be used to check the encoded
+  dimensions. The assertion has to come from what the composer actually wrote,
+  which is why `MmsComposer` logs the source -> encoded dimension transition.
+
+
 ## Four long-standing test failures, all test bugs (2026-09-25)
 
 Found while merging #247 and #248. Each was confirmed to fail on clean
@@ -2401,6 +2828,58 @@ asset plus a test that only guarded that one asset is dead weight. Both are in
 UI components need, and the icon reads as missing rather than disabled. Dark mode
 now keeps 0.62.
 
+## Import/export log (2026-10-02)
+
+✅ USER REQUEST: show import/export logs in the app, including failures and
+conflicts.
+
+Settings → **Advanced → Import & export log** lists the last 20 runs, each with
+its outcome, the reason it failed, added/seen/skipped counts, and the
+per-category conflict tallies. The same last five runs are appended to
+`Diagnostics → Diagnostics` as a `--- Transfers ---` block, so a script can
+assert on them without opening the screen.
+
+**What was silently lost, and now is not:**
+
+- **`ImportReport.skipped` and `.truncated` had zero readers.** They were
+  computed at the end of `importStaged` and dropped on the floor at the one call
+  site, which kept only `added`.
+- **`importStaged` had no duplicate detection at all.** Re-importing the same
+  backup duplicated every message, and the run reported `added = seen`. It now
+  keys on conversation address + timestamp + direction + transport + body and
+  skips repeats, tallying them under `already present`. (Deliberately *not* the
+  provider id — that belongs to whichever device issued it, the same reasoning
+  as `LegacyBackupSchema.adoptProviderIds`.)
+- **`mergeDatabase` skipped duplicates with a bare `continue`** — no counter, so
+  "merged 4,000" was indistinguishable from a run that had merged 600 and
+  dropped 3,400.
+- **`added++` ran unconditionally after `insert()`.** A refused insert (a
+  constraint, a full disk) incremented `added` and looked like a success.
+- **`backupDatabase` returned a bare `Boolean` from six `return false` sites.**
+  A revoked SD-card permission and a rejected PIN produced the same `false` and
+  the same toast. It now returns `ExportResult`, and every failure goes through
+  `exportFailed()` so it is both shown and logged.
+- **`importSmsIe` collapsed `ImportResult` to an `Int`** (`-1` for any error),
+  so "Wrong PIN or corrupted file" and "Cannot read that backup file" both
+  surfaced as `settings_import_sms_ie_failed`. The `ImportResult` now reaches
+  the UI intact.
+
+**Counting lives next to the decision.** `Repository.Conflict` holds the reason
+strings, and each site that skips a message increments its own bucket.
+`TransferConflictCountingTest` fails the build on a `skipped++` with no
+`conflicts.count()` nearby — a skip that does not say why is exactly the silent
+loss this log exists to expose.
+
+**Recorded in the Repository, not the ViewModel**, so the debug probes the
+scripts drive log through the same call the UI makes, and the `TransferLog`
+logcat dump reads `TransferLogStore` rather than recomputing anything.
+
+Files: `data/TransferLog.kt` (new), `data/Repository.kt`, `data/BackupCrypto.kt`
+(`encryptWithPin` returns bytes written, so a truncated export is catchable),
+`ui/TransferLogScreen.kt` (new), `MainActivity.kt`,
+`diagnostics/DiagnosticsReport.kt`, both settings screens, 13 locales.
+Tests: `TransferLogTest`, `TransferConflictCountingTest`, `test-transfer-log.sh`.
+
 ## Traps worth remembering
 
 - **A Compose `IconButton`'s disabled state is on the clickable parent View, not
@@ -2417,3 +2896,12 @@ now keeps 0.62.
 - Sections that empty a folder affect **every** row in it, not just their own
   seeded markers, so a later section may find nothing. Re-seed rather than
   asserting against an empty tab.
+- **`&` in an Android string reaches uiautomator XML as `&amp;`,** so a row
+  titled `Import & export log` greps as `Import &amp; export log`. Grepping for
+  the raw `&` silently finds nothing and reads as "the row is missing". Also
+  note that a row's title and the screen's top bar carry the same string — match
+  on the subtitle to prove the *row* is on screen, not just the title bar.
+- **`test-backup-restore.sh` and `test-merge-import.sh` currently fail at the SAF
+  picker step on this AVD** ("newest .enc not found in picker") — confirmed
+  pre-existing on a clean checkout, not caused by the transfer-log work. The
+  backup is written correctly (`ls` shows it); the picker just does not list it.
