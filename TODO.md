@@ -619,6 +619,167 @@ subscription, invalidated on resume so a SIM swap is picked up.
   which is why `MmsComposer` logs the source -> encoded dimension transition.
 
 
+||||||| 2003c10
+## Crowdin sync repaired, and dates finally follow the locale (2026-10-02)
+
+Finishes the community-translation setup for #175.
+
+### The duplicate file trees
+
+Crowdin held **822** strings for a project with 411. Two leftovers sat at the
+project root alongside the real tree:
+
+- `main/app/src/main/res/values/` — empty, "Nothing to translate"
+- `strings*.xml` flat at the root — the pre-`preserve_hierarchy` copy, and the
+  one the translations were attached to
+
+That is also why French read **48%**: 410 translated on the flat copy, 410
+untranslated on the nested one, averaged. Not a real number.
+
+`preserve_hierarchy: true` was never the problem — the run log shows correct
+paths. It only applies to uploads made *after* it was set, so the old flat files
+had to be deleted by hand. Both leftovers deleted; now **411 strings, one
+tree**, and the 12 languages sit at **97-98%**.
+
+### `upload_translations` removed
+
+It was a one-off repair left enabled after the wipe, and it is destructive:
+every scheduled run pushes the repo's locale files over whatever a translator
+has improved in Crowdin but not yet merged. Guarded in `CrowdinWorkflowTest`
+(7 cases) and in `test-translations.sh`, so it cannot come back silently.
+
+**Consequence worth remembering:** hand-editing `values-fr/strings.xml` is now
+one-way. The app ships your edit, but Crowdin never hears about it, and the next
+export for that language overwrites it with Crowdin's stored copy. There is no
+setting that gives both durability and translator safety.
+
+### Locale-aware dates
+
+`"MMM d"`, `"EEE, MMM d"` and `"EEEE, MMM d, yyyy"` were literal patterns.
+Field order is CLDR data, not formatting trivia, so French rendered `sept. 26`
+where it reads `26 sept.`, and Japanese `9月 26` instead of `9月26日`.
+
+Replaced with skeletons (`DatePatterns.kt`) resolved per locale through
+`DateFormat.getBestDateTimePattern`, cached **per locale** — the old top-level
+`val`s captured `Locale.getDefault()` at class-init, so a per-app language
+change left the process formatting in the old language forever.
+
+`formatGroupLabel` also hardcoded the English string `"Yesterday"`; it now takes
+the resolved label from `R.string.time_yesterday`.
+
+### Verification
+
+- `test-date-locale.sh` (new): switches the per-app locale via
+  `cmd locale set-app-locales`, backdates one conversation so the row falls
+  through to the date branch, and asserts the **order** of day and month in
+  en / fr / de / ja. English is the control.
+- Fails before the fix (5 assertions, `sept. 26` / `Sept. 26` / `9月 26`) and
+  passes after (8/8).
+- Conversation rows expose sender+snippet+timestamp through `content-desc`
+  because the row merges into one a11y node. Scraping `text=` finds only the
+  title and the FAB — the trap that made the first run of this script report
+  nothing at all.
+
+### Still open
+
+- **Moderated project joining is OFF.** `realgooseman` joined as Translator
+  unmoderated. Turn it on in Settings -> Privacy & collaboration.
+- **`test-chat-render.sh` fails** on a clean API 36 AVD: it greps `text=` for
+  conversation rows, send-status and day dividers, all of which are
+  `content-desc`. Pre-existing, unrelated to the date work, left unfixed rather
+  than half-patched.
+- `emulator-5554` holds a v24 database (`feat/combine-branches-with-ui-toggle`
+  is `DB_VERSION = 24`, `main` is 21). Installing `main` over it crashes on
+  launch with `Can't downgrade database from version 24 to 21`. Verification
+  was done on a second AVD, `emulator-5556`.
+
+## Crowdin community translations: locale plumbing made data-driven (2026-09-29)
+
+Sets up the Crowdin panel for issue #175 so native speakers can correct strings
+directly. Crowdin project `git-messages`, GitHub integration connected to
+`an1ndra/Messages` branch `main` in *Source and translation files* mode;
+translations come back as a PR on `l10n_main`, never straight onto `main`.
+
+**Deliberately did not use a separate `translate` source branch.** The service
+branch already keeps translation commits off `main`, so a second source branch
+would only have added a merge in each direction. Created and reverted during
+setup; `main` is the single source branch.
+
+### Repo-side
+
+- `crowdin.yml` at the repo root, committed to `main`.
+  - `escape_quotes: 2` — the repo backslash-escapes apostrophes (`l\'application`)
+    and French leans on them in nearly every string. Crowdin's default (`''`
+    doubling) would have corrupted all 12 locales on first export.
+  - `languages_mapping: android_code: {es-ES: es}` — Crowdin only offers
+    `es-ES`, whose `%android_code%` is `es-rES`, exporting to `values-es-rES/`.
+    That directory only serves Spain; es-MX users would silently fall back to
+    English. Pinned to plain `es` so the existing `values-es/` is reused.
+  - No credentials committed; the GitHub App authenticates.
+- `values-hi-rIN/` → `values-hi/`, and `locales_config.xml` `hi-IN` → `hi`.
+  Crowdin has no `hi-IN` language, only `hi`, so it would have exported to a
+  *new* `values-hi/` beside the old one. Renaming first avoids two Hindi dirs.
+
+### Tests: locale list was hardcoded in three places
+
+`TranslationParityTest` asserted the exact 12 directory names and
+`LocaleConfigTest` demanded exact parity with `locales_config.xml`. Crowdin
+creates a `values-<lang>/` directory the moment a language is *added*, long
+before anyone translates it — so the first new language turned CI red until
+three files were hand-edited together.
+
+- New `LocaleCatalog` (test source set) reads `locales_config.xml` as the single
+  source of truth. Crowdin drives translations off the same list, so adding a
+  language is now a one-file change.
+- Parity checks iterate only locales that have content, so an untranslated
+  language is tolerated while a translated one must still be complete.
+- `test-translations.sh`: dropped `assert len(locales) == 12` for the same
+  reason, and added a `crowdin.yml` consistency check (translation pattern,
+  `es-ES: es` mapping, `escape_quotes: 2`, no `values-hi-rIN`, `values-hi`
+  present).
+
+Verified both ways: the checks **pass** with an empty undeclared `values-it/`
+added (the Crowdin pre-creation case) and **fail** when `de` is dropped from
+`locales_config.xml`, when the `es-ES` mapping is removed, and when `hi` is
+reverted to `hi-IN`. `./gradlew testDebugUnitTest` 267/267 green;
+`bash scripts/test-translations.sh` 4 passed / 0 failed on `emulator-5554`.
+
+### Still open
+
+- **The one-time import pulled in only 4 of the 12 shipped languages.**
+  Reports show 5,339 words against a 1,358-word source (~3.9x = four languages).
+  In: zh-CN 98%, zh-TW 98%, pt-BR 97%, es-ES 98%. At 0%: **ar, de, fr, ja,
+  ko, pl, ru**. The split is exact — every language whose Crowdin code carries a
+  region imported, every plain two-letter code did not. `hi` is not in the
+  project at all.
+  Strong suspect is the `languages_mapping: android_code: {es-ES: es}` block,
+  added in the same change: a *partial* mapping appears to break default
+  resolution for every language it does not mention. Reverted it to isolate
+  the cause. The config check now validates the general invariant (if a mapping
+  exists, every shipped locale must resolve to a directory that exists) rather
+  than hardcoding `es-ES: es`, so a partial mapping cannot come back unnoticed.
+- **`es-ES` is still unresolved.** Crowdin only offers `es-ES`, whose
+  `%android_code%` is `es-rES`, so without a mapping Spanish exports to
+  `values-es-rES/` and es-MX users fall back to English. Deliberately left
+  unmapped while the import bug is isolated. Note the config check reads the
+  tags in `locales_config.xml` (which say `es`) and so cannot see this on its
+  own — it will be caught once a complete mapping is added, but not before.
+  Also note `values-es-rES` only serves Spain, so renaming the directory is not
+  a fix; the mapping is the only real option.
+- **Project language list is Crowdin's 29 defaults**, not the 12 shipped
+  languages. Needs trimming, and `hi` adding.
+- **"Export only when fully translated" is off** on every language. Until it
+  is on, a partial language exports a `values-<lang>/` with missing keys and
+  `TranslationParityTest` fails on the `l10n_main` PR.
+- **Date/time patterns are hardcoded in English order** in
+  `ui/Components.kt` (`MMM d`, `EEE, MMM d`), `ui/MessageGrouping.kt`
+  (`EEEE, MMM d`, `EEEE, MMM d, yyyy`) and `ui/TimeFormat.kt`. French needs
+  `d MMM`. `Locale.getDefault()` is already passed for month/day *names*, so
+  only the pattern order is wrong. **Crowdin cannot fix this** — it is a code
+  change (CLDR skeletons via `DateTimeFormatterBuilder.getLocalizedDateTimePattern`).
+  This is the second half of the #175 request from `realgooseman` and is
+  untouched.
+
 ## Four long-standing test failures, all test bugs (2026-09-25)
 
 Found while merging #247 and #248. Each was confirmed to fail on clean
