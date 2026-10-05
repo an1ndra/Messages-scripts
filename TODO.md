@@ -26,9 +26,16 @@ local emoji reaction. The data layer already existed (`messages.reactions`,
 - Reactions are refused on a concealed locked message: the SMS fallback would
   quote its body and defeat the lock. Once unlocked, it can be reacted to.
 - Reactions are local-only, but each add/remove also sends a readable SMS
-  fallback (`Reacted 👍 to "..."` / `Removed 👍 from "..."`) through
+  fallback (`Reacted 👍 to <snippet>` / `Removed 👍 from <snippet>`) through
   `SmsSender.sendRaw`, which stores no row so it never appears as our own bubble.
-  SMS has no reaction field, so the recipient only ever sees plain text.
+- The fallback is an app-to-app protocol (#188): a receiving install parses
+  `Reacted`/`Removed` (`data/ReactionFallback.kt`, quote-free and English so both
+  ends always agree, with a non-ASCII guard so a real sentence is not mistaken
+  for one) and applies the emoji to the referenced message instead of showing a
+  bubble. Without the app the recipient just reads the text.
+- A locked/concealed message is not reacted to (the fallback would leak its body),
+  and the picker is not offered where a message cannot be sent (alphanumeric
+  sender IDs, blocked numbers).
 
 Tests: `MessageReactionsTest` (toggle, preserve imported counts, order, quote,
 and the locked-message gate); `test-message-reactions.sh` (5/5).
