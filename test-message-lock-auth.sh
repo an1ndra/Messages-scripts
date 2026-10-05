@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Regression for the message-lock biometric path (CodeQL alert #21).
+# Regression for the message-lock biometric path (CodeQL alert #21) and the
+# lock -> unlock -> lock cycle.
 #
 # The unlock callback must use the authentication result for a cryptographic
 # operation (CryptoObject) instead of trusting a boolean. On this AVD there is
 # no enrolled biometric/credential, so the UI flow exercises the no-auth
 # fallback, but this still verifies lock/unlock works end to end. The crypto
 # proof itself is covered by MessageLockCryptoTest (JVM).
+#
+# Re-locking must hide the body again: a message that was unlocked this session
+# used to keep showing its body after being locked again, because the session
+# reveal was never cleared (MessageLockState.onLock).
 source "$(dirname "$0")/env.sh"
 
 MARK="lockauth$(date +%s)"
@@ -63,6 +68,22 @@ if grep -q "$MARK" "$TMP/ui.xml" && ! grep -q '@Lock' "$TMP/ui.xml"; then
     ok "message unlocked (body shown again)"
 else
     bad "message not unlocked"
+fi
+
+info "Long-press the body -> selection menu -> Lock (re-lock)"
+BM=$(center_of_contains "$MARK") || { bad "body not found after unlock"; exit 1; }
+BX=${BM% *}; BY=${BM#* }
+adb_ shell input swipe $BX $BY $((BX + 2)) $BY 1000; sleep 1.5
+MO=$(center_of_contains "More options") || { bad "selection toolbar missing (re-lock)"; exit 1; }
+adb_ shell input tap $MO; sleep 1
+dump_ui
+L=$(center_of "Lock") || { bad "Lock item missing (re-lock)"; exit 1; }
+adb_ shell input tap $L; sleep 1.5
+dump_ui
+if grep -q '@Lock' "$TMP/ui.xml" && ! grep -q "$MARK" "$TMP/ui.xml"; then
+    ok "re-lock hides the body again"
+else
+    bad "re-lock did not hide the body (stale session reveal)"
 fi
 
 echo ""

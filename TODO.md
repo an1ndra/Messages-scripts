@@ -5,6 +5,183 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Message reactions (2026-10-05)
+
+Branch `feat/own-mms-package`, issue #188. Long-press a message to attach a
+local emoji reaction. The data layer already existed (`messages.reactions`,
+`setReactionsSuspend`, `serializeReactions`/`parseReactions`,
+`AppViewModel.setReactions`); only the UI was missing.
+
+- The picker is an anchored sibling of the bubble in a custom `Layout`: it is
+  placed just above the pressed bubble but the Layout reports the bubble's size,
+  so opening it never reflows the list or moves the bubble (a picker inside the
+  bubble added its height and pushed everything down; one in the top bar was too
+  far away). It animates in and out with a fade + scale, honouring reduce-motion.
+  It offers the app's 8 `EMOJIS`; tap toggles.
+- A reaction renders as a single bordered pill on the bubble's bottom edge. A
+  row of separate surfaces below the bubble read as a message the user sent.
+- Reactions are refused on a concealed locked message: the SMS fallback would
+  quote its body and defeat the lock. Once unlocked, it can be reacted to.
+- Reactions are local-only, but each add/remove also sends a readable SMS
+  fallback (`Reacted 👍 to "..."` / `Removed 👍 from "..."`) through
+  `SmsSender.sendRaw`, which stores no row so it never appears as our own bubble.
+  SMS has no reaction field, so the recipient only ever sees plain text.
+
+Tests: `MessageReactionsTest` (toggle, preserve imported counts, order, quote,
+and the locked-message gate); `test-message-reactions.sh` (5/5).
+
+`env.sh` matching fixes found here: `dump_ui` now deletes the remote dump,
+confirms it succeeded and retries (a segfault left a stale file that read as the
+wrong screen); `ui_decode` decodes the numeric character references uiautomator
+writes for emoji (`&#128077;`) so a literal search matches; `ui_has` and
+`center_of_top` match against the decoded dump, the latter picking the topmost
+of several identical labels (the picker bar vs the reaction badge).
+
+## Unread-at-top defaults off (2026-10-05)
+
+Branch `feat/own-mms-package`. Compared against QUIK SMS (`quik-sms/quik`,
+built from source): its `unreadAtTop` preference defaults to `false`, so its
+inbox is strictly newest-first. Ours defaulted `unreadAtTopEnabled` to `true`,
+so an older unread thread could sit above a newer read one — the actual latest
+message was pushed down and took a scroll to find. The default is now `false`;
+the "Unread at top" toggle stays available for anyone who wants it.
+
+`ConversationListTest.unreadAtTopDefaultsToOff` pins the default.
+`test-unread-at-top-default.sh` (6/6) does `pm clear`, asserts the switch is off
+on a fresh install — read from `android layout`, because uiautomator is
+unreliable against this Compose screen — then proves opting in still toggles the
+preference. Against the old default it fails 4/2, so it is a real guard.
+
+## Import & export log restyle (2026-10-05)
+
+Branch `feat/own-mms-package`. The log was a flat column of text with no card
+and no status, and the newest run was buried at the bottom. It now reads like
+the rest of the settings surface.
+
+- Each run is a `GroupedRowCard` carrying a success/failure disc, the operation
+  (Import/Export, or a Restore mark when startup self-healing produced the
+  entry), the reason, conflict rows with a warning icon, the `format · mode`
+  meta line, and the timestamp.
+- The outcome is carried three ways — icon shape, colour, and a status pill
+  reading "Succeeded"/"Failed" — so it survives a monochrome screen and a
+  screen reader. A second pill shows "Retried N×" when `attempts > 1`.
+- Runs are listed **newest first**: the run a user just performed is the one
+  they are checking, and it should not sit below twenty old ones.
+- The empty state is a centred history icon over the existing text.
+- Three strings (`transfer_log_status_ok`, `transfer_log_status_failed`,
+  `transfer_log_retried`) were added to the base and **all 12 locales**.
+  `TransferLogScreenWiringTest` pins the pills and the newest-first order;
+  `test-transfer-log.sh` gained an assertion that the outcome pill renders
+  (13/13), verified to fail on a build that drops the wording.
+
+## Backup/restore self-healing with retry and backoff (2026-10-05)
+
+Branch `feat/own-mms-package`. Backup and restore can fail transiently — storage
+busy, a MediaStore insert that races, a source stream that opens empty — and a
+single attempt meant a periodic backup could wait a whole interval, or a restore
+could be abandoned mid-way. Every path is now bounded-retry with exponential
+backoff, and an interrupted restore heals itself at startup.
+
+| Layer | What changed | JUnit | Regression script |
+|---|---|---|---|
+| Retry core | `TransferRetry`: transient vs permanent, capped exponential backoff | `TransferRetryTest` | `test-backup-retry.sh` (8/8) |
+| Backup | snapshot once, verify, retry the destination write; partial file deleted | `TransferRetryTest` | `test-backup-retry.sh` |
+| Worker | transient failure -> `Result.retry()` (capped), WorkManager exponential backoff, one-shot retry on next launch | `PeriodicBackupSchedulerTest`, `BackupHealthTest` | `test-backup-retry.sh` |
+| Restore | staging and merge retried; interrupted REPLACE swap recovered at startup | `ImportRecoveryTest` | `test-backup-retry.sh` |
+| Report | transfer log carries `attempts`/`recovered`; Diagnostics prints a Backup section | `TransferLogTest` | `test-transfer-log.sh` |
+
+- `TransferRetry` mirrors `MmsRetry`: `IOException` / SQLite-locked are
+  transient, a wrong PIN or corrupt file is permanent and stops on the first
+  attempt. The budget is finite (`MAX_ATTEMPTS = 3`); after it the failure is
+  recorded and the normal schedule resumes — no unbounded retry.
+- The backup snapshots the database once, then retries streaming that stable
+  file, instead of re-reading the moving database each attempt. Snapshots are
+  unique per run, so a manual backup and the periodic worker can never delete
+  each other's file.
+- `PeriodicBackupWorker` and the new `BackupRetryWorker` both delegate to
+  `AutomaticBackup`. The retry is a **distinct class** so
+  `WorkSpec ... LIKE '%PeriodicBackupWorker%'` still names exactly the periodic
+  job that `test-periodic-backup.sh` reads back.
+- `Repository.recoverInterruptedImport()` runs synchronously in
+  `MessagesApplication.onCreate`, before any Activity opens the database: a
+  missing live file is rebuilt from `pre_import_backup.db` (or a valid
+  `import_temp.db`), and the recovery is written to the transfer log. It keeps
+  the pre-import copy if the live file is still broken, so the next launch can
+  try again instead of deleting the only history.
+- Debug probe `--ez backup_export_probe true --ei backup_fail_first N` injects N
+  transient failures into the destination write so the on-device script can
+  observe the retry; `--ez transfer_log_probe true` dumps the log.
+- `test-backup-retry.sh` was confirmed to fail on the unfixed build (retry and
+  recovery disabled): 6 of 8 failed, then 8/8 pass once restored.
+- `test-backup-heal-scale.sh` (opt-in; **overwrites local history**) seeds 5000
+  conversations / 10000 messages and proves the same two paths at scale:
+  retried backup holds all 10000 messages with `integrity_check=ok` (~2.2 s),
+  and startup recovery restores the database (~1.0 s) with no OOM or crash.
+  It is deliberately **not** in `run-all-tests.sh`.
+
+## Notification delete, passwordless backup, periodic backup (2026-10-05)
+
+Branch `feat/own-mms-package`. Three GitHub issues in one pass:
+
+| Issue | Feature | JUnit | Regression script |
+|---|---|---|---|
+| #285 | Notification "Delete" action trashes the newest message | `NotificationDeleteActionTest` | `test-notification-delete.sh` (4/4) |
+| #290 | Opt-in periodic backup, Daily/Weekly | `PeriodicBackupSchedulerTest` | `test-periodic-backup.sh` (10/10) |
+| #292 | Passwordless (plaintext) backup behind a warning | `BackupPasswordlessWiringTest` | `test-backup-unencrypted.sh` (3/3) |
+
+- **#285** adds `sms/DeleteMessageReceiver` (non-exported), declared in the
+  manifest and attached to the per-conversation notification next to Reply and
+  Mark as read. It moves the newest incoming message to Trash, so it stays
+  recoverable, and cancels the notification. The test asserts the action is on
+  the notification via `dumpsys notification`, then fires the receiver as root
+  (non-exported receivers are unreachable from a non-app shell) and checks
+  `deleted_at>0` on a still-present row.
+- **Notification actions** (follow-up to #285): Reply, Mark as read and Delete
+  are each gated by their own setting, toggled from Advanced settings →
+  Notifications — inline in the legacy Advanced screen, on the Notification
+  settings screen in the new UI. `NotificationActionSettingsTest` pins the
+  gating and both UIs; `test-notification-actions.sh` (11/11) flips the prefs
+  and checks the posted action set with `dumpsys notification`.
+- **#292** splits `Repository.backupDatabase` into a shared `writeBackup` and
+  adds `backupDatabaseUnencrypted` (plain copy, recorded as `BackupFormat.RAW`).
+  There is **no separate "back up without PIN" option**: in the "Set backup PIN"
+  dialog, pressing **Save with the PIN fields empty** writes the plaintext
+  database behind the warning; a PIN still produces the encrypted file. Both
+  UIs behave the same. The test drives the real UI with `android layout` and
+  checks the written file's SQLite magic.
+- **#290** cannot prompt for the PIN in a background worker, so it schedules the
+  same plaintext snapshot. The periodic toggle and Daily/Weekly cadence live
+  **inside the "Set backup PIN" dialog** (not General settings).
+  `PeriodicBackupScheduler` maps the stored interval to a WorkManager period
+  (Daily=1d, Weekly=7d); `PeriodicBackupWorker` skips when the setting is off or
+  privacy mode blocks backups. The test reads the schedule back from
+  WorkManager's `WorkSpec.interval_duration` and its state, so the toggle's
+  effect is proven, not just the switch position.
+
+**New `android` CLI helpers in `env.sh`:** `layout_json`, `layout_center`,
+`layout_center_exact`, `layout_has`, `tap_layout`, `tap_layout_exact`,
+`scroll_to_layout`, `close_documents_ui`. `android layout` returns JSON with a
+`center` and an `off-screen` flag, which the uiautomator-dump helpers cannot
+express; note it nests children under `children` (not `content`) and only
+captures app windows — the notification shade is SystemUI and stays invisible to
+it, which is why #285 asserts on `dumpsys notification` instead.
+
+## Message re-lock kept the body visible (2026-10-05)
+
+Branch `feat/own-mms-package`. Locking a message, unlocking it, then locking it
+again left the body readable: the toolbar said locked (toast + "Unlock" label),
+but the session reveal cache was never cleared on lock, so `isLockedAndHidden`
+stayed false for the rest of the chat session.
+
+The reveal cache is now mutated through `MessageLockState` (lock removes,
+unlock adds, `isHidden` is the single render/copy rule), so the DB flag and the
+session cache can no longer drift. `MessageLockStateTest` pins the
+lock -> unlock -> lock cycle, including that `onLock` removes only the targets.
+
+`test-message-lock-auth.sh` gained a third phase that re-locks and asserts the
+body is hidden again. Against the unfixed APK it ran 3 passed / 1 failed
+(`re-lock did not hide the body`); after the fix it runs 4 passed / 0 failed.
+
 ## `:mms` module: three regression scripts (2026-10-03)
 
 Branch `feat/own-mms-package`. The new `:mms` Gradle module (package

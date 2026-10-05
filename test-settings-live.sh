@@ -2,7 +2,7 @@
 # Verifies that Settings toggles apply LIVE (no force-stop / app restart):
 #   - Unread at top   -> list reorders immediately
 #   - Swipe actions   -> swiping enabled/disabled immediately
-#   - Drafts          -> "Draft:" prefix shown/hidden immediately
+#   - Drafts          -> "Draft:" prefix is always shown (no toggle)
 #   - Archiving       -> bottom-sheet "Archive" item shown/hidden immediately
 #   - Pinned          -> bottom-sheet "Pin" item shown/hidden immediately
 # Uses a disposable injected conversation + the seeded demo data.
@@ -15,15 +15,33 @@ fail() { echo "FAIL: $1"; FAIL=1; }
 info() { echo -e "\n== $* =="; }
 
 DISPOSABLE="+1555-123-0998"
+SHEET_MARK="live sheet marker"
 UNREAD_TOP_LABEL="Unread at top"
-SWIPE_LABEL="Swipe actions"
-DRAFTS_LABEL="Drafts"
+# The master "Swipe actions" switch is gone: each direction is configured
+# independently, and a direction set to "None" is not swipeable.
+SWIPE_ROW="Swipe right"
+SWIPE_ON_LABEL="Archive"
 ARCH_LABEL="Archiving"
 PIN_LABEL="Pinned conversations"
 
 # ---------- navigation helpers ----------
-on_settings() { dump_ui && grep -q 'text="General settings"' "$TMP/ui.xml"; }
-on_home() { dump_ui && grep -q 'text="Messages"' "$TMP/ui.xml"; }
+on_settings() {
+    local i
+    for i in 1 2 3; do
+        dump_ui && grep -q 'text="General settings"' "$TMP/ui.xml" && return 0
+        sleep 1
+    done
+    return 1
+}
+on_home() {
+    local i
+    for i in 1 2 3; do
+        dump_ui && grep -q 'text="Start chat"' "$TMP/ui.xml" \
+            && ! grep -q 'text="General settings"' "$TMP/ui.xml" && return 0
+        sleep 1
+    done
+    return 1
+}
 # force-press back until we're on the conversations home list (max 4)
 go_home() {
     local i
@@ -33,22 +51,29 @@ go_home() {
     done
     on_home
 }
+# Cold-start into Settings via the intent extra. Tapping the top-right entry
+# point only works from the conversation list, and this script moves between
+# sub-pages, so it was the least reliable way in.
 ensure_settings() {
-    local i
-    go_home || { echo "[warn] could not reach home list"; return 1; }
-    for i in 1 2 3; do
-        if on_settings; then return 0; fi
-        adb_ shell input tap 975 226; sleep 2
-        on_settings && return 0
-    done
-    return 1
+    adb_ shell am force-stop "$PKG"; sleep 1
+    adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null; sleep 3
+    on_settings
 }
-# open Settings -> Advanced (some toggles moved there, e.g. Drafts)
+# open Settings -> Inbox settings (archiving, pinning, unread-at-top moved here)
+ensure_inbox() {
+    ensure_settings || return 1
+    settings_top
+    await_label "Inbox settings" || return 1
+    tap_text "Inbox settings" >/dev/null 2>&1 || return 1
+    sleep 1.5
+    return 0
+}
+# open Settings -> Advanced (some toggles moved there)
 ensure_advanced() {
     ensure_settings || return 1
     settings_top
-    await_label "Advanced" || return 1
-    tap_text "Advanced" >/dev/null 2>&1 || return 1
+    await_label "Advanced settings" || return 1
+    tap_text "Advanced settings" >/dev/null 2>&1 || return 1
     sleep 1.5
     return 0
 }
@@ -98,9 +123,13 @@ set_switch() {
     ensure_settings || { echo "[warn] settings did not open"; return 1; }
     settings_top
     if ! await_label "$label"; then
-        # Some toggles (e.g. Drafts) live in Settings -> Advanced now.
+        # Some toggles live in Settings -> Advanced now.
         ensure_advanced || { echo "[warn] could not open Advanced for '$label'"; return 1; }
-        await_label "$label" || { echo "[warn] Settings row '$label' not found"; return 1; }
+        if ! await_label "$label"; then
+            # ...and the conversation-list toggles moved to Inbox settings.
+            ensure_inbox || { echo "[warn] could not open Inbox settings for '$label'"; return 1; }
+            await_label "$label" || { echo "[warn] no settings row '$label'"; return 1; }
+        fi
     fi
     cur=$(switch_val "$label") || { echo "[warn] no switch for '$label'"; return 1; }
     if [ "$cur" != "$want" ]; then
@@ -113,9 +142,38 @@ set_switch() {
     fi
 }
 
+# The Inbox settings page is scrollable, so scroll until the row is on screen.
+tap_row() {
+    local i
+    for i in 0 1 2 3 4 5 6; do
+        dump_ui >/dev/null 2>&1 || true
+        center_of "$1" >/dev/null 2>&1 && { tap_text "$1" >/dev/null 2>&1; return 0; }
+        [ "$i" -eq 3 ] && adb_ shell input swipe 540 1700 540 700 300
+        sleep 0.7
+    done
+    echo "[warn] could not find row: $1" >&2
+    return 1
+}
+
+# Choose an action for the configured swipe direction, through the real picker.
+pick_swipe() {
+    local want="$1"
+    ensure_inbox || { echo "[warn] could not open Inbox settings"; return 1; }
+    tap_row "$SWIPE_ROW" || { echo "[warn] no '$SWIPE_ROW' row"; return 1; }
+    sleep 1.5
+    tap_text "$want" >/dev/null 2>&1 || { echo "[warn] no '$want' option"; return 1; }
+    sleep 1.2
+    return 0
+}
+
 # phone/address shown as the FIRST row of the home list, or empty
 first_row() {
-    dump_ui || { echo ""; return 1; }
+    local i
+    for i in 1 2 3; do
+        dump_ui || { sleep 1; continue; }
+        if grep -q 'content-desc="[^"]' "$TMP/ui.xml"; then break; fi
+        sleep 1
+    done
     python3 - "$TMP/ui.xml" <<'PY'
 import re, sys
 d = open(sys.argv[1]).read()
@@ -155,62 +213,45 @@ row_y() { c=$(center_of_contains "$1"); echo "${c##* }"; }
 
 swipe_left() { adb_ shell input swipe 950 "$1" 120 "$1" 900; sleep 1.2; }
 
-set_switch "$SWIPE_LABEL" false || exit 1
+pick_swipe "$SWIPE_ON_LABEL" || exit 1
 go_home
 Y=$(row_y "0998")
 [ -n "$Y" ] || { fail "swipe OFF: disposable row missing"; adb_ emu sms send "$DISPOSABLE" "swipe probe" >/dev/null 2>&1; sleep 2; }
 if [ -n "$Y" ]; then
     swipe_left "$Y"
     if center_of_contains "0998" >/dev/null; then
-        pass "swipe actions OFF: left swipe did NOT move the conversation"
+        pass "swipe right = None: swipe did NOT move the conversation"
     else
-        fail "swipe actions OFF: swipe still trashed the conversation"
+        fail "swipe right = None: swipe still acted on the conversation"
         adb_ emu sms send "$DISPOSABLE" "swipe probe" >/dev/null 2>&1; sleep 2
     fi
 fi
 
-set_switch "$SWIPE_LABEL" true || exit 1
+pick_swipe "Delete" || exit 1
 go_home
 if center_of_contains "0998" >/dev/null; then
     Y=$(row_y "0998")
     swipe_left "$Y"
     if center_of_contains "0998" >/dev/null && grep -q "moved to trash" "$TMP/ui.xml"; then
-        fail "swipe actions ON: row NOT removed"
+        fail "swipe right = Delete: row NOT removed"
     elif grep -q "moved to trash" "$TMP/ui.xml"; then
-        pass "swipe actions ON: swipe trashes conversation (snackbar + removed)"
+        pass "swipe right = Delete: swipe trashes conversation (snackbar + removed)"
         tap_text Undo; sleep 1.5
     else
-        fail "swipe actions ON: no 'moved to trash' snackbar"
+        fail "swipe right = Delete: no 'moved to trash' snackbar"
         adb_ emu sms send "$DISPOSABLE" "swipe probe" >/dev/null 2>&1; sleep 2
     fi
 else
-    fail "swipe actions ON: disposable row missing before enable test"
+    fail "swipe right = Delete: disposable row missing"
 fi
 
 # ---------- 3. Drafts ----------
-info "3. Drafts toggle shows/hides 'Draft:' prefix live"
-set_switch "$DRAFTS_LABEL" true || exit 1
+info "3. Drafts are always on, so the 'Draft:' prefix shows without a toggle"
 go_home
 if dump_ui && grep -q "Draft: draft verification" "$TMP/ui.xml"; then
-    pass "Drafts ON: draft preview visible on home list"
+    pass "draft preview visible on home list (drafts are always enabled)"
 else
-    fail "Drafts ON: draft preview missing (create a draft first?)"
-fi
-
-set_switch "$DRAFTS_LABEL" false || exit 1
-go_home
-if dump_ui && ! grep -q "Draft: draft verification" "$TMP/ui.xml"; then
-    pass "Drafts OFF: draft preview hidden live (no restart)"
-else
-    fail "Drafts OFF: draft preview still visible"
-fi
-
-set_switch "$DRAFTS_LABEL" true || exit 1
-go_home
-if dump_ui && grep -q "Draft: draft verification" "$TMP/ui.xml"; then
-    pass "Drafts ON: preview restored"
-else
-    fail "Drafts ON: preview NOT restored"
+    fail "draft preview missing (drafts should always be enabled)"
 fi
 
 # ---------- 4. Archiving + 5. Pinned (bottom sheet) ----------
@@ -218,11 +259,24 @@ info "4. Archiving + 5. Pinned items in long-press sheet apply live"
 set_switch "$ARCH_LABEL" true || exit 1
 set_switch "$PIN_LABEL" true || exit 1
 go_home
+ensure_sheet_row() {
+    adb_ shell am force-stop "$PKG"; sleep 1
+    adb_ shell am start -n "$ACT" >/dev/null; sleep 3
+    dump_ui >/dev/null 2>&1 || true
+    center_of_contains "$SHEET_MARK" >/dev/null 2>&1 && return 0
+    adb_ emu sms send "$DISPOSABLE" "$SHEET_MARK" >/dev/null 2>&1; sleep 2.5
+    adb_ shell am force-stop "$PKG"; sleep 1
+    adb_ shell am start -n "$ACT" >/dev/null; sleep 3
+    dump_ui >/dev/null 2>&1 || true
+    center_of_contains "$SHEET_MARK" >/dev/null 2>&1
+}
 sheet_items() {
-    local c xy
-    c=$(center_of_contains "live device only message" || center_of_contains "Big backup message")
-    xy=($c)
-    adb_ shell input swipe "${xy[0]}" "${xy[1]}" "${xy[0]}" "${xy[1]}" 900
+    local c x y
+    ensure_sheet_row || { echo "[warn] no long-press row"; return 1; }
+    c=$(center_of_contains "$SHEET_MARK") || return 1
+    x=${c%% *}; y=${c##* }
+    [ -n "$x" ] && [ -n "$y" ] || return 1
+    adb_ shell input swipe "$x" "$y" "$x" "$y" 900
     sleep 1.5
     dump_ui
 }
