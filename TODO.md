@@ -5,6 +5,76 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Home-search handoff: highlight + scroll in chat (2026-10-05)
+
+Searching the home list and tapping a conversation opened the chat at the
+bottom, so the user could not see where the keyword was. The active home query
+is now carried into the chat, which highlights every matching message and
+scrolls to the newest hit.
+
+- `ConversationsScreen.onOpenConversation` is now `(Long, String)`; the second
+  value is the trimmed query while the search field is open (blank otherwise).
+  `MainActivity` keeps it in `chatSearchQuery` and passes it to `ChatScreen`;
+  every other way into a chat (new, scheduled, spam, intent, group) clears it.
+- `data/MessageSearch.kt` holds the pure rules: case-insensitive `matches`,
+  `ranges` for the styled spans (matching without folding keeps offsets valid),
+  and `focusedId` for the newest matching message. Unit tested in
+  `MessageSearchTest`.
+- `ChatScreen` computes the matching ids and the focused id, and the existing
+  bottom-on-load effect now prefers the focused row (`scrollToItem`). The match
+  is scrolled to once it loads, including after a later chunk arrives.
+- The match flashes like a settings jump: the keyword background and the
+  focused bubble's border fade in, hold ~1.6s, then fade out (`animateFloatAsState`
+  over the app's motion tokens), so the pointer is temporary and vanishes. The
+  persistent `Search result` content description (`chat_search_result`, added to
+  all 13 locales) stays on the hit so a uiautomator dump can assert it without a
+  screenshot. The keyword tint is layered on the finished `AnnotatedString` so
+  the animation does not re-run Linkify every frame.
+- `test-chat-search-highlight.sh` seeds a conversation named with the keyword
+  and one matching message that is the *oldest* of 46, searches the home list,
+  opens the row, and asserts the message is visible and marked. Verified to
+  FAIL on a build with `focusedId` forced null (rebuilt + reinstalled).
+
+## Reaction chip stays on the message's own side (2026-10-05)
+
+The reaction chip was briefly end-aligned during this work; the user reviewed it
+and chose the original behaviour — incoming chip on the left, outgoing on the
+right — so the alignment is unchanged. `test-message-reactions.sh` and
+`MessageReactionsTest` carry no position assertion.
+
+Observed while checking the physical phone: on a real device that is also the
+default SMS handler, the reaction fallback texts (`Reacted 👍 to …` /
+`Removed 👍 from …`) showed up as ordinary messages in the thread. That is the
+#188 app-to-app protocol being echoed/stored by the sending side; the local
+single-emulator roundtrip test cannot see it. Left as-is pending a decision.
+
+- `test-reaction-roundtrip.sh`'s "ordinary text still stored" check matched
+  every `just a normal reply%` row, including orphans left by other scripts
+  whose rowids were later reused; it now matches the run's unique body.
+
+## In-chat search (2026-10-05)
+
+The overflow menu gained a Search item that opens a search field in the top bar
+(same styling as the home list) and matches **only the open conversation**.
+
+- `ChatScreen` holds `searchOpen`/`chatQuery`; the active query is the in-chat
+  one while open, otherwise the home-list handoff. `MessageSearch.matches`
+  filters `messages`, `step` clamps the next/previous movement.
+- The bar shows a `n of m` counter and up/down buttons (`Previous match` /
+  `Next match`); typing focuses the newest hit, Previous walks older, Next
+  newer. Every move scrolls to the hit and replays the same flash highlight as
+  the handoff. Back closes the search.
+- The two arrow buttons are a compact pair (36dp targets, 28dp glyphs, with
+  `LocalMinimumInteractiveComponentSize` cleared) so they sit close together
+  instead of the default 48dp-apart top-bar actions.
+- The search `TextField` pins `textStyle = bodyLarge`, otherwise it inherited
+  the top bar's title style and rendered much larger than the home search.
+- New strings `chat_search`, `chat_search_hint`, `chat_search_previous`,
+  `chat_search_next`, `chat_search_counter` in all 13 locales.
+- `ChatSearchBar` has a preview; `ChatTopBar` previews pass `onSearch`.
+- `MessageSearchTest` covers `step`; `test-in-chat-search.sh` seeds two hits 20
+  messages apart, opens the menu, types, and walks previous/next.
+
 ## Shorter swipe-to-act (2026-10-05)
 
 Making the required swipe for a conversation action smaller. Google Messages

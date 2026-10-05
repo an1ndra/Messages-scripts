@@ -60,7 +60,11 @@ fi
 info "An ordinary message is still stored"
 adb_ emu sms send "$NUM" "just a normal reply $TS" >/dev/null 2>&1
 sleep 4
-if [ "$(sql "SELECT COUNT(*) FROM messages WHERE body LIKE 'just a normal reply%';" | tr -d '\r')" = "1" ]; then
+# Matched on the unique body, not a LIKE prefix: rows from earlier runs (their
+# conversations were deleted, their rowids later reused) would otherwise be
+# counted and make the check lie.
+ORD=$(sql "SELECT COUNT(*) FROM messages WHERE body='just a normal reply $TS';" | tr -d '\r')
+if [ "$ORD" = "1" ]; then
     ok "ordinary text still stored"
 else
     bad "ordinary text was not stored"
