@@ -5,6 +5,29 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Shorter swipe-to-act (2026-10-05)
+
+Making the required swipe for a conversation action smaller. Google Messages
+commits on a short flick, but M3's `SwipeToDismissBox` has a hardcoded
+mid-drag target switch at **half the row** (issuetracker 471021165), and the
+app additionally gated the release on `progress >= 0.65f`, so the gesture
+needed ~65% of the width.
+
+- The fraction now lives once in `SettingsLayout.SWIPE_COMMIT_FRACTION`
+  (`0.30f`) and is passed to **both** `positionalThreshold` and the
+  `confirmValueChange` gate in `SwipeConversationItem` (`ConversationsScreen.kt`)
+  and in `LegacyConversationsScreen`. A slow release is settled through
+  `positionalThreshold`, so 30% commences the action; because the fraction sits
+  below the library's hardcoded half-row switch, that switch can no longer
+  decide the gesture.
+- `test-swipe-threshold.sh` previously pinned 31%/56% travel as "must bounce".
+  Re-anchored to 17% bounces / 39% commits. The new script was verified to
+  **fail** on the old 0.65 build (constant temporarily reverted, rebuilt,
+  reinstalled) before passing on 0.30 — the same revert also failed
+  `SwipeThresholdTest`.
+- Tests: `SwipeThresholdTest` (constant is small and both screens gate on it),
+  `scripts/test-swipe-threshold.sh`.
+
 ## Message reactions (2026-10-05)
 
 Branch `feat/own-mms-package`, issue #188. Long-press a message to attach a
@@ -2557,8 +2580,8 @@ File: `data/PhoneNumberUtils.kt`, `data/Repository.kt`, `data/Models.kt`, `data/
 - ✅ Sound picker removed: custom notification sound import feature removed entirely; hardcoded default beep (TONE_PROP_BEEP2/TONE_PROP_ACK) for message sounds; "Message sounds" on/off toggle kept
 - ✅ Block sends to alphanumeric sender IDs (DK-AIRCEL…): chat send/schedule guarded with dialog; NewChat manual entry restricted to phone numbers — test: `scripts/test-links-and-senders.sh`
 - ✅ Highlight links in messages: URLs become tappable (blue underline) opening the browser; Settings → Messages → "Highlight links" toggle (default on) — test: `scripts/test-links-and-senders.sh`
-- ✅ Trash system: swipe-left / sheet Delete moves conversations to trash (DB v8 `deleted_at`), UNDO snackbar, Settings → Privacy → Trash screen (restore / delete forever / empty trash), auto-purge after 30 days on app start, new SMS from trashed address restores the thread; swipe needs ~65% travel (less sensitive) — test: `scripts/test-trash.sh`
-- ✅ Swipe threshold actually enforced: material3 `positionalThreshold` is ignored (known bug, issuetracker 471021165 — settle at ~50% + 125dp/s velocity), so short swipes deleted rows; gated with `confirmValueChange` + `progress >= 0.65f` in `SwipeConversationItem` (ConversationsScreen.kt) — test: `scripts/test-swipe-threshold.sh`
+- ✅ Trash system: swipe-left / sheet Delete moves conversations to trash (DB v8 `deleted_at`), UNDO snackbar, Settings → Privacy → Trash screen (restore / delete forever / empty trash), auto-purge after 30 days on app start, new SMS from trashed address restores the thread; swipe needs ~30% travel (`SettingsLayout.SWIPE_COMMIT_FRACTION`) — test: `scripts/test-trash.sh`
+- ✅ Swipe threshold enforced below the library's hardcoded half-row switch: material3 `SwipeToDismissBox` switches its mid-drag target at half the row regardless of `positionalThreshold` (known bug, issuetracker 471021165 — ~50% + 125dp/s velocity), so short swipes used to delete rows and the app over-corrected to 65%; the shared `SettingsLayout.SWIPE_COMMIT_FRACTION` (0.30f) now feeds both `positionalThreshold` and `confirmValueChange` in `SwipeConversationItem`/`LegacyConversationsScreen` — test: `scripts/test-swipe-threshold.sh`
 - ✅ Trash confirmations + polish (issue #87): "Empty trash" and "Delete forever" now ask M3 AlertDialog confirmation before destroying data; Trash rows restyled to match main list (48dp avatar, 12dp padding, gray restore icon, inset dividers); empty state shows 30-day retention hint
 - ✅ Per-conversation notification settings: DB v9 `conversation_notifications` table (ON DELETE CASCADE), notification toggle in ContactDetailsScreen + ChatScreen 3-dot menu, NotificationHelper.show() checks per-conversation setting before posting — test: `scripts/test-notifications.sh`
 - ✅ Mark all as read: Settings → General row

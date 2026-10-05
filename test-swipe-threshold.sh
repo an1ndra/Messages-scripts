@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Verifies swipe-to-delete requires ~65% travel before dismissing.
-# Background: material3's SwipeToDismissBox positionalThreshold is ignored
-# upstream (issuetracker 471021165 - settles at ~50% + 125dp/s velocity), so
-# SwipeConversationItem gates dismissal via confirmValueChange + progress.
-# Tests: 31% swipe bounces back, 56% swipe bounces back, full swipe deletes
-# with Undo snackbar, Undo restores.
+# Verifies swipe-to-delete commits at ~30% travel (SettingsLayout.
+# SWIPE_COMMIT_FRACTION) and bounces back below it.
+# Background: material3's SwipeToDismissBox mid-drag target switch is hardcoded
+# at half the row (issuetracker 471021165), so a slow release below that is
+# settled via positionalThreshold -- SwipeConversationItem passes the same
+# fraction to both positionalThreshold and confirmValueChange.
+# Tests: 17% swipe bounces back, 39% swipe deletes with Undo snackbar, Undo
+# restores.
 source "$(dirname "$0")/env.sh"
 
 FAIL=0
@@ -92,27 +94,18 @@ set_swipe_left_delete || { fail "could not set the left swipe action"; exit 1; }
 fresh_launch
 pass "left swipe = Delete"
 
-info "1. Short slow swipe (~31% travel) must NOT delete"
+info "1. Short slow swipe (~17% travel) must NOT delete"
 Y=$(row_y) || { fail "row missing"; exit 1; }
-adb_ shell input swipe 900 "$Y" 560 "$Y" 900; sleep 1.5
+adb_ shell input swipe 900 "$Y" 720 "$Y" 900; sleep 1.5
 if row_y >/dev/null; then
-    pass "31% swipe bounced back (threshold works)"
+    pass "17% swipe bounced back (threshold works)"
 else
-    fail "31% swipe deleted the row - still too sensitive"
+    fail "17% swipe deleted the row - too sensitive"
 fi
 
-info "2. Medium slow swipe (~56% travel) must NOT delete"
-Y=$(row_y) || { fail "row missing before 56% swipe"; exit 1; }
-adb_ shell input swipe 900 "$Y" 300 "$Y" 900; sleep 1.5
-if row_y >/dev/null; then
-    pass "56% swipe bounced back"
-else
-    fail "56% swipe deleted the row"
-fi
-
-info "3. Full slow swipe (~86% travel) deletes with Undo snackbar"
-Y=$(row_y) || { fail "row missing before full swipe"; exit 1; }
-adb_ shell input swipe 950 "$Y" 25 "$Y" 900
+info "2. Medium slow swipe (~39% travel) deletes with Undo snackbar"
+Y=$(row_y) || { fail "row missing before 39% swipe"; exit 1; }
+adb_ shell input swipe 900 "$Y" 480 "$Y" 900
 ROW_GONE=0
 FOUND_UNDO=0
 for i in 1 2 3 4 5; do
@@ -123,12 +116,12 @@ for i in 1 2 3 4 5; do
     [ "$ROW_GONE" -eq 1 ] && [ "$FOUND_UNDO" -eq 1 ] && break
 done
 if [ "$ROW_GONE" -eq 1 ] && [ "$FOUND_UNDO" -eq 1 ]; then
-    pass "row trashed, Undo snackbar shown"
+    pass "39% swipe trashed the row, Undo snackbar shown"
 else
-    fail "full swipe: row_gone=$ROW_GONE undo_found=$FOUND_UNDO"
+    fail "39% swipe: row_gone=$ROW_GONE undo_found=$FOUND_UNDO"
 fi
 
-info "4. Cleanup: Undo restores the test row"
+info "3. Cleanup: Undo restores the test row"
 if tap_text "Undo" >/dev/null; then
     fresh_launch
     if row_y >/dev/null; then
