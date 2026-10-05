@@ -130,6 +130,32 @@ else
     fi
 fi
 
+info "9. Deselect back to one -> reacting acts on the remaining selection"
+adb_ shell am force-stop "$PKG"; sleep 1
+adb_ shell am start -n "$ACT" --es open_conversation_address "$G" >/dev/null 2>&1; sleep 4
+A1=$(center_of_contains "case-multi-1"); B1=$(center_of_contains "case-multi-2")
+if [ -z "$A1" ] || [ -z "$B1" ]; then
+    bad "deselect: could not find both messages"
+else
+    x1=${A1% *}; y1=${A1#* }; x2=${B1% *}; y2=${B1#* }
+    adb_ shell input swipe $x1 $y1 $((x1 + 2)) $y1 1200; sleep 1.5   # select A
+    adb_ shell input tap $x2 $y2; sleep 1.5                          # add B (2 selected)
+    adb_ shell input tap $x1 $y1; sleep 1.5                          # deselect A (B selected)
+    P=$(center_of_top "👍")
+    if [ -z "$P" ]; then
+        bad "deselect: picker missing after deselecting one"
+    else
+        adb_ shell input tap $P; sleep 2
+        RA=$(sql "SELECT reactions FROM messages WHERE body='case-multi-1';" | tr -d '\r')
+        RB=$(sql "SELECT reactions FROM messages WHERE body='case-multi-2';" | tr -d '\r')
+        if [ -z "$RA" ] && [ "$RB" = "👍:1" ]; then
+            ok "reaction landed on the remaining selection, not the deselected message"
+        else
+            bad "reaction targeted the wrong message (A='$RA' B='$RB')"
+        fi
+    fi
+fi
+
 echo ""
 info "Results: $PASS passed, $FAIL failed"
 exit $((FAIL > 0))

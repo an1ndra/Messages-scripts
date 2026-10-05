@@ -20,6 +20,9 @@ local emoji reaction. The data layer already existed (`messages.reactions`,
   It offers the app's 8 `EMOJIS`; tap toggles.
 - A reaction renders as a single bordered pill on the bubble's bottom edge. A
   row of separate surfaces below the bubble read as a message the user sent.
+- The picker is shown for the single *selected* message (derived from the
+  selection, not a separate pressed-id): selecting a second message hides it,
+  and deselecting back to one shows it on the remaining message.
 - Reactions are refused on a concealed locked message: the SMS fallback would
   quote its body and defeat the lock. Once unlocked, it can be reacted to.
 - Reactions are local-only, but each add/remove also sends a readable SMS
