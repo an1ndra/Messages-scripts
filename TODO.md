@@ -52,6 +52,26 @@ single-emulator roundtrip test cannot see it. Left as-is pending a decision.
   every `just a normal reply%` row, including orphans left by other scripts
   whose rowids were later reused; it now matches the run's unique body.
 
+## Home search across all messages (2026-10-06)
+
+Issue #284 feedback: the home search only matched a conversation's newest
+message (the snippet). A word buried in an older message did not surface its
+thread, even though the query already carries into the chat and jumps to a
+match.
+
+- `Repository.conversationIdsMatchingMessage(query)` returns the ids of
+  conversations with a matching non-deleted message (`body LIKE %query%`,
+  escaped, observed like the other flows).
+- `ConversationList.filter` takes that set and matches it alongside
+  name/address/snippet/number, so a hit anywhere in a thread lists it. The
+  parameter sits before the trailing `snippetFor` lambda so existing trailing
+  lambda call sites keep compiling.
+- Opening the thread still uses the handoff: it scrolls to the newest matching
+  message and flashes it.
+- Tests: `ConversationListTest.aHitAnywhereInTheThreadSurfacesTheConversation`;
+  `test-home-search-all-messages.sh` seeds a thread whose only hit is 30
+  messages old, searches it, and asserts the thread lists and opens on the hit.
+
 ## In-chat search (2026-10-05)
 
 The overflow menu gained a Search item that opens a search field in the top bar
