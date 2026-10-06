@@ -3,9 +3,9 @@
 # same sender form a run whose shape must render as:
 #   lone message      -> one flat "tail" corner on the sender's bottom side;
 #   first of a run    -> flat bottom corner on the sender's side;
-#   middle of a run   -> all four corners rounded;
+#   middle of a run   -> flat on both corners of the sender's side;
 #   last of a run     -> flat top corner on the sender's side.
-# Outgoing tails sit on the right, incoming tails on the left.
+# Outgoing flats sit on the right, incoming on the left.
 #
 # Asserted via the app's "BubbleShape" logcat marker, emitted once per composed
 # bubble with `id=... position=<SINGLE|FIRST|MIDDLE|LAST> mine=<bool>` and the
@@ -75,11 +75,11 @@ send_out() {
 adb_ shell cmd role add-role-holder android.app.role.SMS "$PKG" >/dev/null 2>&1 || true
 bash ./grant-permissions.sh >/dev/null 2>&1 || true
 
-info "outgoing lone message -> flat bottom-right only"
+info "outgoing lone message -> flat bottom-right tail only"
 reopen "$OUT1"
 send_out "lonely $MARK"
 reopen "$OUT1"
-expect 'outgoing single keeps bottom-right flat' \
+expect 'outgoing single keeps only the bottom-right tail flat' \
     'position=SINGLE mine=true topStart=18.0 topEnd=18.0 bottomStart=18.0 bottomEnd=4.0'
 
 info "outgoing run of three"
@@ -90,16 +90,16 @@ send_out "run three $MARK"
 reopen "$OUT3"
 expect 'outgoing first of run keeps bottom-right flat' \
     'position=FIRST mine=true topStart=18.0 topEnd=18.0 bottomStart=18.0 bottomEnd=4.0'
-expect 'outgoing middle of run is fully rounded' \
-    'position=MIDDLE mine=true topStart=18.0 topEnd=18.0 bottomStart=18.0 bottomEnd=18.0'
+expect 'outgoing middle of run is flat on the joined right side' \
+    'position=MIDDLE mine=true topStart=18.0 topEnd=4.0 bottomStart=18.0 bottomEnd=4.0'
 expect 'outgoing last of run keeps top-right flat' \
     'position=LAST mine=true topStart=18.0 topEnd=4.0 bottomStart=18.0 bottomEnd=18.0'
 
-info "incoming lone message -> flat bottom-left only"
+info "incoming lone message -> flat bottom-left tail only"
 adb_ emu sms send "$IN1" "lone inbound $MARK" >/dev/null
 sleep 3
 reopen "$IN1"
-expect 'incoming single keeps bottom-left flat' \
+expect 'incoming single keeps only the bottom-left tail flat' \
     'position=SINGLE mine=false topStart=18.0 topEnd=18.0 bottomStart=4.0 bottomEnd=18.0'
 
 info "incoming run of three"
@@ -112,8 +112,8 @@ sleep 3
 reopen "$IN3"
 expect 'incoming first of run keeps bottom-left flat' \
     'position=FIRST mine=false topStart=18.0 topEnd=18.0 bottomStart=4.0 bottomEnd=18.0'
-expect 'incoming middle of run is fully rounded' \
-    'position=MIDDLE mine=false topStart=18.0 topEnd=18.0 bottomStart=18.0 bottomEnd=18.0'
+expect 'incoming middle of run is flat on the joined left side' \
+    'position=MIDDLE mine=false topStart=4.0 topEnd=18.0 bottomStart=4.0 bottomEnd=18.0'
 expect 'incoming last of run keeps top-left flat' \
     'position=LAST mine=false topStart=4.0 topEnd=18.0 bottomStart=18.0 bottomEnd=18.0'
 

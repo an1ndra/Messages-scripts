@@ -5,6 +5,41 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Chat bubble corners: flat joins, one connected block (2026-10-07)
+
+The corner redesign shipped in the #284 working tree squared off each
+bubble's *outer* edge (the screen-edge side) and kept the joined side rounded,
+so a middle bubble was fully rounded and a run of same-sender messages read
+as a stack of separate bubbles. Reviewed against real Google Messages and
+rejected. The final design:
+
+| position | received (tS, tE, bS, bE) | sent |
+|---|---|---|
+| SINGLE | 18, 18, 4, 18 | 18, 18, 18, 4 |
+| FIRST | 18, 18, 4, 18 | 18, 18, 18, 4 |
+| MIDDLE | 4, 18, 4, 18 | 18, 4, 18, 4 |
+| LAST | 4, 18, 18, 18 | 18, 4, 18, 18 |
+
+- Everything except MIDDLE is what commit `9159b0e` originally shipped: a
+  lone bubble and the first of a run share the "tail" — only the bottom
+  corner on the sender's stack side (start/left for received, end/right for
+  sent) is flat, the other three stay rounded — and the last of a run is
+  flat on the corner joined from above. MIDDLE alone changed from fully
+  rounded to flat on both stack-side corners, so a run reads as one
+  connected block.
+- `bubbleCorners()` in `ui/MessageGrouping.kt` is the only production change.
+  Every bubble surface — the real bubble, the loading skeleton and the
+  preview row — plus the `BubbleShape` logcat marker render through it, so
+  none can re-derive the corners and disagree (the skeleton's hand-synced
+  corner literals had already drifted when the redesign landed).
+- `BubbleCornerShapeTest` and `MessageGroupingTest` pin the full table.
+- `test-bubble-corners.sh` re-anchored (SINGLE + MIDDLE assertions; its
+  FIRST/LAST assertions already described the design, having gone stale
+  against the uncommitted redesign rather than against history). Verified
+  the honest way, rebuild + reinstall before every run: **2/6 FAIL** on the
+  flat-outer design, then **6/2 FAIL** on the flat-both SINGLE design (only
+  the two SINGLE assertions failing), then **8/8** after each fix.
+
 ## Issue #284 follow-up: contact number, flicker, and the scroll snap-back (2026-10-07)
 
 Three of the four items left open in the #284 thread. Both conversation lists
