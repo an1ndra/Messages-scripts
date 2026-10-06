@@ -5,6 +5,52 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue #284 follow-up: contact number, flicker, and the scroll snap-back (2026-10-07)
+
+Three of the four items left open in the #284 thread. Both conversation lists
+get the same fix; the legacy list is the *default* (`use_new_ui=false`) and had
+neither the message search nor the handoff at all.
+
+- **A saved contact is now findable by its phone number.** `AddressIdentity
+  .matchesNumber` was a digits-only suffix test, which cannot see a national
+  spelling: the thread holds `+919876543210` while the contact is dialled and
+  typed as `09876543210`, and neither digit run suffixes the other. It now falls
+  through to the last-seven `ContactLookup.compareDigits` rule that contact
+  lookup already uses, rather than keeping a second, narrower copy of it.
+  Note `+20…` (Egypt) happened to suffix-match already — `2` + `0` + N — so a
+  test using it proves nothing; 91 and 44 are the cases that actually failed.
+- **The result list no longer blanks on every keystroke.** A number query
+  matches no contact name, so the whole result set came from the message-match
+  flow, and collecting it with an empty initial value emptied the list for a
+  frame each time. `HeldMessageMatches` now keeps the outgoing ids until the new
+  query answers, and the query is debounced. The shared search state moved to
+  `ui/ConversationSearch.kt` so the two lists cannot drift again — which is how
+  the legacy list lost the phone-number match in the first place.
+- **Scrolling in a chat no longer snaps back up to the search hit.** The scroll
+  effect was keyed on the hit's row *index*, and the pager prepends older
+  messages in 40-message chunks, so each chunk load shifted the index and
+  re-fired `scrollToItem`. It is keyed on the message id now, and the focused
+  match is derived (`focusedOverrideId ?: searchMatches.lastOrNull()`) instead of
+  stored as an index that a chunk load used to reset.
+- The legacy list now takes `(Long, String)` from `onOpenConversation` and
+  passes the query through, so a hit is highlighted and jumped to on the
+  default UI as well.
+
+Tests: `AddressIdentityTest`, `ConversationListTest`, `HeldMessageMatchesTest`,
+`test-home-search-phone.sh` (extended), `test-home-search-flicker.sh` and
+`test-chat-search-scroll.sh` (new).
+
+Two notes worth keeping:
+
+- **The flicker could not be asserted from `uiautomator`.** The blank is one or
+  two frames and a dump takes ~1s; Compose's key-based anchoring also restores
+  the scroll position afterwards, so nothing persistent was left to check. The
+  rule is pinned in `HeldMessageMatchesTest` instead, and
+  `test-home-search-flicker.sh` is an end-to-end guard, not a fail-before gate.
+- **Scroll assertions must hide the IME first.** The soft keyboard covers the
+  lower half of this AVD, so a swipe aimed at the bottom of the screen lands on
+  the keyboard and silently tests nothing. This cost real time twice.
+
 ## Home-search handoff: highlight + scroll in chat (2026-10-05)
 
 Searching the home list and tapping a conversation opened the chat at the
