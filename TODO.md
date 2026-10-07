@@ -5,6 +5,30 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The :mms network request excluded MMS-only APNs and ignored the subscription (2026-10-08)
+
+`MmsNetworkBinding` asked for `NET_CAPABILITY_INTERNET` alongside MMS, so the
+one network the carrier provisions for MMS — an MMS-only APN, which has no
+INTERNET capability — was excluded outright; and the request carried no
+subscription specifier, so on a dual-SIM device SIM B's exchange could run on
+SIM A's network.
+
+- The request now requires only MMS (on the cellular transport) and pins the
+  subscription with a `TelephonyNetworkSpecifier` when one is named. What the
+  request has to be is a pure `MmsNetworkSpec` (pinned when the id is a real
+  subscription, i.e. > 0), so the decision is JVM-tested.
+- The connectivity manager became a constructor seam: the platform's
+  `getSystemService(Class)` is *final*, so a context stub could not vary it,
+  and under the unit-test stubs `NetworkRequest.Builder()` answers every call
+  with a default, so the request object itself carries nothing to assert. The
+  builder's source is therefore pinned by `MmsNetworkRequestWiringTest`
+  (MMS yes, INTERNET no, specifier only when named) — the honest regression
+  for a shape a JVM test cannot construct.
+- New `scripts/test-mms-network.sh` gates all five tests by name.
+  Break-the-fix: restoring the old request shape in place (INTERNET re-added,
+  specifier removed) fails the two wiring tests — `4 PASS / 1 FAIL`; restored,
+  `5 / 0`.
+
 ## :mms acknowledged partial messages and left failed sends in the outbox (2026-10-08)
 
 Two send/receive bookkeeping faults, both found in review and both invisible
