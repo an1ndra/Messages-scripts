@@ -5,6 +5,33 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## run-all-tests.sh verdict (2026-10-08)
+
+Full sweep on `emulator-5554` against the branch tip after the 13-fix pass:
+**26 of 36 steps clean, 10 fail — every failure reproduces on the pre-session
+baseline (`a244e97`, installed from a detached worktree) or needs a component
+this AVD does not have. None is attributable to the fixes.**
+
+| Script | Cause |
+|---|---|
+| `test-diagnostics.sh`, `test-codeql-cleanup.sh` | Advanced never opens — same drift as below |
+| `test-advanced-move.sh`, `test-keywords.sh`, `test-backup-sim-coil.sh` | same drift |
+| `test-backup-restore.sh`, `test-import-mirrors-provider.sh`, `test-merge-import.sh`, `test-import-loading.sh` | backup/import UI flows on this AVD — identical on the baseline ("Set backup PIN dialog not shown", "not found in picker") |
+| `test-issue-183-split-threads.sh` | requires the third-party `SMS Import / Export` APK, not installed |
+
+Baseline confirmation: `test-diagnostics.sh` **1/7** and
+`test-import-mirrors-provider.sh` ("Set backup PIN dialog not shown") fail
+identically with the pre-session APK installed.
+
+**Known script drift (worth a fix, pre-existing):** `center_of`/`tap_text`
+match the node text **exactly**, and the settings row is now titled
+"Advanced settings" (it was "Advanced"). `tap_text "Advanced" || tap_contains
+"Advanced"` still works — `test-hide-links.sh` does exactly that and passes —
+but the scripts whose fallback is `center_of_contains` (which only *computes*
+coordinates and never taps) never open the screen and fail everything after.
+14 scripts contain the exact-match call; the fix is one line each
+(`tap_text "Advanced settings"`, or `tap_contains` as the fallback).
+
 ## The :mms network request excluded MMS-only APNs and ignored the subscription (2026-10-08)
 
 `MmsNetworkBinding` asked for `NET_CAPABILITY_INTERNET` alongside MMS, so the
