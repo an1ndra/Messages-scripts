@@ -174,11 +174,13 @@ for name, want_len, label in expected:
         print('[PASS] %s still pins the %d-octet %s vector' % (name, want_len, label))
 
 if len(vectors) == len(expected):
-    # Fields go out in ascending field-code order, so M-NotifyResp.ind — the one
-    # PDU whose lowest field is Message-Type — opens with its type octet; the
-    # other two start at Content-Type (0x84) and From (0x89) and carry theirs
-    # later. Both shapes are pinned, along with the MMS 1.2 short-integer form
-    # (0x80 | 0x12) rather than a plain 0x12.
+    # M-NotifyResp.ind — the one PDU whose lowest field is Message-Type —
+    # opens with its type octet. X-Mms-Content-Type (0x84) closes every header
+    # block: receivers stop reading headers at it, so M-Send.req carries it
+    # after the transaction id, right before the body, and the M-ReadRec.ind
+    # vector (no Content-Type of its own) opens at From (0x89). Both shapes
+    # are pinned, along with the MMS 1.2 short-integer form (0x80 | 0x12)
+    # rather than a plain 0x12.
     MESSAGE_TYPE = octet('MESSAGE_TYPE')[0]
     VERSION_12 = fields['MMS_VERSION_1_2']
     opening = lambda t: [MESSAGE_TYPE, t, MESSAGE_TYPE + 1, 0x80 | VERSION_12]

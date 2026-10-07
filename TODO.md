@@ -5,6 +5,46 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The :mms wire format disagreed with the reference stack (2026-10-07)
+
+Two conventions the module's own round trips could not see, both found in
+review and both pinned against the production reference stack rather than
+against the module's own parser:
+
+- **Uintvar groups went out least-significant first** — 128 was `0x80 0x01`
+  where WAP-230 §3.1 (and the reference) require `0x81 0x00`. Writer and
+  reader agreed with each other, so every in-house round trip passed and only
+  a carrier would have rejected the PDU.
+- **X-Mms-Content-Type was emitted first** — the composer sorted headers by
+  field code, where 0x84 sorts before Message-Type (0x8C). The reference
+  parser stops reading headers at Content-Type, so every mandatory header
+  after it became body bytes.
+
+Both directions are pinned by a new `ComposerParserInteropTest` in the app's
+test set (production still sends through the vendored stack; the new
+`testImplementation(project(":mms"))` is what lets the two stacks prove they
+read each other before any switch-over). The fixture's 300-byte part crosses
+the 127-byte single-octet length boundary in both directions. Getting the
+reference composer to run JVM-only took a `ContextWrapper(null)` stub — its
+constructor stores the resolver but only ever opens it for a part carrying a
+data Uri — and the reference writes phone recipients with the `/TYPE=PLMN`
+suffix, which the app's own `MmsSupport.phoneAddress` already strips.
+
+- `WspTest`'s two pins were themselves wrong (`0x80 0x01` for 128,
+  `0xAC 0x02` for 300) and now pin the wire, not the code.
+- `PduComposerTest`'s pinned M-Send.req vector is reordered (Content-Type
+  last), and `theContainerContentTypeWritesStartBeforeType` — which asserted
+  Content-Type came *first* — became `theContainerContentTypeClosesTheHeaderBlock`.
+- `docs/Mms/02-pdu-wire-format.md` records both rules (uintvar most
+  significant group first; Content-Type closes the header block).
+- `scripts/test-mms-codec.sh`: **21/21** — its vectors are read out of the
+  test source, so the reorder flowed in without restating them; its stale
+  ascending-order comment updated.
+- Break-the-fix, the honest way: with only the production changes stashed,
+  the new expectations fail **6 ways** (both interop directions, the pinned
+  vector, the container test, both uintvar pins); with them restored, 683
+  tests green across `:mms` and `:app`.
+
 ## Search leaked hidden content, missed old hits, and announced a bare marker (2026-10-07)
 
 Three follow-ups to the all-history home search, all found in review:
