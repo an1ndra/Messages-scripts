@@ -5,6 +5,40 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## :mms acknowledged partial messages and left failed sends in the outbox (2026-10-08)
+
+Two send/receive bookkeeping faults, both found in review and both invisible
+to the existing tests because those tests asserted the fake's recorded call
+rather than the provider row:
+
+- **A failed part write still returned success.** `persistIn` ignored
+  `persistPart`'s result, so a message whose attachment never landed came back
+  as persisted — and the inbound path acknowledges retrieval on any non-null
+  result. A failed part now rolls the written parts back and returns null.
+- **A refused send stayed in the outbox.** The failure branches called
+  `setPendingErrorType(outbox, …)`, but that writes `ERROR_TYPE` on the
+  *message* URI while the pending queue lives at `content://mms-sms/pending`
+  (and nothing populates it). The row was never moved, so a failed send looked
+  in flight forever. It now moves to `MmsBox.FAILED` — the non-addressable
+  failed box the store contract already pins.
+- **Two sends in the same second shared an id.** `transactionIdFor` hashed
+  second-resolution time + recipients + class only, and the id is the MMSC's
+  only deduplication key (the callback's request code derives from it too). A
+  per-process nonce, clock-seeded so a restart does not repeat the previous
+  run, is now folded in.
+
+- `TelephonyMmsStoreTest` +1, and `MmsFacadeTest`'s refused/unreadable send
+  tests rewritten to assert the *failed box* instead of `pendingErrors`.
+  `SendReqBuilderTest.twoSendsGetDifferentTransactionIds` (its two sends were
+  a second apart) became `twoSendsInTheSameSecondGetDifferentTransactionIds`.
+  The fake resolver gained the whole-parts-collection delete the rollback uses.
+- Break-the-fix: with only the production changes stashed, those 4 tests fail;
+  restored, `:mms` is green.
+- New `scripts/test-mms-facade.sh` gates the three send guarantees by name (a
+  rename would otherwise leave the suite green); `test-mms-store.sh` guards
+  `aMessageWhoseAttachmentCouldNotBeWrittenIsNotPersisted`. Both re-run green:
+  **6/0** and **5/0**.
+
 ## The :mms parser rejected valid bare forms and escaped on forged lengths (2026-10-07)
 
 Two hostilities, both found in review:
