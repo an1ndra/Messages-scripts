@@ -5,6 +5,41 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The composed PDU was served from outside the FileProvider's cache root (2026-10-07)
+
+`MmsComposer.pduContentUri` built the outgoing PDU's content URI by hand —
+`content://<authority>/<filename>` — while `file_paths.xml` exposes the cache
+root under the `mms` name segment, so the real URI was
+`content://<authority>/mms/<filename>`. The telephony process reads the PDU
+from that URI over binder (`IMms.sendMessage` — nothing is read in-process),
+so no send could ever be opened. `test-mms-send.sh` still passed: it accepts
+`msg_box=5` and status `failed`, and on this AVD the platform answers every
+send with code 12 (`MMS_ERROR_MMS_DISABLED_BY_CARRIER`) regardless of the URI,
+so the send outcome cannot distinguish a readable PDU from an unreadable one.
+
+- The URI now comes from `FileProvider.getUriForFile`, so the URI and the XML
+  path mapping cannot drift apart again — the mapping has one owner
+  (`file_paths.xml`). A new `FileProviderWiringTest` pins that contract at the
+  source level: the composer must derive the URI through `getUriForFile` and
+  must not hand-build a `content://` URI, the manifest authority must be
+  `${applicationId}.fileprovider`, and the cache root the PDU is written to
+  must be the one the XML exposes.
+- Two diagnostic log lines make the two ends observable: the composer logs the
+  composed URI and size (`MmsComposer` tag), and the sent callback logs the
+  platform's result code (`MmsSend`). The code-12 finding above is what the
+  second one surfaced.
+- `scripts/test-mms-send.sh` gained a URI-shape assertion (the composer's log
+  line must show the PDU under the provider's `mms/` root). Verified the honest
+  way: **8 PASS / 1 FAIL** with the hand-built URI restored and a fresh build +
+  reinstall, **9 PASS / 0 FAIL** with the fix. `test-mms-carrier-config.sh`
+  re-run green (8/8) — it drives the same composer through the debug probe.
+- Honest limitation, recorded here: the platform-side *open* of the fixed URI
+  could not be observed end-to-end on this AVD — every send is answered with
+  code 12 with both the broken and the fixed URI, no MMS keys are set in the
+  carrier config, and the phone process logs nothing about the send. The URI's
+  correctness is pinned by its shape, the XML contract, and the wiring test,
+  not by a completed transfer.
+
 ## Incoming MMS was requested from a made-up URL, and the WAP push was dropped (2026-10-07)
 
 Two halves of one dead end, both from the #236 receive path. The downloader

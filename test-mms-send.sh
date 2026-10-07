@@ -81,6 +81,20 @@ case "$BOX" in
     *) fail "unexpected msg_box=$BOX (expected outbox 2, sent 4 or failed 5)" ;;
 esac
 
+# The platform opens the composed PDU through the app's FileProvider from its own
+# process, so the URI must sit under the cache root file_paths.xml exposes — the
+# <cache-path name="mms" path="."> entry. A URI built by hand drifts from the XML
+# (this is exactly how the send broke: no "mms/" segment), and on this AVD the
+# platform answers every send with code 12 regardless, so the outcome cannot
+# distinguish it — the URI shape can.
+PDULOG=$(adb_ shell "logcat -d -s MmsComposer" 2>/dev/null | tr -d '\r' || true)
+if [[ "$PDULOG" == *"content://$PKG.fileprovider/mms/mms-send-"*".dat"* ]]; then
+    pass 'composed PDU is served under the FileProvider cache root'
+else
+    fail 'composed PDU URI is outside the FileProvider cache root (the platform cannot open it)'
+    printf '%s\n' "$PDULOG" | sed 's/^/    | /'
+fi
+
 SMIL=$(provider "SELECT COUNT(*) FROM part WHERE mid=$PDU AND ct='application/smil';")
 [ "$SMIL" = "1" ] && pass 'PDU carries a SMIL part' || fail "SMIL part missing ($SMIL)"
 
