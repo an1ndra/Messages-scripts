@@ -42,7 +42,7 @@ adb_ shell cmd role add-role-holder android.app.role.SMS "$PKG" >/dev/null 2>&1 
 # retrieved. That is the state MmsDownloader.requestPending() acts on.
 seed_pending() {
     local id
-    id="$(provider "INSERT INTO pdu(thread_id,date,msg_box,m_type,read,m_size,sub_id) VALUES(0,$(date +%s),1,130,0,0,1); SELECT last_insert_rowid();" | tail -1)"
+    id="$(provider "INSERT INTO pdu(thread_id,date,msg_box,m_type,read,m_size,sub_id,ct_l) VALUES(0,$(date +%s),1,130,0,0,1,'http://mmsc.local/$MARKER'); SELECT last_insert_rowid();" | tail -1)"
     [ -n "$id" ] || return 1
     CREATED="${CREATED:+$CREATED,}$id"
     printf '%s' "$id"

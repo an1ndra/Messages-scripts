@@ -5,6 +5,44 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Incoming MMS was requested from a made-up URL, and the WAP push was dropped (2026-10-07)
+
+Two halves of one dead end, both from the #236 receive path. The downloader
+asked the platform to fetch the **package name** as the MMS location URL
+(`downloadMultimediaMessage(context, context.packageName, …)`), and the
+receiver required `intent.data` — which a WAP push never carries, the PDU
+rides in the broadcast's "data" extra — so a real push never started a
+download at all. Even a perfect sweep asked the platform to fetch
+"com.anindra.messages".
+
+- The pending row carries the real destination: the provider's `ct_l`
+  (Content-Location). `MmsProviderReader.pendingDownloads()` now returns
+  `MmsSupport.PendingDownload(id, contentLocation)` per announced row, and
+  `MmsDownloader.request` passes it as the location URL, keeping the row URI
+  as the content URI the platform writes the RetrieveConf to. A row with no
+  `ct_l` is refused with a log line — there is nowhere to point the platform
+  at.
+- `MmsReceiver` no longer reads `intent.data`: the platform has already filed
+  the announced row when it broadcasts, so the push (and every broadcast
+  missed while the app was not the default handler) is covered by the same
+  `requestPending` sweep. The recognition decision (`isMmsWapPush`) and the
+  blank-location rule (`downloadLocation`) live in `MmsSupport`, where they
+  are unit-testable.
+- Tests: `MmsSupportTest` (+2: WAP-push recognition by action+type, and the
+  Content-Location a download can be requested from).
+  `scripts/test-mms-download.sh` extended: the pending fixture is seeded with
+  `ct_l`, the sweep assertion now requires the request to come **from** the
+  seeded Content-Location, and a new section delivers a WAP push (explicit
+  component — a shell-sent *implicit* `WAP_PUSH_DELIVER` is never dispatched
+  by AMS, confirmed in the broadcast-queue dumps — while the receiver's
+  filter registration was confirmed via the package dump's Receiver Resolver
+  Table) and asserts the push alone starts the request. Fails before the fix
+  with `4 PASS / 2 FAIL` (made-up URL + dropped push, each for its own
+  reason), passes after with `6 PASS / 0 FAIL`, verified the honest way
+  (fresh build + reinstall before every run).
+- `test-mms-retry.sh` seeds now carry `ct_l`, since a row without one is no
+  longer requestable — `7 PASS / 0 FAIL` after the change.
+
 ## The provider-sync prune deleted every imported MMS (2026-10-07)
 
 `136ae6f` (2026-10-02) taught the doomed-row side of the prune to namespace
