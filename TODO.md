@@ -5,6 +5,34 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The provider-sync prune deleted every imported MMS (2026-10-07)
+
+`136ae6f` (2026-10-02) taught the doomed-row side of the prune to namespace
+MMS ids negative (`providerKey`), but the live provider-id set was still built
+with raw positive ids from both transports — so `-id` was never in the set and
+**every** provider-backed MMS was pruned by the same `syncFromSystem` pass that
+imported it. An imported MMS never survived a sync; it vanished before the
+first frame that could show it. `test-mms-import.sh` (#210) had last been run
+green on Sep 24, eight days before the prune existed, so nothing caught the
+regression.
+
+- The namespacing decision now lives once, in `data/ProviderPresence.kt`
+  (`key(transport, sysId)`). `PROVIDER_MESSAGE_SOURCES` carries each source's
+  transport so the live-set build keys through it too — both sides of the
+  comparison call the same function, so they cannot disagree about which side
+  of zero an id lives on.
+- `ProviderPresenceTest` (4): the sign convention, the cross-transport
+  non-match, and the survival case.
+- `scripts/test-mms-import.sh` is the regression — it already covered import +
+  a second sync; it just had not been run since the prune landed. Fails before
+  the fix at 'existing provider MMS imported' (`1 PASS / 1 FAIL`), passes after
+  `5 PASS / 0 FAIL` including idempotent reimport. Verified the honest way both
+  times: fresh `assembleDebug` + reinstall before each run.
+- `test-sms-mirror.sh` re-run around it: §1–3 green on both builds; §4
+  (fresh-install re-import) fails **identically on the stashed baseline** —
+  pre-existing, not from this work (same status as `test-chat-render.sh` /
+  `test-multipart-sms.sh` below).
+
 ## Chat bubble corners: flat joins, one connected block (2026-10-07)
 
 The corner redesign shipped in the #284 working tree squared off each
