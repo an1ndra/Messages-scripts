@@ -64,7 +64,7 @@ else
     bad "matching message not visible after opening from search"
 fi
 
-if echo "$MATCH_LINE" | grep -q 'content-desc="Search result"'; then
+if echo "$MATCH_LINE" | grep -q 'content-desc="[^"]*Search result"'; then
     ok "matching message marked as the search result"
 else
     bad "matching message has no search-result marker"

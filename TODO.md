@@ -5,6 +5,52 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Search leaked hidden content, missed old hits, and announced a bare marker (2026-10-07)
+
+Three follow-ups to the all-history home search, all found in review:
+
+- **A locked message's body leaked through search.** The all-history SQL
+  matched raw bodies, so searching a locked message's text surfaced its
+  thread — proving the secret the app masks everywhere. **"Hide links" was
+  bypassed the same way**: a URL removed from every list and chat still
+  surfaced its thread when searched. Both are one rule — a query may only
+  match what the user can see — which now lives once, in
+  `MessageSearch.matchesVisible` (a locked body never matches; with Hide
+  links on, only the redacted body does, through the same `hideUrls` the UI
+  paints). SQL stays a LIKE prefilter and cannot quietly disagree with the
+  rule. The hide-links setting is threaded through the search state so a
+  toggle re-answers the query.
+- **Home search surfaced threads the chat could never reach.** The chat
+  computed matches only over the loaded window and auto-paging stopped at
+  400, so a hit in a 421-message thread was listed at home but unreachable in
+  the chat. Matches now come from the whole thread
+  (`Repository.messageIdsMatching`), the pager grows past the cap in
+  `LOAD_EARLIER_STEP` chunks while a hit is older than what is loaded, and
+  the scroll effect re-runs when the focused row finally arrives — without
+  re-triggering on later chunk loads, because the marker is the id it last
+  scrolled to, so there is no #284-style snap-back.
+- **The focused hit replaced its readable text for TalkBack.** The marker
+  `contentDescription` swapped the bubble's body for "Search result". It is
+  additive now (`A11y.describe(body, marker)`: "see the code. Search
+  result"), built on the existing tested join.
+- Tests: `MessageSearchTest` (+1: visible matching never sees locked bodies
+  or hidden links) and `A11yTest` (+1: the announcement keeps the body).
+  New `scripts/test-search-privacy.sh` — fails before the fix with the two
+  leaks (`2 passed / 2 failed`, the toggle verified on through the app's own
+  prefs), passes after `4/0`. Its settings navigation force-stops first,
+  because the `open_settings` deep link only opens from a cold start — that
+  cost a debugging round to find.
+  `test-home-search-all-messages.sh` re-anchored on a 421-message thread
+  whose only hit is the *oldest* message (seeded in one recursive-CTE
+  insert) — fails before (`1/2`), passes after (`3/0`). The three
+  search-result marker greps (scroll / highlight / all-messages) now match
+  the combined announcement. Re-run green: `test-chat-search-scroll` (5/5 —
+  the scroll rework kept the no-snap-back), `test-chat-search-highlight`
+  (3/3), `test-in-chat-search` (8/8), `test-home-search-flicker` (3/3),
+  `test-home-search-phone` (10/10). `test-hide-links` fails its two
+  copy-round-trip helper assertions **identically on the stashed baseline**
+  — pre-existing helper flake, not from this work.
+
 ## The composed PDU was served from outside the FileProvider's cache root (2026-10-07)
 
 `MmsComposer.pduContentUri` built the outgoing PDU's content URI by hand —

@@ -74,7 +74,7 @@ sleep 5
 if hit_on_screen; then ok "chat opened on the matching message ($(visible_range))"
 else bad "chat did not open on the matching message"; exit 1; fi
 adb_ shell input keyevent 4; sleep 2   # hide the IME so swipes reach the list
-if dump_ui >/dev/null 2>&1 && grep -q 'content-desc="Search result"' "$TMP/ui.decoded.xml"; then
+if dump_ui >/dev/null 2>&1 && grep -q 'content-desc="[^"]*Search result"' "$TMP/ui.decoded.xml"; then
     ok "matching message marked as the search result"
 else
     bad "matching message has no search-result marker"
