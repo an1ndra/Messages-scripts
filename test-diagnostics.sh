@@ -28,7 +28,7 @@ adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 3
 adb_ shell input swipe 500 1900 500 700 400 >/dev/null 2>&1; sleep 0.5
 adb_ shell input swipe 500 1900 500 700 400 >/dev/null 2>&1; sleep 1
-tap_text "Advanced" >/dev/null 2>&1 || center_of_contains "Advanced" >/dev/null 2>&1
+tap_text "Advanced settings" >/dev/null 2>&1 || center_of_contains "Advanced" >/dev/null 2>&1
 sleep 1.5
 
 info "Open Diagnostics"

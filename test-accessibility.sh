@@ -96,8 +96,8 @@ launch_settings() {
     adb_ shell am start -n "$ACT" --ez open_settings true; sleep 3
 }
 open_advanced() {
-    scroll_to "Advanced"
-    tap_text "Advanced" || tap_contains "Advanced"
+    scroll_to "Advanced settings"
+    tap_text "Advanced settings" || tap_contains "Advanced"
     sleep 1.5
 }
 

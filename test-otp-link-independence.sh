@@ -55,7 +55,7 @@ launch_settings() {
 open_advanced() {
     adb_ shell input swipe 500 1900 500 700 400; sleep 0.5
     adb_ shell input swipe 500 1900 500 700 400; sleep 1
-    tap_text "Advanced" || tap_contains "Advanced"
+    tap_text "Advanced settings" || tap_contains "Advanced"
     sleep 2
 }
 open_chat() {

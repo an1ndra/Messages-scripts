@@ -64,7 +64,7 @@ for i in 1 2 3 4; do
     if dump_ui && grep -q "Advanced" "$TMP/ui.xml"; then break; fi
     adb_ shell input swipe 540 1800 540 600 300; sleep 1.5
 done
-tap_text "Advanced"; sleep 2
+tap_text "Advanced settings"; sleep 2
 FOUND=0
 for i in 1 2 3 4; do
     if dump_ui && grep -q "Highlight links" "$TMP/ui.xml"; then FOUND=1; break; fi

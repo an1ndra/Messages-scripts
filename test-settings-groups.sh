@@ -294,7 +294,7 @@ if open_settings; then
         if grep -q 'text="Link behaviour"' "$TMP/ui.xml" \
             && grep -q 'text="Auto-delete"' "$TMP/ui.xml"; then
             pass 'opened Advanced'
-            assert_gap_between_rows "Advanced" 10
+            assert_gap_between_rows "Advanced settings" 10
         else
             fail 'did not land on the Advanced screen'
         fi

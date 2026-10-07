@@ -172,12 +172,12 @@ sql "DELETE FROM messages WHERE body LIKE '%$MARK%';"
 sql "DELETE FROM conversations WHERE name='$MARK';"
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 5
-if scroll_to "Advanced"; then
+if scroll_to "Advanced settings"; then
     pass "General settings still offers the Advanced row"
 else
     fail "could not find the Advanced row in General settings"
 fi
-tap_text "Advanced" >/dev/null 2>&1; sleep 2
+tap_text "Advanced settings" >/dev/null 2>&1; sleep 2
 if scroll_to "Auto-delete"; then
     pass "Advanced has an Auto-delete section"
 else
@@ -269,8 +269,8 @@ info "The window is still user-selectable"
 pref_reset_retention
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 4
-scroll_to "Advanced" >/dev/null
-tap_text "Advanced" >/dev/null 2>&1; sleep 2
+scroll_to "Advanced settings" >/dev/null
+tap_text "Advanced settings" >/dev/null 2>&1; sleep 2
 wait_for_text "Auto-delete" 10 >/dev/null
 c=$(center_of_contains "Auto-delete")
 [ -n "$c" ] && { XY=($c); adb_ shell input tap "${XY[0]}" "${XY[1]}" >/dev/null 2>&1; sleep 1.5; }
@@ -342,8 +342,8 @@ info "A folder whose buckets are off says so instead of promising a window"
 # XML would silently write nothing and the defaults would apply.
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 4
-scroll_to "Advanced" >/dev/null
-tap_text "Advanced" >/dev/null 2>&1; sleep 2
+scroll_to "Advanced settings" >/dev/null
+tap_text "Advanced settings" >/dev/null 2>&1; sleep 2
 scroll_top
 for row in "Blocked messages" "Blocked senders"; do
     scroll_to "$row" >/dev/null

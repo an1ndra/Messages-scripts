@@ -5,6 +5,33 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The "Advanced" label drifted: five sweep scripts could never open the screen (2026-10-08)
+
+The settings row is titled "Advanced settings", but `center_of`/`tap_text`
+match node text **exactly**, so `tap_text "Advanced"` never matched it.
+Scripts whose fallback was `tap_contains "Advanced"` still worked
+(`test-hide-links.sh` does exactly that), but the ones whose fallback was
+`center_of_contains` — which only *computes* coordinates and never taps — or
+which had no fallback at all failed everything downstream: `test-diagnostics`
+(1/7), `test-codeql-cleanup`, `test-advanced-move` (5/18), `test-keywords`
+and `test-backup-sim-coil` all failed at "could not open Advanced" /
+"Diagnostics row not found" / "Blocked keywords dialog did not open".
+
+- Normalised every row **lookup** to the real label: `tap_text`, `scroll_to`,
+  `scroll_until`, `tap_until`, `center_of`, `center_of_text`, `y_of`,
+  `textxy`, `tap_settings_row`, `assert_gap_between_rows` and the
+  `grep 'text="Advanced"'` scans — 34 lines across 19 scripts. Genuine
+  substring uses are untouched: `tap_contains "Advanced"`, `grep -q
+  "Advanced"`, and the settings-search `type_text "Advanced"`.
+- Re-run green: `test-diagnostics` **8/0**, `test-codeql-cleanup` **20/0**,
+  `test-advanced-move` **21/0**, `test-keywords` **19/0**,
+  `test-backup-sim-coil` **16/0**.
+- Regressions: `test-hide-links` **29/2** (the same two pre-existing
+  copy-helper failures) and `test-accessibility` **5/19** — verified
+  *identical* with the original file restored against the same build, so its
+  19 failures are a separate pre-existing drift in the accessibility feature
+  flow (the master toggle does not reveal the options), not the label.
+
 ## run-all-tests.sh verdict (2026-10-08)
 
 Full sweep on `emulator-5554` against the branch tip after the 13-fix pass:

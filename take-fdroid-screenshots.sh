@@ -176,7 +176,7 @@ open_settings_row() { tap_settings_row "$1"; }
 
 # Auto-delete (retention) lives on the Advanced screen, one level below Settings.
 open_advanced_row() { # $1 = row label
-    tap_settings_row "Advanced" || return 1
+    tap_settings_row "Advanced settings" || return 1
     sleep 1
     for _ in 1 2 3 4 5; do
         dump_ui >/dev/null

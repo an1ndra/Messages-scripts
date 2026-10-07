@@ -368,7 +368,7 @@ info "Accessibility mode + reduce motion leaves the app usable"
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1
 adb_ shell am start -n "$ACT" >/dev/null
 wait_for_text "Start chat" 8 || true
-if open_settings && tap_until "Advanced" "Drafts"; then
+if open_settings && tap_until "Advanced settings" "Drafts"; then
     pass 'reached advanced settings'
     if tap_until "Accessibility mode" "Accessibility options"; then
         pass 'accessibility mode enabled'
