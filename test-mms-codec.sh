@@ -32,6 +32,12 @@ NOTIFY="aNotifyRespIsExactlyElevenOctets"
 READREC="aReadRecEmitsEveryFieldInAscendingCodeOrder"
 SENDREQ="aOnePartSendReqIsPinnedOctetForOctet"
 
+PARSER_CLASS="com.anindra.messages.mms.pdu.PduParserTest"
+BARE_CT="aBareConstrainedMediaContentTypeWithNoValueLengthParses"
+BARE_ESV="aBareTextStringEncodedValueParses"
+EMPTY_ESV="anEmptyEncodedStringValueParsesAsEmpty"
+FORGED_LEN="aForgedEncodedStringLengthIsRejectedRatherThanEscaping"
+
 for f in "$TEST_SRC" "$PDU_DIR/MessageType.kt" "$PDU_DIR/HeaderField.kt"; do
   [[ -f "$f" ]] || { printf 'Missing %s\n' "$f"; exit 1; }
 done
@@ -247,29 +253,37 @@ if len(vectors) == len(expected):
 PY
 )
 
-info "Run the three golden-vector tests"
+info "Run the golden-vector and parser-contract tests"
 rm -rf "$RESULTS"
 (cd "$PROJECT_DIR" && ./gradlew :mms:testDebugUnitTest --rerun-tasks \
   --tests "$TEST_CLASS.$NOTIFY" \
   --tests "$TEST_CLASS.$READREC" \
-  --tests "$TEST_CLASS.$SENDREQ") >"$LOG" 2>&1 || true
+  --tests "$TEST_CLASS.$SENDREQ" \
+  --tests "$PARSER_CLASS.$BARE_CT" \
+  --tests "$PARSER_CLASS.$BARE_ESV" \
+  --tests "$PARSER_CLASS.$EMPTY_ESV" \
+  --tests "$PARSER_CLASS.$FORGED_LEN") >"$LOG" 2>&1 || true
 
 RESULT_XML="$RESULTS/TEST-$TEST_CLASS.xml"
-if [ ! -f "$RESULT_XML" ]; then
+PARSER_XML="$RESULTS/TEST-$PARSER_CLASS.xml"
+if [ ! -f "$RESULT_XML" ] || [ ! -f "$PARSER_XML" ]; then
   fail "the golden-vector tests produced no result file (build or compile failed)"
   grep -E '^e: |error:|FAILURE:|FAILED' "$LOG" | head -20 | sed 's/^/       /'
   printf 'PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
   exit $((FAIL > 0))
 fi
-pass "the golden-vector tests ran"
+pass "the golden-vector and parser-contract tests ran"
 
 info "Each named test reported a result"
 read -r RAN FAILED_TESTS SKIPPED_TESTS <<<"$(
-  python3 - "$RESULT_XML" "$NOTIFY" "$READREC" "$SENDREQ" <<'PY'
+  python3 - "$RESULT_XML" "$PARSER_XML" "$NOTIFY" "$READREC" "$SENDREQ" \
+                "$BARE_CT" "$BARE_ESV" "$EMPTY_ESV" "$FORGED_LEN" <<'PY'
 import sys, xml.etree.ElementTree as ET
-root = ET.parse(sys.argv[1]).getroot()
-names = sys.argv[2:5]
-cases = dict((c.get('name'), c) for c in root.iter('testcase'))
+files, names = sys.argv[1:3], sys.argv[3:]
+cases = {}
+for f in files:
+    for c in ET.parse(f).getroot().iter('testcase'):
+        cases[c.get('name')] = c
 ran = [n for n in names if n in cases]
 bad = [n for n in names if n in cases
        and (cases[n].find('failure') is not None or cases[n].find('error') is not None)]
@@ -277,12 +291,12 @@ skip = [n for n in names if n in cases and cases[n].find('skipped') is not None]
 print(len(ran), ' '.join(bad) or '-', ' '.join(skip) or '-')
 PY
 )"
-[ "${RAN:-0}" -eq 3 ] && pass "all 3 named vector tests reported a result" \
-  || fail "only ${RAN:-0} of 3 named vector tests reported a result (a renamed or deleted test would hide here)"
-[ "$FAILED_TESTS" = "-" ] && pass "all 3 named vector tests passed" \
-  || fail "failing vector test(s): $FAILED_TESTS"
-[ "$SKIPPED_TESTS" = "-" ] && pass "no vector test was skipped" \
-  || fail "skipped vector test(s): $SKIPPED_TESTS"
+[ "${RAN:-0}" -eq 7 ] && pass "all 7 named tests reported a result" \
+  || fail "only ${RAN:-0} of 7 named tests reported a result (a renamed or deleted test would hide here)"
+[ "$FAILED_TESTS" = "-" ] && pass "all 7 named tests passed" \
+  || fail "failing named test(s): $FAILED_TESTS"
+[ "$SKIPPED_TESTS" = "-" ] && pass "no named test was skipped" \
+  || fail "skipped named test(s): $SKIPPED_TESTS"
 
 printf 'PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 exit $((FAIL > 0))

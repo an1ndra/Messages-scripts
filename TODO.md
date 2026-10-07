@@ -5,6 +5,37 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The :mms parser rejected valid bare forms and escaped on forged lengths (2026-10-07)
+
+Two hostilities, both found in review:
+
+- **Valid bare forms were rejected.** `readContentType` always demanded a
+  value-length first, and `readEncodedStringValue` always demanded
+  value-length + charset — but both values legally arrive bare (OMA-MMS-ENC:
+  Content-type-value is Constrained-media | Content-general-form, and
+  Encoded-string-value is Text-string | Value-length Char-set Text-string),
+  and the reference accepts both. A carrier sending either got a null PDU
+  instead of its message.
+- **A forged encoded-string length escaped as a crash.** `index + length`
+  was computed before checking the length against what actually remained, so
+  a length near `Int.MAX_VALUE` overflowed the stop index negative, slipped
+  past the bound check, and a later read threw
+  `ArrayIndexOutOfBoundsException` — which `parse()` did not catch, breaking
+  the never-throws contract on hostile input.
+
+Both sides now read the leading octet the way the reference does (below 0x20
+is a length, anything else is already the value; 0x00 is the empty value),
+the length is checked against `remaining` before any index arithmetic, and
+`parse()` catches an out-of-bounds read as defense in depth.
+
+- `PduParserTest` +4: the bare constrained-media Content-Type, the bare
+  text-string To, the empty encoded value, and the forged length (which
+  fails pre-fix by *escaping*, not by asserting).
+- Break-the-fix: with the production changes stashed, all four fail — the
+  forged-length one via the escaping exception; restored, all green.
+- `scripts/test-mms-codec.sh` now gates the four parser-contract tests
+  alongside the three composer vectors: 7 named tests, **21/21**.
+
 ## The :mms wire format disagreed with the reference stack (2026-10-07)
 
 Two conventions the module's own round trips could not see, both found in
