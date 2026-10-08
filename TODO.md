@@ -653,6 +653,72 @@ backoff, and an interrupted restore heals itself at startup.
   and startup recovery restores the database (~1.0 s) with no OOM or crash.
   It is deliberately **not** in `run-all-tests.sh`.
 
+## #300 Incoming SMS does not wake a locked screen (2026-10-08)
+
+| Issue | Feature | JUnit | Regression script |
+|---|---|---|---|
+| #300 | Full-screen intent wakes the screen for an incoming SMS | `WakeOnLockTest`, `FullScreenIntentWiringTest` | `test-notification-wake.sh` |
+
+A heads-up popup is a *peek*: the panel stays asleep on a locked screen. Only a
+full-screen intent is treated as a user-initiated wake, and the app had neither
+the intent nor the permission — which is the whole bug.
+
+- **The chain, all three links required.** `USE_FULL_SCREEN_INTENT` declared in
+  the manifest (granted at install up to Android 13; on 14+ it is only
+  auto-granted to calling/messaging apps, which the SMS role satisfies);
+  `setFullScreenIntent()` on the incoming notification when
+  `shouldWake(...)` holds; and `sms/FullScreenSmsActivity`, a translucent
+  trampoline that sets `setShowWhenLocked`/`setTurnScreenOn`, forwards to
+  `MainActivity` and finishes. The trampoline is deliberately *not*
+  `MainActivity` — the platform FSI policy requires the target not be the app's
+  primary launch activity. It also re-checks `isKeyguardLocked` on entry and
+  bails, so a stale intent cannot hijack a screen the user is already using.
+- **`shouldWake` is pure** (locked ∧ notifications ∧ receive-sound ∧ ¬privacy)
+  so the truth table is unit-tested without a device. Privacy mode suppresses
+  the wake because the trampoline would otherwise surface content over the
+  keyguard.
+- **Sticky channel demotion** (found on the way, independent of #300):
+  `createNotificationChannel()` upserts and **cannot raise importance once the
+  user has touched the channel**, so sound, heads-up and FSI die permanently and
+  the app has no way back. `recoverDemotedChannel()` deletes and recreates when
+  importance is below `IMPORTANCE_DEFAULT`. `IMPORTANCE_DEFAULT` itself is left
+  alone — a deliberate "quiet" choice stays respected, only a broken channel is
+  rebuilt.
+- **Diagnostics** now reports `Full-screen intent: granted/denied`,
+  `Channel importance: 4 (high)`, `Keyguard locked: yes/no` and
+  `Wake screen for new messages: will wake/headsup only`, plus a hint pointing
+  at Settings → Notifications when the permission is denied. That is what
+  separates "our code didn't set it" from **OneUI's global "Full screen
+  notifications" toggle**, which discards the intent outright and which no app
+  can override. It reads the live permission and channel the notifier reads; it
+  re-derives nothing.
+- **`test-notification-wake.sh`** asserts each link separately (permission,
+  channel importance, the screen actually leaving `mWakefulness=Asleep`, and the
+  trampoline actually launching), because each can be present while the others
+  are not. Verified **9 failures on the unfixed build, 0 after**.
+
+  Four traps, each of which made the script assert the wrong thing. None are
+  visible from the JUnit side:
+
+  1. **The AVD has no lock credential.** `isKeyguardLocked` is false, the wake
+     is correctly declined, and the test measures the absence of a keyguard
+     rather than a broken fix. The script now sets and clears a PIN itself.
+  2. **The notification record is consumed on launch.** The platform removes it
+     ~250 ms after a full-screen intent fires — narrower than one adb
+     round-trip, so polling `fullScreenIntent=` can never catch it. Asserting it
+     would be a permanent flake. It is a documented `[SKIP]`; the trampoline
+     launch observed in logcat is the real proof, and it is strictly stronger.
+  3. **Channel importance dumps as
+     `NotificationChannel{mId='messages_default'…mImportance=4}`**, not the
+     `NotificationChannel(id=…importance=…)` form the grep first guessed.
+  4. **A conversation row's label is in `content-desc`, not `text`**, wrapped
+     in bidi isolate marks — so grep the marker alone, not a `text="…"` match.
+
+  Asserting the *outcome* (wake + launch) rather than the notification
+  artifact also sidesteps a race worth knowing about: once the screen is on the
+  keyguard is unlocked, so the app re-posts the same notification **without** a
+  full-screen intent, replacing the record entirely.
+
 ## Notification delete, passwordless backup, periodic backup (2026-10-05)
 
 Branch `feat/own-mms-package`. Three GitHub issues in one pass:
