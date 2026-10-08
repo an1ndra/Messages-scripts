@@ -5,6 +5,40 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## 3-digit service/short codes (198, 199) could not be sent (2026-10-08)
+
+`PhoneNumberUtils.isLikelyPhoneNumber` required 4–15 digits, so India's
+198/199-style service numbers were treated as non-dialable. The shared gate
+`AddressIdentity.isReplyable` therefore disabled the New Chat "Send to" row,
+hid the chat composer for existing short-code threads, and stripped reactions /
+notification replies from them.
+
+- Split the dialability decision from the E.164-parse gate:
+  - `isDialableAddress` admits 3–15 digit numbers (short codes replyable).
+  - `isLikelyPhoneNumber` stays 4–15 digits so libphonenumber never tries to
+    parse a short code; `toE164` returns null and the address survives verbatim.
+- `AddressIdentity.isReplyable` now uses `isDialableAddress`.
+- Tests: `PhoneNumberUtilsTest.shortServiceCodesAreDialableButNotE164Parsed`,
+  `AddressIdentityTest.shortServiceCodesAreReplyable`.
+- Regression: `scripts/test-short-code-send.sh` — New Chat accepts 198, the
+  Send-to row is clickable, and the opened chat shows a composer. **4/0** on the
+  fixed build.
+
+## New Chat now focuses the search field and opens the keyboard on launch (2026-10-08)
+
+The New Chat screen opened with the search field unfocused, so the user had to
+ tap it before typing. It now requests focus in `LaunchedEffect(Unit)` and the
+TextField modifier wires a `FocusRequester`, bringing the keyboard up
+automatically.
+
+- `NewChatScreen.kt`: `remember { FocusRequester() }`,
+  `LaunchedEffect(Unit) { focusRequester.requestFocus() }`, and
+  `Modifier.focusRequester(focusRequester)` on the search `TextField`.
+- Test: `NewChatScreenFocusTest` (source-level wiring: requester, launch effect,
+  and modifier all present).
+- Regression: same `scripts/test-short-code-send.sh` asserts the EditText has
+  `focused="true"` immediately after opening New Chat.
+
 ## The "Advanced" label drifted: five sweep scripts could never open the screen (2026-10-08)
 
 The settings row is titled "Advanced settings", but `center_of`/`tap_text`
