@@ -5,6 +5,31 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Outgoing MMS migrated from android-smsmms to the :mms stack (2026-10-09)
+
+The vendored `android-smsmms` module (klinker/AOSP fork) is removed. The app
+now sends MMS through the `:mms` module: `SmsSupport.sendMms` -> `MmsSender`
+reads the attachment, `Mms.send` fits/builds/persists/composes, and
+`SystemMmsTransport` hands the PDU to the platform.
+
+- Removed `:android-smsmms` Gradle wiring, ProGuard keep rules, CodeQL
+  `paths-ignore`, `MmsComposer`, `MmsImageSizing` and their tests.
+- New `MmsSender` and `MmsPendingSends` link the platform's `tr_id` back to the
+  app message id so `SmsStatusReceiver` can settle the row.
+- `SmsStatusReceiver` listens for `SystemMmsTransport.ACTION_SEND_SENT`, moves
+  the provider row, deletes the PDU file by cache-relative name, and marks the
+  app message sent/failed.
+- `MmsFacade` shares one `CarrierProfileStore` per process and exposes the app
+  FileProvider authority + cache root to the transport.
+- `Repository.linkMmsRow` prevents the provider's sent copy from being imported
+  as a duplicate message.
+- `MmsSupport.outgoingKind` labels own media messages as MMS in the chat UI.
+- Tests: `MmsSenderTest`, `FileProviderWiringTest` (updated for :mms transport),
+  `MmsFacadeWiringTest` update, `MmsSupportTest` additions.
+- Regression: `scripts/test-mms-send.sh` updated for the new stack. Re-run
+  green: **9 PASS / 0 FAIL** on the migrated build. `./gradlew testDebugUnitTest`
+  green (712 tests).
+
 ## 3-digit service/short codes (198, 199) could not be sent (2026-10-08)
 
 `PhoneNumberUtils.isLikelyPhoneNumber` required 4–15 digits, so India's
