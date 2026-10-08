@@ -5,6 +5,29 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #300 follow-up: screen wake still failed with Privacy mode on (2026-10-09)
+
+The first #300 fix wired up the full-screen intent, but `shouldWake()` still
+required `!privacyMode`. The reporter's diagnostics showed Privacy mode was
+enabled, so the screen never woke even though every other link in the chain
+(permission, channel importance, keyguard) was healthy.
+
+- Privacy mode now hides content from screenshots/recordings; it no longer
+  blocks the screen-wake path. The full-screen-intent trampoline no longer
+  forwards to `MainActivity` (which would surface content over the keyguard);
+  it just turns the screen on and lets the heads-up notification show.
+- The trampoline also acquires a short `SCREEN_BRIGHT_WAKE_LOCK |
+  ACQUIRE_CAUSES_WAKEUP` to force the panel on for Samsung/OneUI devices where
+  `setTurnScreenOn` alone is not enough.
+- `MainActivity` gained a debug probe `--ez privacy_mode true|false` so the
+  regression script can drive the toggle without UI navigation.
+- Tests: `WakeOnLockTest.wakesInPrivacyMode` (was `neverWakesInPrivacyMode`);
+  `FullScreenIntentWiringTest.trampolineAcquiresAScreenWakeLock`.
+- Regression: `scripts/test-notification-wake.sh` now locks the device with
+  Privacy mode enabled, sends an SMS, and asserts the screen wakes. Verified
+  to **FAIL** when `shouldWake` is restored to require `!privacyMode`
+  (`13 passed, 1 failed`), then **PASS** with the fix (`14 passed, 0 failed`).
+
 ## 3-digit service/short codes (198, 199) could not be sent (2026-10-08)
 
 `PhoneNumberUtils.isLikelyPhoneNumber` required 4–15 digits, so India's

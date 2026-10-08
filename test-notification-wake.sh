@@ -167,6 +167,28 @@ else
     bad "FullScreenSmsActivity never launched"
 fi
 
+info "The screen also wakes when Privacy mode is on"
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --ez privacy_mode true >/dev/null 2>&1; sleep 2
+if lock_device; then
+    ok "device locked with Privacy mode enabled"
+else
+    bad "could not put the device to sleep with Privacy mode enabled"
+fi
+adb_ emu sms send "$FROM" "privacy $MARK" >/dev/null 2>&1
+WOKE_PRIVACY=no
+for _ in $(seq 20); do
+    if [ "$(wakefulness)" != "Asleep" ]; then WOKE_PRIVACY=yes; break; fi
+    sleep 1
+done
+if [ "$WOKE_PRIVACY" = yes ]; then
+    ok "screen woke with Privacy mode enabled"
+else
+    bad "screen stayed asleep with Privacy mode enabled"
+fi
+wake_device >/dev/null 2>&1
+adb_ shell am start -n "$ACT" --ez privacy_mode false >/dev/null 2>&1; sleep 2
+
 info "Diagnostics attributes a dark screen to the app or the device"
 wake_device >/dev/null 2>&1
 unlock_device
