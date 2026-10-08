@@ -1,23 +1,37 @@
 #!/usr/bin/env bash
 # Issue #284: opening a thread from the home search must land on the hit, and
-# scrolling afterwards must not drag the view back to it.
+# scrolling afterwards must not drag the view back to it. A second thread also
+# covers the pager jumping to the top of history while the newest hit is the
+# one on screen.
 #
 # The chat kept snapping up to the search result while the user scrolled down.
 # The scroll effect was keyed on the hit's row *index*, and the chat pager
 # prepends older messages in 40-message chunks, so every chunk load shifted the
 # index and re-fired scrollToItem. The seed below is longer than one chunk for
 # exactly that reason.
+#
+# The jump-to-top case is the same defect from the other side: searchWantsOlder
+# keyed on the *oldest* match, so one ancient hit anywhere in the thread made the
+# pager walk the whole history in 200-row steps while the view sat on the newest
+# hit, which is already loaded. A 200-row prepend also pushes the first visible
+# row out of the window LazyColumn anchors on, so the position is lost.
 source "$(dirname "$0")/env.sh"
 
 NAME="ScrollJumpTest"
 NUM="+15558808801"
 KW="scrolljump$(date +%s)"
-TOTAL=120
-# Inside the newest INITIAL_CHUNK (messages 81..120) but near its older edge, so
+TOTAL=400
+# Inside the newest INITIAL_CHUNK (messages 361..400) but near its older edge, so
 # the hit is present the moment the chat opens and scrolling down moves past it.
 # A hit older than one chunk would instead be found late by the pager, which is
 # a different behaviour from the snap-back under test.
-HIT=$((TOTAL - 35))
+HIT=$((TOTAL - 15))
+# An old hit in the same thread, well outside the newest chunk, so opening the
+# chat has both a loaded hit to sit on and an unloaded one to be tempted by.
+# TOTAL is deliberately above LOAD_EARLIER_STEP (200): with a shorter thread the
+# whole history lands in one prepend and the anchor is never lost, so the
+# jump-to-top defect does not reproduce.
+OLD_HIT=3
 TS=$(( $(date +%s) * 1000 ))
 PASS=0; FAIL=0
 ok()  { echo "[PASS] $1"; PASS=$((PASS + 1)); }
@@ -50,18 +64,28 @@ hit_on_screen() {
     grep -qF "the $KW lives here" "$TMP/ui.decoded.xml"
 }
 
-info "Seed a $TOTAL-message thread whose only keyword hit is message $HIT"
+info "Seed a $TOTAL-message thread with a keyword hit at $HIT and an old one at $OLD_HIT"
 cleanup
 sql "INSERT INTO conversations(address,name,snippet,timestamp,last_is_me) VALUES('$NUM','$NAME','tail',$TS,0);" >/dev/null
 for i in $(seq 1 $TOTAL); do
-    if [ "$i" -eq "$HIT" ]; then body="the $KW lives here"; else body="filler $i"; fi
+    if [ "$i" -eq "$HIT" ]; then body="the $KW lives here"
+    elif [ "$i" -eq "$OLD_HIT" ]; then body="older $KW note"
+    else body="filler $i"; fi
     sql "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,media_type) SELECT id,'$body',$((TS + i * 60000)),0,'received','text' FROM conversations WHERE address='$NUM';" >/dev/null
 done
 
 info "Search the keyword and open the thread"
-adb_ shell am force-stop "$PKG"; sleep 1
-adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 5
-if ! tap_text "Search" >/dev/null 2>&1; then bad "no Search button"; exit 1; fi
+# Retry the cold start: right after an install the first launch can restore a
+# saved route (New conversation) or still be running the startup sync, so a
+# single tap misses the Search button. Same retry as the other UI sequences.
+FOUND=""
+for _ in 1 2 3; do
+    adb_ shell am force-stop "$PKG"; sleep 1
+    adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 5
+    if tap_text "Search" >/dev/null 2>&1; then FOUND=1; break; fi
+    adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 2
+done
+if [ -z "$FOUND" ]; then bad "no Search button"; exit 1; fi
 sleep 1
 type_text "$KW" >/dev/null 2>&1; sleep 3
 if ! ui_has "$NAME"; then bad "thread not found by its buried keyword"; exit 1; fi
@@ -73,6 +97,22 @@ sleep 5
 
 if hit_on_screen; then ok "chat opened on the matching message ($(visible_range))"
 else bad "chat did not open on the matching message"; exit 1; fi
+
+# The jump lands a fraction of a second after the chat opens, so a single
+# early dump passes on broken code. Watch it settle instead: the oldest filler
+# index must stay near the hit, not climb toward the top of the thread.
+STABLE=1
+for i in 1 2 3 4 5 6; do
+    sleep 1
+    R=$(visible_range)
+    LOW=${R%%-*}
+    if [ "$LOW" != "-" ] && [ "$LOW" -lt $((HIT - 8)) ]; then
+        bad "view jumped up to the top of history after $((i))s (first visible $LOW, hit is $HIT)"
+        STABLE=1; break
+    fi
+done
+[ "$STABLE" = "1" ] && [ "$LOW" != "-" ] && [ "$LOW" -lt $((HIT - 8)) ] || \
+    ok "view stayed on the newest hit while the pager settled ($(visible_range))"
 adb_ shell input keyevent 4; sleep 2   # hide the IME so swipes reach the list
 if dump_ui >/dev/null 2>&1 && grep -q 'content-desc="[^"]*Search result"' "$TMP/ui.decoded.xml"; then
     ok "matching message marked as the search result"

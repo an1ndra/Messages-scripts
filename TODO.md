@@ -370,6 +370,81 @@ rejected. The final design:
   flat-outer design, then **6/2 FAIL** on the flat-both SINGLE design (only
   the two SINGLE assertions failing), then **8/8** after each fix.
 
+## Issue #284 second follow-up: number search is a contact search, and the jump to the top (2026-10-08)
+
+Reporter filed a second patch from a Claude session (`issue-284-number-search-and-chat-scroll.patch`,
+written against `ac8ffdb`, never compiled or run where it was written). Four of the five
+items shipped; the scroll-to-latest button was declined.
+
+- **A number query is now a contact query and nothing else.** `ConversationList.filter`
+  splits on `AddressIdentity.isNumberQuery` (digits plus `+ - ( ) .` and spaces). A
+  number query matches addresses only — not `name`, not `snippet`, not
+  `messageMatchIds`. That is what stops every chat that merely *mentions* a number
+  from being listed, and it also drops the `snippet.contains` path that let a digit
+  inside a sender name or a snippet match a number query. `rememberMessageMatchIds`
+  bails before the debounce for a number query, so the `LIKE` scan over every message
+  body never runs, and it clears `HeldMessageMatches` too or a previous text query's
+  ids survive into the number query.
+- **`X1 INFO`-style sender IDs no longer flicker per keystroke.** The old
+  `matchesNumber` stripped the address to digits, so `X1-SRB` became `"1"` and
+  `q.endsWith(a)` was true for every query ending in `1` — present for `101`, gone for
+  `1010`, back for `10101`. An address containing a letter is now rejected outright,
+  the same rule `samePerson` already used. `AddressIdentityTest` had a comment
+  declaring `matchesNumber("ABC123", "123")` true and "harmless"; that is now false
+  and asserted false.
+- **A contact is found from the first digits.** A suffix test cannot succeed until
+  the query is nearly complete, so containment replaced it — compared against the
+  E.164 digits and two national spellings (trunk zero kept, and stripped), which is
+  what a contact is actually typed as. The last-seven `compareDigits` rule stays as
+  the final fallback. New `PhoneNumberUtils.nationalDigits` derives the national run
+  via libphonenumber and is cached on the canonical E.164, so it is one `format` per
+  unique number rather than one per keystroke.
+- **One and two digits leave the list unfiltered.** Both the number-match and the
+  message-search paths reject a query under `MIN_SEARCH_DIGITS`, so a query in that
+  window used to match nothing and blanked the list mid-typing. New
+  `AddressIdentity.tooShortToBeNumber`, checked *before* the number-query branch —
+  that ordering is load-bearing and was wrong on the first attempt.
+- **Opening a search result no longer jumps to the top of the history.**
+  `searchWantsOlder` keyed on `searchMatches.first()`, the *oldest* match, so one
+  ancient hit anywhere in the thread made the pager walk the whole history in
+  `LOAD_EARLIER_STEP` (200) jumps while the view sat on the newest hit, which was
+  already loaded. It now follows `focusedSearchId`, which is already
+  `focusedOverrideId ?: searchMatches.lastOrNull()` — so previous/next still pages an
+  older match in on demand.
+- **`MainActivity.handoffSearchQuery`** nulls a number query before it reaches
+  `chatSearchQuery`, so opening a contact neither scrolls to nor highlights a message.
+  Both conversation lists needed no change; they pass the raw query through and this
+  decides once for both.
+
+Deliberately **not** shipped, and stated as such in the #284 reply:
+
+- **No scroll-to-latest button.** A missing feature rather than a defect: permanent
+  clutter above the composer, in every chat, to work around a bug the paging fix
+  removes. Revisit if asked.
+- **No message search for number queries.** A code inside a message (an OTP) is no
+  longer findable from the home search. In-thread search already covers the whole
+  conversation, so it is the better tool for that job anyway.
+
+Tests: `AddressIdentityTest` (+6, incl. the `101`/`1010`/`10101`/`101010` table and
+the trunk-zero/leading-zero national forms), `ConversationListTest` (+3),
+`test-number-search.sh` (new, 13 checks), `test-chat-search-scroll.sh` (extended:
+seed grown past `LOAD_EARLIER_STEP` with an old hit so the jump actually reproduces).
+
+Two traps worth keeping, both paid for in real time here:
+
+- **The scroll seed must exceed `LOAD_EARLIER_STEP`.** At 120 messages the whole
+  history lands in a single prepend, the anchor is never lost, and the script passed
+  against reverted code — a green run proving nothing. 400 messages makes the pager
+  take the 200-row steps that break `LazyColumn`'s bounded-window key anchoring.
+- **A body match can mask a broken address match.** Check 2 (partial number finds the
+  contact) passed against reverted code once the seed also carried the number inside
+  a message body, because `messageMatchIds` surfaced the row on its own. The seed is
+  now two-phase: check 2 runs clean, then `seed_self_number` adds the body hit that
+  check 4 needs in order to be discriminating.
+
+Unrelated and pre-existing: `test-alphanumeric-sender.sh` check 1 ("alphanumeric
+notification wrongly offers a Reply action") fails identically on stock `HEAD`.
+
 ## Issue #284 follow-up: contact number, flicker, and the scroll snap-back (2026-10-07)
 
 Three of the four items left open in the #284 thread. Both conversation lists
