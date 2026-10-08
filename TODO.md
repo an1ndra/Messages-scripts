@@ -661,17 +661,45 @@ local emoji reaction. The data layer already existed (`messages.reactions`,
 - Reactions are local-only, but each add/remove also sends a readable SMS
   fallback (`Reacted 👍 to <snippet>` / `Removed 👍 from <snippet>`) through
   `SmsSender.sendRaw`, which stores no row so it never appears as our own bubble.
-- The fallback is an app-to-app protocol (#188): a receiving install parses
-  `Reacted`/`Removed` (`data/ReactionFallback.kt`, quote-free and English so both
-  ends always agree, with a non-ASCII guard so a real sentence is not mistaken
-  for one) and applies the emoji to the referenced message instead of showing a
-  bubble. Without the app the recipient just reads the text.
+- The notice is **send-only**: `ReactionFallback` builds the text and nothing
+  parses it, so on the receiving install it arrives as an ordinary message
+  bubble (`Reacted 👍 to <snippet>`). `36f1adf` had made it a protocol that
+  applied the emoji to the referenced message; that was reverted at the user's
+  request — the text reads as a message again. Wording kept as-is (English,
+  quote-free, so a recipient without the app understands it and a plain
+  `sms send` can carry it).
 - A locked/concealed message is not reacted to (the fallback would leak its body),
   and the picker is not offered where a message cannot be sent (alphanumeric
   sender IDs, blocked numbers).
 
 Tests: `MessageReactionsTest` (toggle, preserve imported counts, order, quote,
-and the locked-message gate); `test-message-reactions.sh` (5/5).
+and the locked-message gate); `ReactionFallbackTest` (wording, one SMS segment,
+60-char cap); `test-message-reactions.sh` (5/5); `test-reaction-roundtrip.sh`
+(5/5 — asserts the notice IS stored as a message and the referenced message
+carries no reaction); `test-reaction-cases.sh` (9/9).
+
+Verified to **fail** on the pre-revert build (reverted, rebuilt, reinstalled)
+before passing: the roundtrip script reported `reaction was applied to the
+referenced message (':1')`.
+
+## Short codes: cannot message "198" (2026-10-08) — OPEN
+
+`isLikelyPhoneNumber` requires 4–15 digits, so a 3-digit short code fails
+`isReplyable` → `isPhoneNumber` → the composer is never composed and the chat
+renders `AlphanumericNotice` instead ("You cannot send messages to alphanumeric
+senders like 198"). `NewChatScreen` gates the same way, so the thread cannot
+even be started from search.
+
+Planned fix: split the two questions the single predicate answers. Keep
+`isLikelyPhoneNumber` (4–15) gating `toE164`/`displayFor`/`nationalDigits`, so
+parse cost and E.164 behaviour are unchanged, and add `isDialableAddress` (no
+letters, 3–15 digits) for `AddressIdentity.isReplyable` only. Identity must not
+move: short codes have no E.164, so `canonical("198")` has to stay `"198"` or
+threads split. The same predicate gates the notification actions (`MainActivity`
+394/479/504/559/789), which unblock for free.
+
+Open question for the user: whether 1–2 digit addresses should also become
+sendable (plan keeps the floor at 3).
 
 `env.sh` matching fixes found here: `dump_ui` now deletes the remote dump,
 confirms it succeeded and retries (a segfault left a stale file that read as the
