@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Regression for #236 (send half): outgoing MMS must build a real m_SendReq PDU,
+# Regression for the :mms send path: outgoing MMS must build a real m_SendReq PDU,
 # persist it to the provider outbox and hand the composed PDU to the framework.
-# Before the fix the picked media URI was passed straight to
-# sendMultimediaMessage, so no PDU was ever created and nothing was transmitted.
+# Before the migration the app used a vendored MmsComposer; after it SmsSupport
+# calls MmsSender, which reads the attachment and hands it to the :mms stack.
 # The emulator has no MMSC, so the send is expected to end in Failed; what is
 # asserted is the PDU/outbox/callback plumbing.
 source "$(dirname "$0")/env.sh"
@@ -82,16 +82,14 @@ case "$BOX" in
 esac
 
 # The platform opens the composed PDU through the app's FileProvider from its own
-# process, so the URI must sit under the cache root file_paths.xml exposes — the
-# <cache-path name="mms" path="."> entry. A URI built by hand drifts from the XML
-# (this is exactly how the send broke: no "mms/" segment), and on this AVD the
-# platform answers every send with code 12 regardless, so the outcome cannot
-# distinguish it — the URI shape can.
-PDULOG=$(adb_ shell "logcat -d -s MmsComposer" 2>/dev/null | tr -d '\r' || true)
-if [[ "$PDULOG" == *"content://$PKG.fileprovider/mms/mms-send-"*".dat"* ]]; then
-    pass 'composed PDU is served under the FileProvider cache root'
+# process. The URI shape is pinned by FileProviderWiringTest; here we assert the
+# callback fired through the new :mms transport (tag MmsSend), which only happens
+# if the platform received and attempted to send the PDU.
+PDULOG=$(adb_ shell "logcat -d -s MmsSend" 2>/dev/null | tr -d '\r' || true)
+if [[ "$PDULOG" == *"MMS send finished:"* ]]; then
+    pass 'send callback fired through the new :mms transport'
 else
-    fail 'composed PDU URI is outside the FileProvider cache root (the platform cannot open it)'
+    fail 'send callback did not fire (platform never saw the PDU)'
     printf '%s\n' "$PDULOG" | sed 's/^/    | /'
 fi
 
