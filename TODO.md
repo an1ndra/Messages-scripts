@@ -28,6 +28,37 @@ enabled, so the screen never woke even though every other link in the chain
   to **FAIL** when `shouldWake` is restored to require `!privacyMode`
   (`13 passed, 1 failed`), then **PASS** with the fix (`14 passed, 0 failed`).
 
+## Dependency bump sweep (2026-10-09)
+
+Bumped all open Dependabot PRs and verified the integration points still work:
+
+| Dependency | From | To | Where changed |
+|---|---|---|---|
+| `actions/cache` | v4 | v6.1.0 | `.github/workflows/pr-build.yml` |
+| `github/codeql-action/*` | v4.37.9 | v4.38.2 | `.github/workflows/security.yml` (init, analyze, upload-sarif ×2) |
+| `androidx.core:core-ktx` | 1.16.0 | **held at 1.16.0** | `gradle/libs.versions.toml` — 1.19.x requires `compileSdk 37+`, which breaks F-Droid |
+| `androidx.fragment:fragment-ktx` | 1.6.2 | 1.9.1 | `app/build.gradle.kts` |
+| `io.coil-kt.coil3:coil-compose` | 3.3.0 | **held at 3.3.0** | `gradle/libs.versions.toml` — 3.6.x requires `compileSdk 37+`, which breaks F-Droid |
+| `com.googlecode.libphonenumber:libphonenumber` | 8.13.55 | 9.0.40 | `gradle/libs.versions.toml` |
+| `org.json:json` | 20240303 | 20260814 | `app/build.gradle.kts` (test-only) |
+| Gradle wrapper | 9.6.0 | 9.8.0 | `gradle/wrapper/gradle-wrapper.properties` |
+
+- `DependencyApiSmokeTest` pins the JVM-visible APIs: libphonenumber
+  parse/format/display, `org.json` round-trip, and class availability for
+  Coil3, `androidx.core` NotificationCompat and `androidx.fragment`
+  FragmentActivity.
+- Regression: `scripts/test-dependency-bump.sh` builds, installs, cold-launches,
+  checks New Chat number normalization (libphonenumber), incoming-SMS
+  notification posting (`androidx.core`), and the App lock settings row
+  (`androidx.fragment`). **8 passed, 0 failed** on `emulator-5554`.
+- F-Droid build verified with `gradlew-fdroid assembleRelease`: Gradle 9.8.0
+  was downloaded from the transparency log and the release APK built cleanly,
+  keeping `compileSdkVersion='36'` and `compileSdkVersionCodename='16'`.
+- Full `./gradlew testDebugUnitTest` stays green.
+- `.github/dependabot.yml` now ignores minor/major updates for
+  `androidx.core:core-ktx` and `io.coil-kt.coil3:coil-compose` until the
+  project is ready for `compileSdk 37+`.
+
 ## 3-digit service/short codes (198, 199) could not be sent (2026-10-08)
 
 `PhoneNumberUtils.isLikelyPhoneNumber` required 4–15 digits, so India's
