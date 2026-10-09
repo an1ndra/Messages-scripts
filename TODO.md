@@ -35,7 +35,7 @@ named feature, and the README mirrors all 8:
 
 | Issue | Feature | JUnit | Regression script |
 |---|---|---|---|
-| #304 | App appears in SMS/text share sheets and accepts shared body | `ManifestShareIntentFilterTest` | `test-share-intent-filters.sh` |
+| #304 | App appears in SMS/text/image share sheets and accepts shared body/image | `ManifestShareIntentFilterTest` | `test-share-intent-filters.sh` |
 
 Other apps (bank payment receipts, share-to-SMS) could not hand a message to us
 because `MainActivity` only declared `SENDTO` for the `smsto:` scheme and had no
@@ -54,6 +54,73 @@ because `MainActivity` only declared `SENDTO` for the `smsto:` scheme and had no
 - Verified to **FAIL** on the unfixed build (`1 passed, 4 failed` — `SENDTO sms`,
   `ACTION_SEND text/plain`, and both UI paths missing) and **PASS** with the fix
   (`5 passed, 0 failed`).
+
+### Follow-up: image sharing (same issue)
+
+The reporter came back with "on image share I can't see our message app". The
+text fix had added `ACTION_SEND` for `text/plain` only, so a photo's share sheet
+— which sends `image/*` — still did not offer the app at all. Fixing the text
+case alone left the more common share path broken.
+
+- `ACTION_SEND` now also answers for `image/*`, and a new
+  `ACTION_SEND_MULTIPLE` filter covers a multi-photo selection (Gallery shares
+  those as a list, which `EXTRA_STREAM` as a single Uri would miss).
+- `sharedMediaFromIntent` reads `EXTRA_STREAM` in both its single-Uri
+  (`ACTION_SEND`) and list (`ACTION_SEND_MULTIPLE`) forms, falling back to
+  `clipData` for senders that use that instead.
+- **The incoming URI is copied into the app's cache before anything else.** The
+  grant a share intent carries is scoped to the *task*, so it dies with the
+  activity — and the share flow necessarily outlives it, because the user still
+  has to pick a recipient. Reading the caller's URI at send time would fail
+  intermittently with no obvious cause. The copy is what travels on, which the
+  script asserts via the stored `media_uri` containing `/shared/`. The copy also
+  keeps a file extension, so the URI still resolves to a MIME type (see below).
+- Shared text accompanying a shared image is that image's caption, not a second
+  message, so it is sent with the MMS (`sendMediaMessage` gained a `caption`
+  parameter) and never also left sitting in the composer. Text and media are
+  read from one `LaunchedEffect` so the two cannot disagree about which case
+  they are.
+- Tests: `ManifestShareIntentFilterTest` +2 (`image/*` under `SEND`,
+  `image/*` under `SEND_MULTIPLE`).
+- Regression: `test-share-intent-filters.sh` extended with the two filter
+  queries, the recipientless-image picker check, and an end-to-end send
+  asserted from the database *and* from the rendered bubble. Verified the honest
+  way — removing only the two image filters, rebuilding and reinstalling — it
+  reports **5 passed, 4 failed**; restored, **12 passed, 0 failed**. The
+  extension assertion was likewise confirmed by reverting just
+  `sharedExtension()` in place (**11 passed, 1 failed**).
+
+  Two traps here, both paid for in a debugging round:
+
+  1. **The delivered status is not observable here.** The carrier config has no
+     MMS keys, so every send is answered with code 12 and the row lands as
+     `failed`. Asserting delivery status would be a permanent false failure;
+     the stored row is the signal. This is the same trap as `test-mms-send.sh`.
+  2. **`tap_text "Send to"` never matches.** The New Chat row label is
+     `Send to “<number>”` with curly quotes, so an exact-text match misses and
+     `center_of_contains` chokes on the quote bytes. The script parses the node
+     and taps the enclosing bounds itself.
+  3. **A hand-rolled test JPEG is not an image test.** The first fixture was a
+     few hand-written bytes ending in an FFD9 marker. Coil could not decode it,
+     so the bubble was empty — which read exactly like the extension bug below
+     and cost a wrong diagnosis. The fixture is now a real 400x400 PNG encoded
+     with `zlib`/`struct` at generation time. A tiny-but-valid image would fail
+     the same way: below the bubble's practical size the node never appears.
+
+### The cached copy kept no file extension
+
+Independently of the above, the cache copy was named `share-<ts>-<rand>` with no
+extension. `FileProvider` derives a MIME type from the file name, so the stored
+URI resolved to no type at all. Coil happened to sniff the bytes and still
+render, so this is **not** what made the bubble look empty — but it left the
+MMS part's MIME to be guessed downstream rather than declared, which is exactly
+the kind of thing that bites on a codec that does not sniff.
+
+`sharedExtension()` takes the extension from the source URI's own path segment
+where it is a plausible one, and otherwise from the resolved MIME type
+(png/webp/heic/gif, defaulting to `.jpg` as the app already does for an untyped
+attachment). The script asserts the stored `media_uri` ends in a real image
+extension, which fails against the extensionless name.
 
 ## #300 follow-up: screen wake still failed with Privacy mode on (2026-10-09)
 

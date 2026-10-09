@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Regression for issue #304: app must appear in SMS/text share sheets from
-# other apps and must accept the shared body into the composer.
+# Regression for issue #304: app must appear in SMS/text/image share sheets from
+# other apps, accept a shared body into the composer, and send a shared image
+# once a recipient is picked.
 source "$(dirname "$0")/env.sh"
 
 PASS=0; FAIL=0
@@ -10,8 +11,64 @@ bad() { echo "[FAIL] $1"; FAIL=$((FAIL + 1)); }
 MARKER1="ShareBodyTest$$"
 MARKER2="PlainTextShare$$"
 
+# A real, decodable 400x400 PNG generated on the fly. It has to be a genuine
+# image at a realistic size: a hand-rolled few-byte "JPEG" cannot be decoded by
+# Coil at all, and a tiny one renders sub-threshold — either would make the
+# bubble assertion pass or fail for a reason unrelated to the share path.
+SHARED_IMG="$TMP/share-source.png"
+python3 - "$SHARED_IMG" <<'PY'
+import struct, sys, zlib
+
+w = h = 400
+raw = b"".join(
+    b"\x00" + bytes(v for x in range(w) for v in ((x * 255) // w, 90, 200 - (x * 90) // w))
+    for _ in range(h)
+)
+
+def chunk(tag, data):
+    body = tag + data
+    return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+png = (
+    b"\x89PNG\r\n\x1a\n"
+    + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+    + chunk(b"IDAT", zlib.compress(raw, 6))
+    + chunk(b"IEND", b"")
+)
+open(sys.argv[1], "wb").write(png)
+PY
+
 query_has_main() {
     adb_ shell cmd package query-activities "$@" 2>/dev/null | grep -qF "name=$PKG.MainActivity"
+}
+
+dbq() { printf '%s' "$1" | adb_ shell "run-as $PKG sqlite3 databases/messages.db" 2>/dev/null | tr -d '\r'; }
+
+# Taps the "Send to …" row on the New Chat screen. Its label carries curly
+# quotes around the typed number, so match the stable prefix and tap the
+# enclosing clickable node's centre — the text node's own bounds sit above the
+# touch target.
+tap_share_row() {
+    local c
+    dump_ui || return 1
+    c=$(python3 - "$TMP/ui.xml" <<'PY'
+import re, sys
+xml = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+for m in re.finditer(r'<node[^>]*>', xml):
+    node = m.group(0)
+    if 'Send to' not in node:
+        continue
+    b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+    if not b:
+        continue
+    x1, y1, x2, y2 = (int(g) for g in b.groups())
+    print((x1 + x2) // 2, (y1 + y2) // 2)
+    break
+PY
+    ) || return 1
+    [ -n "$c" ] || return 1
+    adb_ shell input tap $c
+    echo "[tap] 'Send to' at ($c)"
 }
 
 unlock_device() {
@@ -51,6 +108,20 @@ else
     bad "ACTION_SEND text/plain does not resolve to MainActivity"
 fi
 
+# A shared image becomes an outgoing MMS, so the app has to answer for
+# image/* or it is missing from a photo's share sheet entirely.
+if query_has_main -a android.intent.action.SEND -t "image/jpeg"; then
+    ok "ACTION_SEND image/jpeg resolves to MainActivity"
+else
+    bad "ACTION_SEND image/jpeg does not resolve to MainActivity"
+fi
+
+if query_has_main -a android.intent.action.SEND_MULTIPLE -t "image/jpeg"; then
+    ok "ACTION_SEND_MULTIPLE image/jpeg resolves to MainActivity"
+else
+    bad "ACTION_SEND_MULTIPLE image/jpeg does not resolve to MainActivity"
+fi
+
 info "SENDTO with recipient + body opens the target chat with body pre-filled"
 adb_ shell am start -a android.intent.action.SENDTO \
     -d "smsto:+15551230000?body=$MARKER1" \
@@ -76,6 +147,82 @@ if grep -qF "Enter name or phone number" "$TMP/ui.decoded.xml" 2>/dev/null || \
 else
     bad "ACTION_SEND did not open the contact picker"
 fi
+cleanup; sleep 1
+
+info "ACTION_SEND image/* with no recipient asks who to send it to"
+adb_ push "$SHARED_IMG" /sdcard/share-intent-test.png >/dev/null 2>&1
+SHARED_URI="file:///sdcard/share-intent-test.png"
+adb_ shell am start -a android.intent.action.SEND -t "image/png" \
+    --eu android.intent.extra.STREAM "$SHARED_URI" \
+    "$PKG" >/dev/null 2>&1
+sleep 3
+dump_ui >/dev/null 2>&1 || true
+if grep -qF "Enter name or phone number" "$TMP/ui.decoded.xml" 2>/dev/null || \
+   grep -qF "New conversation" "$TMP/ui.decoded.xml" 2>/dev/null; then
+    ok "shared image with no recipient opens the contact picker"
+else
+    bad "shared image did not open the contact picker"
+fi
+cleanup; sleep 1
+
+info "Picking a recipient sends the shared image into that chat"
+IMAGE_ADDR="+15551238877"
+adb_ shell am start -a android.intent.action.SEND -t "image/png" \
+    --eu android.intent.extra.STREAM "$SHARED_URI" \
+    "$PKG" >/dev/null 2>&1
+sleep 3
+tap_edittext >/dev/null 2>&1 || true
+type_text "$IMAGE_ADDR" >/dev/null 2>&1 || true
+sleep 1.5
+# The row label is 'Send to “<number>”' with curly quotes, so match on its
+# stable prefix and tap the clickable ancestor rather than the text node.
+if ! tap_share_row; then
+    bad "could not reach the 'Send to' row for the shared image"
+else
+    sleep 4
+    # The MMS hand-off cannot succeed on this AVD (the carrier config has no
+    # MMS keys), so the stored row is the signal, not the delivery status.
+    ROW=$(dbq "select count(*) from messages m join conversations c
+        on c.id=m.conversation_id
+        where c.address='$IMAGE_ADDR' and m.media_type='image';")
+    [ "${ROW:-0}" -gt 0 ] \
+        && ok "shared image stored in the picked chat" \
+        || bad "shared image never reached the picked chat"
+    CACHED=$(dbq "select count(*) from messages where media_type='image'
+        and media_uri like '%/shared/%';")
+    [ "${CACHED:-0}" -gt 0 ] \
+        && ok "shared image was copied into app storage before use" \
+        || bad "shared image was read straight from the caller's URI"
+
+    # The stored URI is handed to Coil, which asks the resolver for a MIME type
+    # and FileProvider derives that from the file name. An extensionless copy
+    # resolves no type, which downstream consumers (the MMS part's MIME, any
+    # strict decoder) then have to guess at.
+    EXT=$(dbq "select media_uri from messages where media_type='image'
+        and media_uri like '%/shared/%' order by id desc limit 1;")
+    case "$EXT" in
+        *.png|*.jpg|*.jpeg|*.webp|*.heic|*.gif)
+            ok "cached copy keeps an image extension ($EXT)" ;;
+        *)
+            bad "cached copy has no image extension, Coil cannot decode it: $EXT" ;;
+    esac
+
+    # The end of the chain: the bubble is actually on screen. Coil loads
+    # asynchronously, so poll rather than reading a single dump.
+    SHOWN=0
+    for i in 1 2 3 4 5 6; do
+        dump_ui >/dev/null 2>&1 || { sleep 1; continue; }
+        grep -q 'content-desc="Photo"' "$TMP/ui.decoded.xml" && { SHOWN=1; break; }
+        sleep 1
+    done
+    [ "$SHOWN" = "1" ] && ok "shared image renders as a bubble in the chat" \
+        || bad "shared image stored but no image bubble rendered"
+fi
+adb_ shell "run-as $PKG sqlite3 databases/messages.db \"delete from messages
+    where conversation_id in (select id from conversations
+    where address='$IMAGE_ADDR'); delete from conversations
+    where address='$IMAGE_ADDR';\"" >/dev/null 2>&1
+adb_ shell rm -f /sdcard/share-intent-test.jpg >/dev/null 2>&1
 
 echo ""
 info "Results: $PASS passed, $FAIL failed"
