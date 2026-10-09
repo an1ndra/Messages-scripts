@@ -5,6 +5,56 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## F-Droid screenshots trimmed to 8 feature shots (2026-10-09)
+
+`take-fdroid-screenshots.sh` captured 15 shots (12 light + 3 dark) and the
+README mirrored 8 of them. The set is now **8 light-mode shots**, each on a
+named feature, and the README mirrors all 8:
+
+| # | Shot | Screen |
+|---|---|---|
+| 01 | `01-home.png` | Conversation list |
+| 02 | `02-settings.png` | Settings |
+| 03 | `03-chat.png` | Chat thread (Dad) |
+| 04 | `04-contact.png` | Contact details |
+| 05 | `05-reaction.png` | Long-press reaction picker |
+| 06 | `06-typing.png` | Composer with a draft |
+| 07 | `07-sim-switcher.png` | Chat menu with fake dual-SIM rows |
+| 08 | `08-new-chat.png` | New conversation / contact picker |
+
+- The script empties `fastlane/.../phoneScreenshots` first, so the 15 old files
+  are gone and only the 8 remain.
+- Two matcher fixes were needed: `verify`/`verify_any` now read the decoded dump
+  (`ui.decoded.xml`), because uiautomator escapes 👍 as `&#128077;` and the
+  literal never matched; the typed draft had a transposed word ("On smy way").
+- `README.md` now points at the 8 files, in two 4-up rows.
+- Data comes from `insert-demo-contacts.sh` + `seed-demo-conversations.sh`
+  (dummy contacts). Run passes 8/8 checks on `emulator-5554`.
+
+## #304 App not shown in share intents from other apps (2026-10-09)
+
+| Issue | Feature | JUnit | Regression script |
+|---|---|---|---|
+| #304 | App appears in SMS/text share sheets and accepts shared body | `ManifestShareIntentFilterTest` | `test-share-intent-filters.sh` |
+
+Other apps (bank payment receipts, share-to-SMS) could not hand a message to us
+because `MainActivity` only declared `SENDTO` for the `smsto:` scheme and had no
+`ACTION_SEND` filter at all.
+
+- **Manifest** now declares `SENDTO` for `sms`, `smsto`, `mms`, `mmsto` and a
+  separate `ACTION_SEND` filter for `text/plain`, so the platform offers the app
+  in both URI-based and MIME-based share sheets.
+- **Intent handling** extracts the shared body from the `?body=` query on an
+  SMS URI or from `Intent.EXTRA_TEXT` on an `ACTION_SEND`, then pre-fills the
+  chat composer. A `SENDTO` with a recipient opens that chat directly; an
+  `ACTION_SEND` without a recipient opens the New Chat picker and carries the
+  body through once a contact is chosen.
+- `ChatScreen` gained `initialDraft` + `onInitialDraftConsumed` so the shared
+  text is applied once and consumed, preventing it from leaking into later chats.
+- Verified to **FAIL** on the unfixed build (`1 passed, 4 failed` — `SENDTO sms`,
+  `ACTION_SEND text/plain`, and both UI paths missing) and **PASS** with the fix
+  (`5 passed, 0 failed`).
+
 ## #300 follow-up: screen wake still failed with Privacy mode on (2026-10-09)
 
 The first #300 fix wired up the full-screen intent, but `shouldWake()` still
