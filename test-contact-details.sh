@@ -85,5 +85,29 @@ else
     fail 'details screen hides the phone number for a saved contact'
 fi
 
+# The participant row only repeated what is already above it, so it is
+# commented out. The "N other person" count and Add people must remain.
+if grep -qE 'text="(1 other person|[0-9]+ other people)"' "$TMP/ui.xml"; then
+    pass 'participant count row still shown'
+else
+    fail 'participant count row disappeared'
+fi
+if grep -q 'text="Add people"' "$TMP/ui.xml"; then
+    pass 'Add people affordance still shown'
+else
+    fail 'Add people affordance disappeared'
+fi
+
+# Add people must open the in-app picker. It used to launch the system
+# "create new contact" activity instead, which is a different thing entirely.
+c=$(center_of "Add people") || c=""
+[ -n "$c" ] && adb_ shell input tap $c; sleep 2
+dump_ui >/dev/null 2>&1
+if grep -q 'text="Create group"' "$TMP/ui.xml"; then
+    pass 'Add people opens the in-app picker'
+else
+    fail 'Add people did not open the in-app picker'
+fi
+
 printf 'PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 exit $((FAIL > 0))
