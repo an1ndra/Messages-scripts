@@ -35,7 +35,7 @@ named feature, and the README mirrors all 8:
 
 | Issue | Feature | JUnit | Regression script |
 |---|---|---|---|
-| #304 | App appears in SMS/text/image share sheets and accepts shared body/image | `ManifestShareIntentFilterTest` | `test-share-intent-filters.sh` |
+| #304 | App appears in SMS/text/image share sheets; accepts shared body/image; tapping an image opens a full-screen preview | `ManifestShareIntentFilterTest`, `ImagePreviewWiringTest` | `test-share-intent-filters.sh` |
 
 Other apps (bank payment receipts, share-to-SMS) could not hand a message to us
 because `MainActivity` only declared `SENDTO` for the `smsto:` scheme and had no
@@ -88,7 +88,8 @@ case alone left the more common share path broken.
   way — removing only the two image filters, rebuilding and reinstalling — it
   reports **5 passed, 4 failed**; restored, **12 passed, 0 failed**. The
   extension assertion was likewise confirmed by reverting just
-  `sharedExtension()` in place (**11 passed, 1 failed**).
+  `sharedExtension()` in place (**11 passed, 1 failed**). Final state is
+  **14 passed, 0 failed**.
 
   Two traps here, both paid for in a debugging round:
 
@@ -121,6 +122,59 @@ where it is a plausible one, and otherwise from the resolved MIME type
 (png/webp/heic/gif, defaulting to `.jpg` as the app already does for an untyped
 attachment). The script asserts the stored `media_uri` ends in a real image
 extension, which fails against the extensionless name.
+
+### Tapping an image did nothing at all
+
+Third round on the same thread: the image arrived and rendered, but tapping it
+did nothing. The image branch of `ChatBubble` wired its `combinedClickable`
+`onClick` to the bubble's generic `onTap`, which toggles *link reveal* — a
+mechanism an image has no part in, since there is no URL to hide. The tap ran,
+changed a state list nothing read, and appeared to do nothing.
+
+- The image branch now routes its tap to a new `onImageTap(msg.mediaUri)`.
+  Selection still wins over the preview while the selection toolbar is up,
+  otherwise a tap meant to mark a message would open a full-screen view instead.
+- New `ImagePreview`: the bubble crops to `ContentScale.Crop` inside a
+  260dp cap, so anything legible in the original is illegible there. The
+  preview is `ContentScale.Fit` on an opaque backdrop with one close control —
+  no zoom, no chrome, because the only question it answers is "what is in this
+  picture". Back, the close button, and a tap on the backdrop all dismiss.
+  The image swallows its own tap so only the backdrop closes it.
+- The `BackHandler` that dismisses the preview is registered **before**
+  `leaveChat`'s. Compose dispatches back to the most recently registered
+  handler, so registering it last would have made back leave the chat with the
+  preview still up.
+
+  This ordering is invisible in the source and only shows up as "back does
+  nothing", so `ImagePreviewWiringTest` pins it explicitly rather than leaving
+  it to a reviewer's eye.
+
+- Tests: `ImagePreviewWiringTest` (4) — the tap routes to `onImageTap`, the URI
+  is held in state and rendered from it, the preview uses `Fit` not `Crop`, and
+  back dismisses the preview rather than the chat. These are source-level
+  because neither the tap target nor the dismissal is JVM-constructible.
+  `ImagePreview` also gets a `@PreviewLightDark` entry, which
+  `PreviewCoverageTest` requires of every visual composable in `src/main`.
+- Regression: `test-share-intent-filters.sh` taps the rendered bubble and
+  asserts the preview opens, then that back closes it. "Full-screen" is decided
+  by width, not by a string: the bubble caps at 260dp (~683px at 420dpi) while
+  the preview letterboxes across the window, so >800px can only be the
+  preview. Verified to **fail** with the tap rewired to `onTap` (**13 passed,
+  1 failed**), then **14 passed, 0 failed** restored.
+
+  Two environment traps here, both of which produced a wall of failures that
+  had nothing to do with the change under test:
+
+  1. **A fresh install shows "Set as default SMS app?" over everything.** It
+     appears once, on first launch after an install that is not the role
+     holder, and it sits on top of whatever the share intent opened — so every
+     UI assertion downstream failed while the manifest queries still passed.
+     The script now dismisses it as setup.
+  2. **The AVD dropped off the bus mid-run** and the script kept driving a dead
+     device, reporting each step as a product failure. `require_device` now
+     aborts instead, the same guard `take-fdroid-screenshots.sh` uses. This one
+     cost a real debugging detour: the failures looked like a regression in the
+     code that had just been green.
 
 ## #300 follow-up: screen wake still failed with Privacy mode on (2026-10-09)
 
