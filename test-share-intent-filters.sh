@@ -71,15 +71,15 @@ PY
     echo "[tap] 'Send to' at ($c)"
 }
 
-# Centre "x y" of the node carrying the photo content description — the image
-# bubble in the chat, or the full-screen preview once it is open.
-photo_node_bounds() {
+# Centre "x y" of the first node whose markup contains $1 — the literal string,
+# so a caller can pass `content-desc="Close"`.
+desc_node_bounds() {
     dump_ui || return 1
-    python3 - "$TMP/ui.xml" <<'PY'
+    python3 - "$TMP/ui.xml" "$1" <<'PY'
 import re, sys
 xml = open(sys.argv[1], encoding="utf-8", errors="replace").read()
 for n in re.findall(r'<node[^>]*>', xml):
-    if 'content-desc="Photo"' not in n:
+    if sys.argv[2] not in n:
         continue
     b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', n)
     if not b:
@@ -89,6 +89,9 @@ for n in re.findall(r'<node[^>]*>', xml):
     break
 PY
 }
+
+# Centre of the image bubble in the chat, or of the preview's image once open.
+photo_node_bounds() { desc_node_bounds 'content-desc="Photo"'; }
 
 # True when the photo is shown full-screen rather than as a chat bubble: the
 # preview letterboxes the image across the window, the bubble caps it at
@@ -300,6 +303,44 @@ else
             bad "tapping the image did not open a preview"
         fi
 
+        # The close button has to clear the status bar. `align(TopEnd)` alone
+        # put it at y=21..147 with the inset covering everything above y=137,
+        # so it rendered, showed up in the tree with a clickable node, and did
+        # nothing when tapped. Tap its reported centre, which is the thing that
+        # was actually broken.
+        CLOSE=$(desc_node_bounds 'content-desc="Close"')
+        if [ -z "$CLOSE" ]; then
+            bad "preview opened but no close control was found"
+        else
+            adb_ shell input tap $CLOSE; sleep 2
+            dump_ui >/dev/null 2>&1 || true
+            if photo_is_fullscreen; then
+                bad "tapping the close button did nothing"
+            else
+                ok "tapping the close button dismisses the preview"
+            fi
+        fi
+
+        # A tap on the backdrop (well below the inset) is the other exit.
+        adb_ shell input tap $BUBBLE >/dev/null 2>&1; sleep 2.5
+        dump_ui >/dev/null 2>&1 || true
+        if ! photo_is_fullscreen; then
+            adb_ shell input tap $BUBBLE; sleep 2.5
+            dump_ui >/dev/null 2>&1 || true
+        fi
+        if photo_is_fullscreen; then
+            adb_ shell input tap 540 1400; sleep 2
+            dump_ui >/dev/null 2>&1 || true
+            if photo_is_fullscreen; then
+                bad "tapping the backdrop did not dismiss the preview"
+            else
+                ok "tapping the backdrop dismisses the preview"
+            fi
+        fi
+
+        adb_ shell input tap $BUBBLE >/dev/null 2>&1; sleep 2.5
+        dump_ui >/dev/null 2>&1 || true
+        photo_is_fullscreen || { adb_ shell input tap $BUBBLE; sleep 2.5; }
         adb_ shell input keyevent KEYCODE_BACK; sleep 2
         dump_ui >/dev/null 2>&1 || true
         if photo_is_fullscreen; then

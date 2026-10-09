@@ -98,6 +98,14 @@ else
     fail 'Add people affordance disappeared'
 fi
 
+# $NAME is seeded into Contacts, so the second action button must offer to open
+# the existing person ("Info"), not to create them a second time ("Add").
+if grep -q 'text="Info"' "$TMP/ui.xml"; then
+    pass 'saved contact offers Info instead of Add'
+else
+    fail 'saved contact still offers Add / create-new-contact'
+fi
+
 # Add people must open the in-app picker. It used to launch the system
 # "create new contact" activity instead, which is a different thing entirely.
 c=$(center_of "Add people") || c=""
