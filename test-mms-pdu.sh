@@ -18,7 +18,7 @@ MODULE="$PROJECT_DIR/mms"
 RESULTS="$MODULE/build/test-results/testDebugUnitTest"
 LOG="$TMP/mms-pdu-gradle.log"
 read -r CLASSES <<'EOF'
-com.anindra.messages.mms.pdu.PduComposerTest com.anindra.messages.mms.pdu.PduParserTest com.anindra.messages.mms.pdu.PduHeadersTest com.anindra.messages.mms.pdu.WspTest com.anindra.messages.mms.pdu.EncodedStringValueTest com.anindra.messages.mms.pdu.ContentTypesTest com.anindra.messages.mms.pdu.AddressTypeTest com.anindra.messages.mms.smil.SmilBuilderTest com.anindra.messages.mms.smil.SmilParserTest com.anindra.messages.mms.smil.SmilSerializerTest
+com.anindra.messages.mms.pdu.PduComposerTest com.anindra.messages.mms.pdu.PduParserTest com.anindra.messages.mms.pdu.PduHeadersTest com.anindra.messages.mms.pdu.WspTest com.anindra.messages.mms.pdu.EncodedStringValueTest com.anindra.messages.mms.pdu.ContentTypesTest com.anindra.messages.mms.pdu.AddressTypeTest com.anindra.messages.mms.transport.DefaultSmsManagerTest com.anindra.messages.mms.smil.SmilBuilderTest com.anindra.messages.mms.smil.SmilParserTest com.anindra.messages.mms.smil.SmilSerializerTest
 EOF
 read -r -a CLASS_ARR <<<"$CLASSES"
 
@@ -36,7 +36,8 @@ info "Run the :mms PDU and SMIL unit tests"
 rm -rf "$RESULTS"
 (cd "$PROJECT_DIR" && ./gradlew :mms:testDebugUnitTest --rerun-tasks \
   --tests 'com.anindra.messages.mms.pdu.*' \
-  --tests 'com.anindra.messages.mms.smil.*') >"$LOG" 2>&1 || true
+  --tests 'com.anindra.messages.mms.smil.*' \
+  --tests 'com.anindra.messages.mms.transport.*') >"$LOG" 2>&1 || true
 if [ ! -d "$RESULTS" ]; then
   fail "the :mms test task produced no results (build or compile failed)"
   grep -E '^e: |error:|FAILURE:|FAILED' "$LOG" | head -20 | sed 's/^/       /'
@@ -67,8 +68,11 @@ PY
 )"
 
 [ "${TOTAL:-0}" -gt 0 ] && pass "$TOTAL PDU/SMIL tests ran" || fail "no PDU/SMIL tests ran"
-[ "${PRESENT:-0}" -eq "${#CLASS_ARR[@]}" ] \
-  && pass "all ${#CLASS_ARR[@]} expected test classes reported results" \
+# Counted, not compared: the test filters match whole packages, so more classes
+# report results than CLASSES enumerates. What has to hold is that every expected
+# class is among them, which is the MISSING check below.
+[ "${PRESENT:-0}" -ge "${#CLASS_ARR[@]}" ] \
+  && pass "all ${#CLASS_ARR[@]} expected test classes reported results (${PRESENT:-0} ran)" \
   || fail "only ${PRESENT:-0} of ${#CLASS_ARR[@]} expected test classes reported results"
 [ -z "${MISSING// /}" ] \
   || fail "no result file for: ${MISSING}"

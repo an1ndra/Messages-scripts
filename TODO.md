@@ -149,6 +149,55 @@ code 12, so receipt, delivery reports and the group-MMS semantic change (one
 PDU to all recipients, rejected when the profile says group MMS is off) still
 need a SIM.
 
+## MMS: carrier refusals, live update, and a reason for a rejected PDU (2026-10-10)
+
+Second round, from a device report. Receiving works from one sending app but
+not another, so the difference is in how the *sending* client encoded the
+message, not a carrier quirk.
+
+| Change | Where |
+|---|---|
+| `PduParser.failureReason` names the rule that refused a PDU | `pdu/PduParser.kt` |
+| Retrieve-Status is checked before a container is demanded, so a refusal parses | `pdu/PduParser.kt` |
+| A refusal, or an unreadable PDU under 512 bytes, drops the announcement | `sms/MmsDownloader.kt` |
+| `importDownloadedMms` calls `notifyChanged()` | `data/Repository.kt` |
+| The send result line carries `httpStatus=` | `sms/SmsStatusReceiver.kt` |
+
+**The unreadable 187 KB PDU is still unexplained.** `failureReason` exists so
+the next report says which check refused it; until that line is seen, the
+cross-app receiving failure is not fixed. The author's `parseContentDisposition
+= false` retry was deliberately **not** taken — it is a guess, and shipping a
+guess as a fix is how the real cause gets missed. It is two lines once the
+logged reason points at that field.
+
+Changes 2 and 3 fix dead announcements being re-requested on every launch
+forever, which is real and explains the three old 56-byte rows looping. They
+do not explain the 187 KB PDU, and the report says so.
+
+**Also fixed: `test-mms-retry.sh` leaked its rows.** `seed_pending` was called
+in a command substitution, so the `CREATED` it appended to was discarded with
+the subshell and cleanup deleted nothing. The rows stayed pending, so every
+later launch re-requested all of them, which filled the Diagnostics event ring
+and made `test-mms-diagnostics.sh` report "recorder or report wiring is
+broken" on a perfectly healthy build. Tracked in a file now; a run leaves zero
+rows behind.
+
+Tests: `aCarrierRefusalWithNoMessageContainerStillParses`,
+`aRejectedPduRecordsWhichRuleRefusedIt`,
+`aParsedPduClearsAPreviouslyRecordedFailure` (all fail without the change);
+`test-mms-send.sh` gained the `httpStatus=` check (fails without it);
+`test-mms-pdu.sh` now runs the `transport` package too.
+
+**Not verified here:** anything needing a real MMSC. The refusal path, the
+187 KB PDU and the retry budget all need a SIM; the AVD answers every download
+with an I/O error, so those branches are covered by JUnit only.
+
+**Still to do:** the picture fitter still caps dimensions from
+`SmsManager.getCarrierConfigValues()`, which reports the AOSP defaults when the
+carrier sets nothing. Wiring `Mms.receive` to the receiver would retire
+`MmsDownloader`'s own announce/store path and answer the carrier at the same
+time.
+
 ## MMS send and receive actually reach the MMSC (2026-10-10)
 
 An incoming MMS was never stored and every download failed with code 5; a send

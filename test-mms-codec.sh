@@ -30,7 +30,7 @@ LOG="$TMP/mms-codec-gradle.log"
 TEST_CLASS="com.anindra.messages.mms.pdu.PduComposerTest"
 
 NOTIFY="aNotifyRespIsExactlyElevenOctets"
-READREC="aReadRecEmitsEveryFieldInAscendingCodeOrder"
+READREC="aReadRecOpensWithTheTypeAndVersionThenSortsTheRestAscending"
 SENDREQ="aOnePartSendReqIsPinnedOctetForOctet"
 
 PARSER_CLASS="com.anindra.messages.mms.pdu.PduParserTest"
@@ -181,35 +181,42 @@ for name, want_len, label in expected:
         print('[PASS] %s still pins the %d-octet %s vector' % (name, want_len, label))
 
 if len(vectors) == len(expected):
-    # M-NotifyResp.ind — the one PDU whose lowest field is Message-Type —
-    # opens with its type octet. X-Mms-Content-Type (0x84) closes every header
-    # block: receivers stop reading headers at it, so M-Send.req carries it
-    # after the transaction id, right before the body, and the M-ReadRec.ind
-    # vector (no Content-Type of its own) opens at From (0x89). Both shapes
-    # are pinned, along with the MMS 1.2 short-integer form (0x80 | 0x12)
-    # rather than a plain 0x12.
+    # Every header block opens with Message-Type, then Transaction-Id where the
+    # PDU has one, then MMS-Version (§8.1.4). M-ReadRec.ind has no Transaction-Id,
+    # so its opening is Message-Type then MMS-Version. X-Mms-Content-Type (0x84)
+    # closes the block: receivers stop reading headers at it, so M-Send.req
+    # carries it after every other header, right before the body. Both shapes are
+    # pinned, along with the MMS 1.2 short-integer form (0x80 | 0x12) rather than
+    # a plain 0x12.
     MESSAGE_TYPE = octet('MESSAGE_TYPE')[0]
     VERSION_12 = fields['MMS_VERSION_1_2']
-    opening = lambda t: [MESSAGE_TYPE, t, MESSAGE_TYPE + 1, 0x80 | VERSION_12]
+    VERSION = [MESSAGE_TYPE + 1, 0x80 | VERSION_12]
+    TR_ID = fields['TRANSACTION_ID']
+
+    # The transaction id is a variable-length text field, so the opening cannot
+    # be matched as one run: the type and the field code are pinned as a prefix,
+    # and the version is pinned as a run that has to follow them.
     checks = [
-        (notify, 0, opening(types['NOTIFYRESP_IND']),
-         'M-NotifyResp.ind opens <Message-Type 0x83> <MMS-Version 0x92>'),
+        (notify, 0, [MESSAGE_TYPE, types['NOTIFYRESP_IND'], TR_ID],
+         'M-NotifyResp.ind opens <Message-Type> <Transaction-Id>'),
+        (notify, None, VERSION,
+         'M-NotifyResp.ind carries the MMS 1.2 version in short-integer form'),
         (notify, None, [fields['STATUS'], fields['STATUS_RETRIEVED']],
          'M-NotifyResp.ind carries Status=retrieved'),
-        (readrec, None, opening(types['READ_REC_IND']),
-         'M-ReadRec.ind carries <Message-Type 0x87> <MMS-Version 0x92>'),
+        (readrec, 0, [MESSAGE_TYPE, types['READ_REC_IND']] + VERSION,
+         'M-ReadRec.ind opens <Message-Type> <MMS-Version>, having no Transaction-Id'),
         (readrec, None, [fields['READ_STATUS'], fields['READ_STATUS_READ']],
          'M-ReadRec.ind carries Read-Status=read'),
         (readrec, None, [fields['MESSAGE_ID']],
          'M-ReadRec.ind carries the Message-Id field'),
         (readrec, None, [fields['FROM']],
          'M-ReadRec.ind carries the From field'),
-        (sendreq, None, opening(types['SEND_REQ']),
-         'M-Send.req carries <Message-Type 0x80> <MMS-Version 0x92>'),
+        (sendreq, 0, [MESSAGE_TYPE, types['SEND_REQ'], TR_ID],
+         'M-Send.req opens <Message-Type> <Transaction-Id>'),
+        (sendreq, None, VERSION,
+         'M-Send.req carries the MMS 1.2 version in short-integer form'),
         (sendreq, None, [fields['TO']],
          'M-Send.req addresses its recipient with the To field'),
-        (sendreq, None, [fields['TRANSACTION_ID']],
-         'M-Send.req carries the Transaction-Id field'),
         (sendreq, None, [fields['CONTENT_TYPE']],
          'M-Send.req declares its multipart Content-Type'),
         (sendreq, None, [fields['FROM']],
@@ -227,10 +234,11 @@ if len(vectors) == len(expected):
 
     # A WSP text string is null-terminated, and a missing terminator reads one
     # octet too far — which here would swallow the Read-Status that follows.
-    # Both PDUs end on an octet pair that only frames correctly that way: a
-    # trailing 0x00 for M-NotifyResp.ind's Transaction-Id, and for M-ReadRec.ind
-    # a 0x00 closing the To value immediately before Read-Status.
-    for name, label, offset in ((notify, 'M-NotifyResp.ind', -1),
+    # M-ReadRec.ind ends on the To value's 0x00, three octets back from the end.
+    # M-NotifyResp.ind ends on the Status octet instead, because Transaction-Id
+    # now leads the block rather than closing it; its 0x00 sits just before the
+    # version and status pair that follow.
+    for name, label, offset in ((notify, 'M-NotifyResp.ind', -5),
                                 (readrec, 'M-ReadRec.ind', -3)):
         if vectors[name][offset] == 0x00:
             print('[PASS] %s closes its last text field with a null terminator' % label)

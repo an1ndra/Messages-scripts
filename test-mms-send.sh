@@ -24,6 +24,9 @@ local_query() { adb_ shell "run-as '$PKG' sqlite3 databases/messages.db \"$1\"" 
 
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
+    if [ -n "${SIMID_BEFORE:-}" ]; then
+        adb_ shell "run-as '$PKG' sed -i 's#<int name=\"sim_subscription_id\" value=\"-*[0-9]*\"#<int name=\"sim_subscription_id\" value=\"$SIMID_BEFORE\"#' $SETTINGS_PREFS" >/dev/null 2>&1 || true
+    fi
     if [ -s "$IDFILE" ]; then
         local id; id=$(cat "$IDFILE")
         provider "DELETE FROM part WHERE mid=$id; DELETE FROM addr WHERE msg_id=$id; DELETE FROM pdu WHERE _id=$id;" >/dev/null || true
@@ -57,6 +60,16 @@ PY
 adb_ shell "run-as '$PKG' mkdir -p cache/camera"
 adb_ push "/tmp/$MARKER.png" "/data/local/tmp/$MARKER.png" >/dev/null
 adb_ shell "run-as '$PKG' sh -c 'cat /data/local/tmp/$MARKER.png > cache/camera/$MARKER.png'"
+
+# The app stores "whichever SIM holds the default SMS role" as a negative id and
+# hands it to the platform MMS call. The MMS service validates that id, so a
+# negative one has to be resolved to the default SIM manager before it gets
+# there. The AVD stores an explicit SIM id, so the default is forced for the
+# send and restored on exit.
+SETTINGS_PREFS="shared_prefs/messages_settings.xml"
+SIMID_BEFORE=$(adb_ shell "run-as '$PKG' cat $SETTINGS_PREFS" 2>/dev/null | tr -d '\r' \
+    | sed -n 's/.*name="sim_subscription_id"[^>]*value="\(-*[0-9]*\)".*/\1/p' | head -1)
+adb_ shell "run-as '$PKG' sed -i 's#<int name=\"sim_subscription_id\" value=\"-*[0-9]*\"#<int name=\"sim_subscription_id\" value=\"-1\"#' $SETTINGS_PREFS" >/dev/null 2>&1 || true
 
 info "Send one MMS through the debug probe"
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1
@@ -101,6 +114,53 @@ if [[ "$TRACELOG" == *"linked to message"* ]]; then
 else
     fail 'outbox row not linked to the app message: the picture would appear twice'
     printf '%s\n' "$TRACELOG" | sed 's/^/    | /'
+fi
+
+# The default-SIM send forced above must have reached the transport on that id.
+# This is smoke coverage, not the regression gate: on this AVD
+# getSmsManagerForSubscriptionId(-1) does not throw, so a build without
+# usesDefaultSmsManager sends identically here and the two cannot be told apart
+# from adb. The gate is JUnit (DefaultSmsManagerTest for the rule,
+# DefaultSimSendWiringTest for the constant it has to agree with); this only
+# proves the default-SIM path still sends end to end.
+SIMID=$(adb_ shell "run-as '$PKG' cat $SETTINGS_PREFS" 2>/dev/null | tr -d '\r' \
+    | sed -n 's/.*name="sim_subscription_id"[^>]*value="\(-*[0-9]*\)".*/\1/p' | head -1)
+info "stored default-SIM subscription id: ${SIMID:-<unset>}"
+if [[ -z "$SIMID" || "$SIMID" -le 0 ]]; then
+    pass 'sending on the default SMS SIM (a non-positive subscription id)'
+else
+    fail "expected the default SIM (a non-positive id) but found $SIMID"
+fi
+
+if [[ "$TRACELOG" == *"sub=$SIMID"* || "$TRACELOG" == *"sub=-1"* ]]; then
+    pass "the send ran on subscription $SIMID"
+else
+    fail "the send did not run on the stored subscription $SIMID"
+    printf '%s\n' "$TRACELOG" | grep -i 'sendmms start' | sed 's/^/    | /'
+fi
+
+if printf '%s' "$TRACELOG" | grep -qiE 'invalid sub|InvalidSubscriptionId'; then
+    fail 'the platform MMS service rejected the subscription id on a default-SIM send'
+    printf '%s\n' "$TRACELOG" | grep -iE 'invalid sub' | sed 's/^/    | /'
+else
+    pass 'no invalid-subscription error on a default-SIM send'
+fi
+
+# A send that fails is only diagnosable if the line says how: the result code
+# alone cannot separate "the MMSC refused" from "no route", and downloads already
+# carry the HTTP status. Matched on the send line itself — the download sweep
+# logs its own httpStatus= on every start and would satisfy a looser check.
+SENDFINISHED=$(printf '%s\n' "$TRACELOG" | grep 'MMS send finished:' | tail -1)
+if [[ -n "$SENDFINISHED" ]]; then
+    pass 'the send reported a result'
+else
+    fail 'no send result line: the send never called back'
+fi
+if [[ "$SENDFINISHED" == *"httpStatus="* ]]; then
+    pass 'the send result line carries the HTTP status'
+else
+    fail 'the send result line has no httpStatus, so a failing send cannot be diagnosed'
+    printf '    | %s\n' "$SENDFINISHED"
 fi
 
 SMIL=$(provider "SELECT COUNT(*) FROM part WHERE mid=$PDU AND ct='application/smil';")

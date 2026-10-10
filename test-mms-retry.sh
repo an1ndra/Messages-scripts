@@ -25,14 +25,21 @@ MARKER="mmsretry$(date +%s)$$"
 provider() { adb_ shell "sqlite3 '$PROVDB' \"$1\"" | tr -d '\r'; }
 
 # Rows created by this test, tracked so cleanup can remove exactly them.
-CREATED=""
+# Tracked in a file, not a shell variable: seed_pending is called in a command
+# substitution, which runs in a subshell, so anything it assigned was discarded
+# and cleanup silently removed nothing. The rows then stayed pending forever and
+# every later launch re-requested them, which both flooded the Diagnostics event
+# ring and made test-mms-diagnostics report a broken recorder.
+CREATED_FILE="$TMP/mms-retry-created.$$"
 
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
-    if [ -n "$CREATED" ]; then
-        provider "DELETE FROM part WHERE mid IN ($CREATED); DELETE FROM addr WHERE msg_id IN ($CREATED); DELETE FROM pdu WHERE _id IN ($CREATED);" >/dev/null || true
+    if [ -s "$CREATED_FILE" ]; then
+        local created
+        created="$(paste -sd, "$CREATED_FILE")"
+        provider "DELETE FROM part WHERE mid IN ($created); DELETE FROM addr WHERE msg_id IN ($created); DELETE FROM pdu WHERE _id IN ($created);" >/dev/null || true
     fi
-    rm -f "$TMP/$MARKER"*.png
+    rm -f "$TMP/$MARKER"*.png "$CREATED_FILE"
 }
 trap cleanup EXIT
 
@@ -44,7 +51,7 @@ seed_pending() {
     local id
     id="$(provider "INSERT INTO pdu(thread_id,date,msg_box,m_type,read,m_size,sub_id,ct_l) VALUES(0,$(date +%s),1,130,0,0,1,'http://mmsc.local/$MARKER'); SELECT last_insert_rowid();" | tail -1)"
     [ -n "$id" ] || return 1
-    CREATED="${CREATED:+$CREATED,}$id"
+    printf '%s\n' "$id" >> "$CREATED_FILE"
     printf '%s' "$id"
 }
 
