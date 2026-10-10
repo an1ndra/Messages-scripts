@@ -2,7 +2,8 @@
 # Golden-vector regression for the :mms wire format.
 #
 # PduComposerTest pins three PDUs octet for octet: an 11-octet M-NotifyResp.ind,
-# a 45-octet M-ReadRec.ind and a 105-octet one-part M-Send.req. Those assertions
+# a 45-octet M-ReadRec.ind and a 115-octet one-part M-Send.req (its To header
+# carries the /TYPE=PLMN qualifier). Those assertions
 # are the only thing standing between a header-order or length-prefix change and
 # a PDU that still parses in-house but is rejected by an MMSC — the parser
 # accepts what the composer got wrong, so a round-trip test alone cannot see it.
@@ -162,7 +163,7 @@ def octet(*names):
 
 expected = [(notify, 11, 'M-NotifyResp.ind'),
             (readrec, 45, 'M-ReadRec.ind'),
-            (sendreq, 105, 'one-part M-Send.req')]
+            (sendreq, 115, 'one-part M-Send.req')]
 
 vectors = {}
 for name, want_len, label in expected:

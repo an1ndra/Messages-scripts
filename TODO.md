@@ -149,6 +149,51 @@ code 12, so receipt, delivery reports and the group-MMS semantic change (one
 PDU to all recipients, rejected when the profile says group MMS is off) still
 need a SIM.
 
+## MMS send and receive actually reach the MMSC (2026-10-10)
+
+An incoming MMS was never stored and every download failed with code 5; a send
+failed with code 4. Three separate causes, none of them the picture size the
+report blamed it on (the PDU was 37 KB).
+
+| Change | Where |
+|---|---|
+| WAP push is parsed and stored instead of relying on a platform-filed row | `sms/MmsReceiver.kt`, `sms/MmsDownloader.kt` |
+| Download destination is a staging file, not a `content://mms/<id>` row | `sms/MmsStaging.kt` (new), `sms/MmsDownloader.kt` |
+| `AnnouncementRows` refuses rather than naming a row the platform cannot write | `sms/MmsFacade.kt` |
+| One grant decision for both platform destinations | `mms/transport/PlatformMmsAccess.kt` (new) |
+| Phone recipients go out as `number/TYPE=PLMN`, stripped again on read | `pdu/EncodedStringValue.kt`, `PduComposer.kt`, `PduParser.kt` |
+| `From` is the insert-address token unless the device can name that line | `sms/MmsFacade.kt` |
+| Retrieved message keeps the subscription it was announced under | `data/MmsSupport.kt`, `data/MmsProviderReader.kt` |
+
+**The notification is still never acknowledged.** The dedupe on Content-Location
+stops a repeat push being stored twice, but a carrier given no
+M-NotifyResp.ind keeps re-delivering, and on a permanently-failed row the
+sweep keeps asking for a URL that 404s. `Mms.receive` answers on every branch;
+nothing calls it yet, and this change did not wire it up.
+
+**`AnnouncementRows` now refuses on purpose.** Pointing the `:mms` path at a
+staging file needs a read-back too — `receive` returns `AWAITING_PLATFORM` and
+nothing in `:mms` reads the file back. A refusal defers, which `receive`
+already handles; pointing it at a file that nobody reads would store nothing at
+all, which is harder to diagnose than the code 5 it replaces.
+
+Tests: `test-mms-download.sh` gained 2 checks (the destination is a staging
+file, and no staging file is left behind); `AddressTypeTest` (5) and
+`PduComposerTest` pinned against the new 115-octet send request;
+`FileProviderWiringTest`/`MmsFacadeWiringTest` inverted onto "no provider row
+as a destination", verified failing against the old build.
+
+**Pre-existing failures, not from this change** (each confirmed by rebuilding
+unmodified `HEAD` and re-running): `test-mms-support-check.sh` (3) and
+`test-alphanumeric-sender.sh` (1).
+
+**Still to do:** the picture fitter still caps dimensions from
+`SmsManager.getCarrierConfigValues()`, which reports the AOSP defaults when the
+carrier sets nothing — so a 1.2 MB source becomes 231x480 in a 288 KB budget.
+Start from a 2048 px long edge and step down with the quality ladder instead.
+Wiring `Mms.receive` to the receiver would retire `MmsDownloader`'s own
+announce/store path and answer the carrier at the same time.
+
 ## F-Droid screenshots trimmed to 8 feature shots (2026-10-09)
 
 `take-fdroid-screenshots.sh` captured 15 shots (12 light + 3 dark) and the

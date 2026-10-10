@@ -91,5 +91,30 @@ else
     pass 'no crash while handling the pending MMS'
 fi
 
+info "The download destination must be a file the platform can write, not the message row"
+# A content://mms/<id> row is not something the MMS service can open for
+# writing; every download aimed at one fails with MMS_ERROR_IO_ERROR. The
+# destination is on the request line precisely so this is assertable here
+# rather than guessed at on a device with a SIM.
+DESTINATIONS=$(printf '%s\n' "$LOGS" | sed -n 's/.*) into \(.*\)$/\1/p' | sort -u)
+if [[ -z "$DESTINATIONS" ]]; then
+    fail 'no download reported a destination, so it cannot be checked'
+elif printf '%s\n' "$DESTINATIONS" | grep -q '^content://mms/'; then
+    fail "a download is aimed at a provider row, which cannot be opened for writing:" \
+        "$DESTINATIONS"
+elif [[ "$DESTINATIONS" != "content://$PKG.fileprovider/mms/mms-recv-"* ]]; then
+    fail "the download destination is not a staging file:" "$DESTINATIONS"
+else
+    pass "every download is aimed at a staging file ($(printf '%s\n' "$DESTINATIONS" | wc -l) of them)"
+fi
+
+info "A staging file left behind by a finished transfer is cleaned up"
+LEFTOVER=$(adb_ shell "run-as '$PKG' ls cache 2>/dev/null | tr -d '\r'" | grep -c '^mms-recv-' || true)
+if [[ "$LEFTOVER" == "0" ]]; then
+    pass 'no staging file is left in the cache directory'
+else
+    fail "$LEFTOVER staging file(s) left in the cache directory"
+fi
+
 printf 'PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 exit $((FAIL > 0))

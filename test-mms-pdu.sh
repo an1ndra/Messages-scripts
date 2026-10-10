@@ -18,7 +18,7 @@ MODULE="$PROJECT_DIR/mms"
 RESULTS="$MODULE/build/test-results/testDebugUnitTest"
 LOG="$TMP/mms-pdu-gradle.log"
 read -r CLASSES <<'EOF'
-com.anindra.messages.mms.pdu.PduComposerTest com.anindra.messages.mms.pdu.PduParserTest com.anindra.messages.mms.pdu.PduHeadersTest com.anindra.messages.mms.pdu.WspTest com.anindra.messages.mms.pdu.EncodedStringValueTest com.anindra.messages.mms.pdu.ContentTypesTest com.anindra.messages.mms.smil.SmilBuilderTest com.anindra.messages.mms.smil.SmilParserTest com.anindra.messages.mms.smil.SmilSerializerTest
+com.anindra.messages.mms.pdu.PduComposerTest com.anindra.messages.mms.pdu.PduParserTest com.anindra.messages.mms.pdu.PduHeadersTest com.anindra.messages.mms.pdu.WspTest com.anindra.messages.mms.pdu.EncodedStringValueTest com.anindra.messages.mms.pdu.ContentTypesTest com.anindra.messages.mms.pdu.AddressTypeTest com.anindra.messages.mms.smil.SmilBuilderTest com.anindra.messages.mms.smil.SmilParserTest com.anindra.messages.mms.smil.SmilSerializerTest
 EOF
 read -r -a CLASS_ARR <<<"$CLASSES"
 
