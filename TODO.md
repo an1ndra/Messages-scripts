@@ -5,6 +5,41 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## MMS observability (2026-10-10)
+
+The `:mms` stack reported nothing: every `MmsDiagnostics` callback is a no-op
+by default and `MmsFacade` built the stack without a recorder, so "nothing
+arrived" and "nothing was reported" were indistinguishable. MMS debugging now
+has one surface, and it is plain text.
+
+| Change | Where |
+|---|---|
+| `MmsDebugRecorder` wired in as the process-wide diagnostics | `sms/MmsFacade.kt` |
+| New events: fit outcome, download request/completion, pending sweep, logged lines | `mms/spi/MmsDiagnostics.kt` |
+| Logcat mirror under tag `MmsTrace` | `mms/debug/LogcatMmsDiagnostics.kt` (new) |
+| `MmsTrace` — the one logging call MMS code uses | `sms/MmsTrace.kt` (new) |
+| All 29 `Log.` calls in the 5 MMS files routed through it | `MmsDownloader`, `SmsSupport`, `MmsComposer`, `SmsStatusReceiver`, `MmsReceiver` |
+| MMS provider import traces offered/imported/already-present counts | `data/Repository.kt` |
+| Download result now carries the HTTP status (Phase A) | `MmsDownloadReceiver` -> `MmsDownloader.onComplete` |
+| "MMS activity" block in the report | `diagnostics/DiagnosticsReport.kt` |
+| Carrier facts + derived `imageLimitsReported` | `sms/SimMmsProbe.carrierFacts` |
+
+The `MmsImport` counts are the duplicate-picture evidence: "offered" growing
+while "already present" does not is exactly what an unlinked outbox row looks
+like.
+
+Tests: `test-mms-diagnostics.sh` (8 checks) plus JUnit in
+`mms/.../MmsDebugRecorderTest`, `LogcatMmsDiagnosticsTest` and
+`app/.../MmsDiagnosticsWiringTest`.
+
+The "no bare `Log.` in MMS files" guard lives in the script, not in JUnit: the
+test JVM's `File.exists()` disagreed with the directory listing and the shell
+for `SmsSupport.kt` in this environment, so asserting on file contents from a
+unit test is not reliable here.
+
+Still to do: Phase B (blurry picture in `:mms`, `imageLimitsReported` +
+size x quality ladder), then the `:mms` send migration.
+
 ## F-Droid screenshots trimmed to 8 feature shots (2026-10-09)
 
 `take-fdroid-screenshots.sh` captured 15 shots (12 light + 3 dark) and the
