@@ -120,6 +120,16 @@ else
     bad "logs straight to logcat, so the line never reaches Diagnostics:$BARE"
 fi
 
+info "Image limits are reported as declared or not"
+# The blurry-photo fix keys on this verdict: with it false the 640x480 default
+# is a guess and must not be enforced.
+if grep -q "imageLimitsReported: true" "$TMP/ui.xml" || \
+   grep -q "imageLimitsReported: false" "$TMP/ui.xml"; then
+    ok "report states whether the carrier declared an image cap"
+else
+    bad "no imageLimitsReported verdict in the carrier facts"
+fi
+
 info "Download path logs the pending-row count"
 # The first thing to check when an MMS never arrives is whether a WAP push
 # produced a pending row at all, so the sweep has to say how many it found.
