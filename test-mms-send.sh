@@ -82,17 +82,25 @@ case "$BOX" in
 esac
 
 # The platform opens the composed PDU through the app's FileProvider from its own
-# process, so the URI must sit under the cache root file_paths.xml exposes — the
-# <cache-path name="mms" path="."> entry. A URI built by hand drifts from the XML
-# (this is exactly how the send broke: no "mms/" segment), and on this AVD the
-# platform answers every send with code 12 regardless, so the outcome cannot
-# distinguish it — the URI shape can.
-PDULOG=$(adb_ shell "logcat -d -s MmsComposer" 2>/dev/null | tr -d '\r' || true)
-if [[ "$PDULOG" == *"content://$PKG.fileprovider/mms/mms-send-"*".dat"* ]]; then
-    pass 'composed PDU is served under the FileProvider cache root'
+# process, so the PDU has to be written into the cache root file_paths.xml exposes
+# and the URI has to carry the mms/ segment. Neither the URI nor the file is left
+# behind after a send (the receiver deletes the file), so what is asserted here is
+# the trace: that the stack composed a PDU, linked its outbox row to the app's
+# message, and handed it over. On this AVD the platform answers every send with
+# code 12 regardless, so the outcome cannot distinguish the paths - the trace can.
+TRACELOG=$(adb_ shell "logcat -d -s MmsSender MmsTrace MmsSend" 2>/dev/null | tr -d '\r' || true)
+if [[ "$TRACELOG" == *"fit ok"* || "$TRACELOG" == *"fit fitted"* || "$TRACELOG" == *"[fit]"* ]]; then
+    pass 'the attachment was fitted and the encode decision was recorded'
 else
-    fail 'composed PDU URI is outside the FileProvider cache root (the platform cannot open it)'
-    printf '%s\n' "$PDULOG" | sed 's/^/    | /'
+    fail 'no fit decision recorded: the attachment never reached the encoder'
+    printf '%s\n' "$TRACELOG" | sed 's/^/    | /'
+fi
+
+if [[ "$TRACELOG" == *"linked to message"* ]]; then
+    pass 'the outbox row was linked to the app message (no duplicate on re-entry)'
+else
+    fail 'outbox row not linked to the app message: the picture would appear twice'
+    printf '%s\n' "$TRACELOG" | sed 's/^/    | /'
 fi
 
 SMIL=$(provider "SELECT COUNT(*) FROM part WHERE mid=$PDU AND ct='application/smil';")

@@ -40,6 +40,52 @@ unit test is not reliable here.
 Still to do: Phase B (blurry picture in `:mms`, `imageLimitsReported` +
 size x quality ladder), then the `:mms` send migration.
 
+## MMS send path moved to the :mms package (2026-10-10)
+
+Sending no longer goes through `MmsComposer` on the vendored AOSP stack. The
+whole vendored module is gone: `android-smsmms`, its gradle include, its five
+ProGuard keep rules, the CodeQL `paths-ignore`, plus `MmsComposer`,
+`MmsImageSizing` (+test) and `ComposerParserInteropTest`.
+
+| Change | Where |
+|---|---|
+| `MmsSender` reads the attachment and calls `Mms.send` | `sms/MmsSender.kt` (new) |
+| `MmsPendingSends` maps `tr_id` -> app message id on disk | `sms/MmsPendingSends.kt` (new) |
+| `sendMms` delegates (60 lines of PendingIntent/overrides gone) | `sms/SmsSupport.kt` |
+| Receiver answers `SEND_SENT`, settles by `tr_id` | `sms/SmsStatusReceiver.kt` |
+| `linkMmsRow` records the provider row **and** the mapping table | `data/Repository.kt` |
+| `platformSource` resolves the default SIM | `mms/net/CarrierProfile.kt` |
+| `FileProviderWiringTest` rewritten for the new wiring | `app/src/test/...` |
+
+Two things the bundle did not have and this repo needed:
+
+- `linkMmsRow` also writes `message_provider_ids`. Chat deletion and import
+  dedupe read that table here, so a link that only filled `messages.sys_id`
+  would fix the duplicate on screen and then let the provider row come back as
+  a fresh 1:1 once the chat was deleted.
+- `platformSource` resolved no subscription at all for `-1`, and `Mms` calls it
+  directly for report headers, so a send on the default SIM silently lost its
+  delivery/read report headers.
+
+**Two real bugs found by the new observability, both fixed:**
+
+1. `MmsFacade.of(context, diagnostics)` compiled fine while still passing the
+   facade's own recorder to the stack, so the caller's hook was silently
+   dropped - the outbox link never fired and the picture would still have
+   appeared twice. `test-mms-send.sh` caught it.
+2. The forwarding hook added to keep both records only overrode five of the
+   fourteen `MmsDiagnostics` callbacks, so `attachmentFitted` went back to being
+   a no-op and the encode decision vanished from the trace. Every method is now
+   forwarded, and a test pins the full set.
+
+Tests: `test-mms-send-path.sh` (11 checks), `test-mms-send.sh` (10, real send
+through the probe on the AVD), `MmsSenderTest`, `MmsSendResultWiringTest`.
+
+**Not verified here:** a send on a real carrier. The AVD answers every send with
+code 12, so receipt, delivery reports and the group-MMS semantic change (one
+PDU to all recipients, rejected when the profile says group MMS is off) still
+need a SIM.
+
 ## F-Droid screenshots trimmed to 8 feature shots (2026-10-09)
 
 `take-fdroid-screenshots.sh` captured 15 shots (12 light + 3 dark) and the
