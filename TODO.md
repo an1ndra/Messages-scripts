@@ -5,6 +5,51 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Picking someone opens them, not a group (2026-10-10)
+
+Tapping "Alex" in the new-chat list opened the **Roadtrip** group. A group
+carries its primary contact's address, so when the person has no private
+thread of their own there was nothing better to return.
+
+`ORDER BY (SELECT count(*) FROM conversation_recipients ...)=1 DESC` sorts
+groups *last*, but `LIMIT 1` still takes one when there is nothing else —
+ordering was never going to fix this. The picker now passes
+`privateOnly = true`, which excludes groups from the query outright and
+creates a fresh 1:1 instead.
+
+Inbound deliberately keeps the looser rule: a text from a group member who
+has no 1:1 of their own belongs in the group.
+
+Tests: `NewChatSkipsGroupTest` (4) and `test-new-chat-skips-group.sh`
+(9/0 after, 6/3 with `privateOnly` removed).
+
+## One contact-details page (2026-10-10)
+
+The contact page existed twice — `ui/ContactDetailsScreen.kt` and
+`ui/legacy/LegacyContactDetailsScreen.kt` — and `use_new_ui` picked between
+them, so anything fixed in one stayed broken in the other. The legacy page is
+deleted; the redesigned one carries its behaviour and both flag values render
+the same page.
+
+Kept from the legacy page, because it was the better one:
+  - the group name is edited in place, pencil below the name, caret at the end
+  - a group shows no Call/Info, no number under the name, and no Block row
+  - the notifications switch uses the brand thumb/track colours
+
+Regained from the redesigned page: the hoisted `scrollState`, so returning to
+the page keeps its position.
+
+Tests: `ContactDetailsWiringTest` (12) and `test-contact-details-single-page.sh`,
+which asserts the page renders the same with `use_new_ui` off and on.
+
+Two things this uncovered, still open:
+- **The redesigned conversation list still titles a group by its primary
+  contact**, so a "Sarah + Dad" thread reads as "Sarah" in the home list. The
+  legacy list prefers `groupTitle`; the redesigned one does not. The regression
+  script finds the group row by a snippet marker because of this.
+- `use_new_ui` still forks the conversations, settings, advanced and
+  accessibility screens. Those are four more pages to merge, the same way.
+
 ## MMS observability (2026-10-10)
 
 The `:mms` stack reported nothing: every `MmsDiagnostics` callback is a no-op
@@ -4282,6 +4327,17 @@ Tests: `TransferLogTest`, `TransferConflictCountingTest`, `test-transfer-log.sh`
   the raw `&` silently finds nothing and reads as "the row is missing". Also
   note that a row's title and the screen's top bar carry the same string — match
   on the subtitle to prove the *row* is on screen, not just the title bar.
+- **Never run two `test-*.sh` against the same AVD at once.** They share one
+  emulator, one database and one `ui.xml`, so they fight over it — the second
+  run's taps land on the first's screens and the emulator dies mid-suite. That
+  produced a convincing fake regression (group-send 2/4) and a dead AVD. Run
+  them one at a time.
+- **Two conversations can now share an address**, so a row cannot be found by
+  address alone. `getOrCreateConversationBlocking` takes `privateOnly`, and the
+  group row has to be reached from the list rather than
+  `--es open_conversation_address`. The redesigned conversation list also still
+  titles a group by its primary contact, so find group rows by a snippet
+  marker.
 - **`test-backup-restore.sh` and `test-merge-import.sh` currently fail at the SAF
   picker step on this AVD** ("newest .enc not found in picker") — confirmed
   pre-existing on a clean checkout, not caused by the transfer-log work. The
