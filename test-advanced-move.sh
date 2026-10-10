@@ -46,8 +46,8 @@ scroll_until() {
 }
 
 open_advanced() {
-    scroll_until "Advanced" || return 1
-    tap_text "Advanced" >/dev/null 2>&1 || return 1
+    scroll_until "Advanced settings" || return 1
+    tap_text "Advanced settings" >/dev/null 2>&1 || return 1
     sleep 1.5
 }
 

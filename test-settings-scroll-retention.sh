@@ -46,7 +46,7 @@ adb_ shell am start -n "$ACT" --ez open_settings true; sleep 3
 for _ in 1 2 3; do adb_ shell input swipe 500 1900 500 500 350; sleep 0.5; done
 dump_ui
 top_before=$(y_of "Notifications")
-adv_before=$(y_of "Advanced")
+adv_before=$(y_of "Advanced settings")
 echo "before: 'Notifications' y=$top_before, 'Advanced' y=$adv_before"
 if [ "$adv_before" -gt 0 ]; then
     pass "Advanced row is visible after scrolling"
@@ -55,7 +55,7 @@ else
 fi
 
 info "Opening Advanced, then going back"
-ct=$(center_of_text "Advanced")
+ct=$(center_of_text "Advanced settings")
 adb_ shell input tap $ct; sleep 1.8
 dump_ui
 if grep -q "Advanced settings" "$TMP/ui.xml"; then
@@ -66,7 +66,7 @@ fi
 adb_ shell input keyevent 4; sleep 1.8
 dump_ui
 top_after=$(y_of "Notifications")
-adv_after=$(y_of "Advanced")
+adv_after=$(y_of "Advanced settings")
 echo "after:  'Notifications' y=$top_after, 'Advanced' y=$adv_after"
 
 if [ "$adv_before" = "$adv_after" ]; then

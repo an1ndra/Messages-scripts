@@ -34,7 +34,7 @@ launch_settings() {
 open_advanced() {
     adb_ shell input swipe 500 1900 500 700 400; sleep 0.5
     adb_ shell input swipe 500 1900 500 700 400; sleep 1
-    tap_text "Advanced" || center_of_contains "Advanced" >/dev/null
+    tap_text "Advanced settings" || center_of_contains "Advanced" >/dev/null
     sleep 1.5
 }
 back_to_home() { adb_ shell input keyevent 4; sleep 0.8; adb_ shell input keyevent 4; sleep 1.8; }

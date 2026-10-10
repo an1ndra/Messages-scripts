@@ -5,6 +5,1877 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Picking someone opens them, not a group (2026-10-10)
+
+Tapping "Alex" in the new-chat list opened the **Roadtrip** group. A group
+carries its primary contact's address, so when the person has no private
+thread of their own there was nothing better to return.
+
+`ORDER BY (SELECT count(*) FROM conversation_recipients ...)=1 DESC` sorts
+groups *last*, but `LIMIT 1` still takes one when there is nothing else —
+ordering was never going to fix this. The picker now passes
+`privateOnly = true`, which excludes groups from the query outright and
+creates a fresh 1:1 instead.
+
+Inbound deliberately keeps the looser rule: a text from a group member who
+has no 1:1 of their own belongs in the group.
+
+Tests: `NewChatSkipsGroupTest` (4) and `test-new-chat-skips-group.sh`
+(9/0 after, 6/3 with `privateOnly` removed).
+
+## A group is listed by its own name (2026-10-10)
+
+The home list filed "Sarah + Dad" under "Sarah". A group's `address` is its
+primary contact's, so the ordinary "known contact shows their name" rule
+picked the wrong name — and the label a screen reader announced for the row
+had it too.
+
+The legacy list had the group branch and the redesigned one never did, which
+is why only the redesigned UI showed it. The rule now lives once, in
+`ContactDetails.listLabel`, and both lists call it; the visible title in each
+was a third copy of it and now reuses the same `senderLabel` the row is
+announced with, so the two cannot disagree.
+
+Tests: `ContactDetailsListLabelTest` (5) and
+`test-conversation-list-group-title.sh` (4/0 under either UI flag, and 3/1
+with the redesigned list's group branch removed — which reproduces the
+reported symptom exactly).
+
+## One contact-details page (2026-10-10)
+
+The contact page existed twice — `ui/ContactDetailsScreen.kt` and
+`ui/legacy/LegacyContactDetailsScreen.kt` — and `use_new_ui` picked between
+them, so anything fixed in one stayed broken in the other. The legacy page is
+deleted; the redesigned one carries its behaviour and both flag values render
+the same page.
+
+Kept from the legacy page, because it was the better one:
+  - the group name is edited in place, pencil below the name, caret at the end
+  - a group shows no Call/Info, no number under the name, and no Block row
+  - the notifications switch uses the brand thumb/track colours
+
+Regained from the redesigned page: the hoisted `scrollState`, so returning to
+the page keeps its position.
+
+Tests: `ContactDetailsWiringTest` (12) and `test-contact-details-single-page.sh`,
+which asserts the page renders the same with `use_new_ui` off and on.
+
+Two things this uncovered, still open:
+- **The redesigned conversation list still titles a group by its primary
+  contact**, so a "Sarah + Dad" thread reads as "Sarah" in the home list. The
+  legacy list prefers `groupTitle`; the redesigned one does not. The regression
+  script finds the group row by a snippet marker because of this.
+- `use_new_ui` still forks the conversations, settings, advanced and
+  accessibility screens. Those are four more pages to merge, the same way.
+
+## MMS observability (2026-10-10)
+
+The `:mms` stack reported nothing: every `MmsDiagnostics` callback is a no-op
+by default and `MmsFacade` built the stack without a recorder, so "nothing
+arrived" and "nothing was reported" were indistinguishable. MMS debugging now
+has one surface, and it is plain text.
+
+| Change | Where |
+|---|---|
+| `MmsDebugRecorder` wired in as the process-wide diagnostics | `sms/MmsFacade.kt` |
+| New events: fit outcome, download request/completion, pending sweep, logged lines | `mms/spi/MmsDiagnostics.kt` |
+| Logcat mirror under tag `MmsTrace` | `mms/debug/LogcatMmsDiagnostics.kt` (new) |
+| `MmsTrace` — the one logging call MMS code uses | `sms/MmsTrace.kt` (new) |
+| All 29 `Log.` calls in the 5 MMS files routed through it | `MmsDownloader`, `SmsSupport`, `MmsComposer`, `SmsStatusReceiver`, `MmsReceiver` |
+| MMS provider import traces offered/imported/already-present counts | `data/Repository.kt` |
+| Download result now carries the HTTP status (Phase A) | `MmsDownloadReceiver` -> `MmsDownloader.onComplete` |
+| "MMS activity" block in the report | `diagnostics/DiagnosticsReport.kt` |
+| Carrier facts + derived `imageLimitsReported` | `sms/SimMmsProbe.carrierFacts` |
+
+The `MmsImport` counts are the duplicate-picture evidence: "offered" growing
+while "already present" does not is exactly what an unlinked outbox row looks
+like.
+
+Tests: `test-mms-diagnostics.sh` (8 checks) plus JUnit in
+`mms/.../MmsDebugRecorderTest`, `LogcatMmsDiagnosticsTest` and
+`app/.../MmsDiagnosticsWiringTest`.
+
+The "no bare `Log.` in MMS files" guard lives in the script, not in JUnit: the
+test JVM's `File.exists()` disagreed with the directory listing and the shell
+for `SmsSupport.kt` in this environment, so asserting on file contents from a
+unit test is not reliable here.
+
+Still to do: Phase B (blurry picture in `:mms`, `imageLimitsReported` +
+size x quality ladder), then the `:mms` send migration.
+
+## MMS send path moved to the :mms package (2026-10-10)
+
+Sending no longer goes through `MmsComposer` on the vendored AOSP stack. The
+whole vendored module is gone: `android-smsmms`, its gradle include, its five
+ProGuard keep rules, the CodeQL `paths-ignore`, plus `MmsComposer`,
+`MmsImageSizing` (+test) and `ComposerParserInteropTest`.
+
+| Change | Where |
+|---|---|
+| `MmsSender` reads the attachment and calls `Mms.send` | `sms/MmsSender.kt` (new) |
+| `MmsPendingSends` maps `tr_id` -> app message id on disk | `sms/MmsPendingSends.kt` (new) |
+| `sendMms` delegates (60 lines of PendingIntent/overrides gone) | `sms/SmsSupport.kt` |
+| Receiver answers `SEND_SENT`, settles by `tr_id` | `sms/SmsStatusReceiver.kt` |
+| `linkMmsRow` records the provider row **and** the mapping table | `data/Repository.kt` |
+| `platformSource` resolves the default SIM | `mms/net/CarrierProfile.kt` |
+| `FileProviderWiringTest` rewritten for the new wiring | `app/src/test/...` |
+
+Two things the bundle did not have and this repo needed:
+
+- `linkMmsRow` also writes `message_provider_ids`. Chat deletion and import
+  dedupe read that table here, so a link that only filled `messages.sys_id`
+  would fix the duplicate on screen and then let the provider row come back as
+  a fresh 1:1 once the chat was deleted.
+- `platformSource` resolved no subscription at all for `-1`, and `Mms` calls it
+  directly for report headers, so a send on the default SIM silently lost its
+  delivery/read report headers.
+
+**Two real bugs found by the new observability, both fixed:**
+
+1. `MmsFacade.of(context, diagnostics)` compiled fine while still passing the
+   facade's own recorder to the stack, so the caller's hook was silently
+   dropped - the outbox link never fired and the picture would still have
+   appeared twice. `test-mms-send.sh` caught it.
+2. The forwarding hook added to keep both records only overrode five of the
+   fourteen `MmsDiagnostics` callbacks, so `attachmentFitted` went back to being
+   a no-op and the encode decision vanished from the trace. Every method is now
+   forwarded, and a test pins the full set.
+
+Tests: `test-mms-send-path.sh` (11 checks), `test-mms-send.sh` (10, real send
+through the probe on the AVD), `MmsSenderTest`, `MmsSendResultWiringTest`.
+
+**Not verified here:** a send on a real carrier. The AVD answers every send with
+code 12, so receipt, delivery reports and the group-MMS semantic change (one
+PDU to all recipients, rejected when the profile says group MMS is off) still
+need a SIM.
+
+## F-Droid screenshots trimmed to 8 feature shots (2026-10-09)
+
+`take-fdroid-screenshots.sh` captured 15 shots (12 light + 3 dark) and the
+README mirrored 8 of them. The set is now **8 light-mode shots**, each on a
+named feature, and the README mirrors all 8:
+
+| # | Shot | Screen |
+|---|---|---|
+| 01 | `01-home.png` | Conversation list |
+| 02 | `02-settings.png` | Settings |
+| 03 | `03-chat.png` | Chat thread (Dad) |
+| 04 | `04-contact.png` | Contact details |
+| 05 | `05-reaction.png` | Long-press reaction picker |
+| 06 | `06-typing.png` | Composer with a draft |
+| 07 | `07-sim-switcher.png` | Chat menu with fake dual-SIM rows |
+| 08 | `08-new-chat.png` | New conversation / contact picker |
+
+- The script empties `fastlane/.../phoneScreenshots` first, so the 15 old files
+  are gone and only the 8 remain.
+- Two matcher fixes were needed: `verify`/`verify_any` now read the decoded dump
+  (`ui.decoded.xml`), because uiautomator escapes 👍 as `&#128077;` and the
+  literal never matched; the typed draft had a transposed word ("On smy way").
+- `README.md` now points at the 8 files, in two 4-up rows.
+- Data comes from `insert-demo-contacts.sh` + `seed-demo-conversations.sh`
+  (dummy contacts). Run passes 8/8 checks on `emulator-5554`.
+
+## #304 App not shown in share intents from other apps (2026-10-09)
+
+| Issue | Feature | JUnit | Regression script |
+|---|---|---|---|
+| #304 | App appears in SMS/text/image share sheets; accepts shared body/image; tapping an image opens a full-screen preview | `ManifestShareIntentFilterTest`, `ImagePreviewWiringTest` | `test-share-intent-filters.sh` |
+
+Other apps (bank payment receipts, share-to-SMS) could not hand a message to us
+because `MainActivity` only declared `SENDTO` for the `smsto:` scheme and had no
+`ACTION_SEND` filter at all.
+
+- **Manifest** now declares `SENDTO` for `sms`, `smsto`, `mms`, `mmsto` and a
+  separate `ACTION_SEND` filter for `text/plain`, so the platform offers the app
+  in both URI-based and MIME-based share sheets.
+- **Intent handling** extracts the shared body from the `?body=` query on an
+  SMS URI or from `Intent.EXTRA_TEXT` on an `ACTION_SEND`, then pre-fills the
+  chat composer. A `SENDTO` with a recipient opens that chat directly; an
+  `ACTION_SEND` without a recipient opens the New Chat picker and carries the
+  body through once a contact is chosen.
+- `ChatScreen` gained `initialDraft` + `onInitialDraftConsumed` so the shared
+  text is applied once and consumed, preventing it from leaking into later chats.
+- Verified to **FAIL** on the unfixed build (`1 passed, 4 failed` — `SENDTO sms`,
+  `ACTION_SEND text/plain`, and both UI paths missing) and **PASS** with the fix
+  (`5 passed, 0 failed`).
+
+### Follow-up: image sharing (same issue)
+
+The reporter came back with "on image share I can't see our message app". The
+text fix had added `ACTION_SEND` for `text/plain` only, so a photo's share sheet
+— which sends `image/*` — still did not offer the app at all. Fixing the text
+case alone left the more common share path broken.
+
+- `ACTION_SEND` now also answers for `image/*`, and a new
+  `ACTION_SEND_MULTIPLE` filter covers a multi-photo selection (Gallery shares
+  those as a list, which `EXTRA_STREAM` as a single Uri would miss).
+- `sharedMediaFromIntent` reads `EXTRA_STREAM` in both its single-Uri
+  (`ACTION_SEND`) and list (`ACTION_SEND_MULTIPLE`) forms, falling back to
+  `clipData` for senders that use that instead.
+- **The incoming URI is copied into the app's cache before anything else.** The
+  grant a share intent carries is scoped to the *task*, so it dies with the
+  activity — and the share flow necessarily outlives it, because the user still
+  has to pick a recipient. Reading the caller's URI at send time would fail
+  intermittently with no obvious cause. The copy is what travels on, which the
+  script asserts via the stored `media_uri` containing `/shared/`. The copy also
+  keeps a file extension, so the URI still resolves to a MIME type (see below).
+- Shared text accompanying a shared image is that image's caption, not a second
+  message, so it is sent with the MMS (`sendMediaMessage` gained a `caption`
+  parameter) and never also left sitting in the composer. Text and media are
+  read from one `LaunchedEffect` so the two cannot disagree about which case
+  they are.
+- Tests: `ManifestShareIntentFilterTest` +2 (`image/*` under `SEND`,
+  `image/*` under `SEND_MULTIPLE`).
+- Regression: `test-share-intent-filters.sh` extended with the two filter
+  queries, the recipientless-image picker check, and an end-to-end send
+  asserted from the database *and* from the rendered bubble. Verified the honest
+  way — removing only the two image filters, rebuilding and reinstalling — it
+  reports **5 passed, 4 failed**; restored, **12 passed, 0 failed**. The
+  extension assertion was likewise confirmed by reverting just
+  `sharedExtension()` in place (**11 passed, 1 failed**). Final state is
+  **14 passed, 0 failed**.
+
+  Two traps here, both paid for in a debugging round:
+
+  1. **The delivered status is not observable here.** The carrier config has no
+     MMS keys, so every send is answered with code 12 and the row lands as
+     `failed`. Asserting delivery status would be a permanent false failure;
+     the stored row is the signal. This is the same trap as `test-mms-send.sh`.
+  2. **`tap_text "Send to"` never matches.** The New Chat row label is
+     `Send to “<number>”` with curly quotes, so an exact-text match misses and
+     `center_of_contains` chokes on the quote bytes. The script parses the node
+     and taps the enclosing bounds itself.
+  3. **A hand-rolled test JPEG is not an image test.** The first fixture was a
+     few hand-written bytes ending in an FFD9 marker. Coil could not decode it,
+     so the bubble was empty — which read exactly like the extension bug below
+     and cost a wrong diagnosis. The fixture is now a real 400x400 PNG encoded
+     with `zlib`/`struct` at generation time. A tiny-but-valid image would fail
+     the same way: below the bubble's practical size the node never appears.
+
+### The cached copy kept no file extension
+
+Independently of the above, the cache copy was named `share-<ts>-<rand>` with no
+extension. `FileProvider` derives a MIME type from the file name, so the stored
+URI resolved to no type at all. Coil happened to sniff the bytes and still
+render, so this is **not** what made the bubble look empty — but it left the
+MMS part's MIME to be guessed downstream rather than declared, which is exactly
+the kind of thing that bites on a codec that does not sniff.
+
+`sharedExtension()` takes the extension from the source URI's own path segment
+where it is a plausible one, and otherwise from the resolved MIME type
+(png/webp/heic/gif, defaulting to `.jpg` as the app already does for an untyped
+attachment). The script asserts the stored `media_uri` ends in a real image
+extension, which fails against the extensionless name.
+
+### Tapping an image did nothing at all
+
+Third round on the same thread: the image arrived and rendered, but tapping it
+did nothing. The image branch of `ChatBubble` wired its `combinedClickable`
+`onClick` to the bubble's generic `onTap`, which toggles *link reveal* — a
+mechanism an image has no part in, since there is no URL to hide. The tap ran,
+changed a state list nothing read, and appeared to do nothing.
+
+- The image branch now routes its tap to a new `onImageTap(msg.mediaUri)`.
+  Selection still wins over the preview while the selection toolbar is up,
+  otherwise a tap meant to mark a message would open a full-screen view instead.
+- New `ImagePreview`: the bubble crops to `ContentScale.Crop` inside a
+  260dp cap, so anything legible in the original is illegible there. The
+  preview is `ContentScale.Fit` on an opaque backdrop with one close control —
+  no zoom, no chrome, because the only question it answers is "what is in this
+  picture". Back, the close button, and a tap on the backdrop all dismiss.
+  The image swallows its own tap so only the backdrop closes it.
+- The `BackHandler` that dismisses the preview is registered **before**
+  `leaveChat`'s. Compose dispatches back to the most recently registered
+  handler, so registering it last would have made back leave the chat with the
+  preview still up.
+
+  This ordering is invisible in the source and only shows up as "back does
+  nothing", so `ImagePreviewWiringTest` pins it explicitly rather than leaving
+  it to a reviewer's eye.
+
+- Tests: `ImagePreviewWiringTest` (4) — the tap routes to `onImageTap`, the URI
+  is held in state and rendered from it, the preview uses `Fit` not `Crop`, and
+  back dismisses the preview rather than the chat. These are source-level
+  because neither the tap target nor the dismissal is JVM-constructible.
+  `ImagePreview` also gets a `@PreviewLightDark` entry, which
+  `PreviewCoverageTest` requires of every visual composable in `src/main`.
+- Regression: `test-share-intent-filters.sh` taps the rendered bubble and
+  asserts the preview opens, then that back closes it. "Full-screen" is decided
+  by width, not by a string: the bubble caps at 260dp (~683px at 420dpi) while
+  the preview letterboxes across the window, so >800px can only be the
+  preview. Verified to **fail** with the tap rewired to `onTap` (**13 passed,
+  1 failed**), then **14 passed, 0 failed** restored.
+
+  Two environment traps here, both of which produced a wall of failures that
+  had nothing to do with the change under test:
+
+  1. **A fresh install shows "Set as default SMS app?" over everything.** It
+     appears once, on first launch after an install that is not the role
+     holder, and it sits on top of whatever the share intent opened — so every
+     UI assertion downstream failed while the manifest queries still passed.
+     The script now dismisses it as setup.
+  2. **The AVD dropped off the bus mid-run** and the script kept driving a dead
+     device, reporting each step as a product failure. `require_device` now
+     aborts instead, the same guard `take-fdroid-screenshots.sh` uses. This one
+     cost a real debugging detour: the failures looked like a regression in the
+     code that had just been green.
+
+## #300 follow-up: screen wake still failed with Privacy mode on (2026-10-09)
+
+The first #300 fix wired up the full-screen intent, but `shouldWake()` still
+required `!privacyMode`. The reporter's diagnostics showed Privacy mode was
+enabled, so the screen never woke even though every other link in the chain
+(permission, channel importance, keyguard) was healthy.
+
+- Privacy mode now hides content from screenshots/recordings; it no longer
+  blocks the screen-wake path. The full-screen-intent trampoline no longer
+  forwards to `MainActivity` (which would surface content over the keyguard);
+  it just turns the screen on and lets the heads-up notification show.
+- The trampoline also acquires a short `SCREEN_BRIGHT_WAKE_LOCK |
+  ACQUIRE_CAUSES_WAKEUP` to force the panel on for Samsung/OneUI devices where
+  `setTurnScreenOn` alone is not enough.
+- `MainActivity` gained a debug probe `--ez privacy_mode true|false` so the
+  regression script can drive the toggle without UI navigation.
+- Tests: `WakeOnLockTest.wakesInPrivacyMode` (was `neverWakesInPrivacyMode`);
+  `FullScreenIntentWiringTest.trampolineAcquiresAScreenWakeLock`.
+- Regression: `scripts/test-notification-wake.sh` now locks the device with
+  Privacy mode enabled, sends an SMS, and asserts the screen wakes. Verified
+  to **FAIL** when `shouldWake` is restored to require `!privacyMode`
+  (`13 passed, 1 failed`), then **PASS** with the fix (`14 passed, 0 failed`).
+
+## Dependency bump sweep (2026-10-09)
+
+Bumped all open Dependabot PRs and verified the integration points still work:
+
+| Dependency | From | To | Where changed |
+|---|---|---|---|
+| `actions/cache` | v4 | v6.1.0 | `.github/workflows/pr-build.yml` |
+| `github/codeql-action/*` | v4.37.9 | v4.38.2 | `.github/workflows/security.yml` (init, analyze, upload-sarif ×2) |
+| `androidx.core:core-ktx` | 1.16.0 | **held at 1.16.0** | `gradle/libs.versions.toml` — 1.19.x requires `compileSdk 37+`, which breaks F-Droid |
+| `androidx.fragment:fragment-ktx` | 1.6.2 | 1.9.1 | `app/build.gradle.kts` |
+| `io.coil-kt.coil3:coil-compose` | 3.3.0 | **held at 3.3.0** | `gradle/libs.versions.toml` — 3.6.x requires `compileSdk 37+`, which breaks F-Droid |
+| `com.googlecode.libphonenumber:libphonenumber` | 8.13.55 | 9.0.40 | `gradle/libs.versions.toml` |
+| `org.json:json` | 20240303 | 20260814 | `app/build.gradle.kts` (test-only) |
+| Gradle wrapper | 9.6.0 | 9.8.0 | `gradle/wrapper/gradle-wrapper.properties` |
+
+- `DependencyApiSmokeTest` pins the JVM-visible APIs: libphonenumber
+  parse/format/display, `org.json` round-trip, and class availability for
+  Coil3, `androidx.core` NotificationCompat and `androidx.fragment`
+  FragmentActivity.
+- Regression: `scripts/test-dependency-bump.sh` builds, installs, cold-launches,
+  checks New Chat number normalization (libphonenumber), incoming-SMS
+  notification posting (`androidx.core`), and the App lock settings row
+  (`androidx.fragment`). **8 passed, 0 failed** on `emulator-5554`.
+- F-Droid build verified with `gradlew-fdroid assembleRelease`: Gradle 9.8.0
+  was downloaded from the transparency log and the release APK built cleanly,
+  keeping `compileSdkVersion='36'` and `compileSdkVersionCodename='16'`.
+- Full `./gradlew testDebugUnitTest` stays green.
+- `.github/dependabot.yml` now ignores minor/major updates for
+  `androidx.core:core-ktx` and `io.coil-kt.coil3:coil-compose` until the
+  project is ready for `compileSdk 37+`.
+
+## 3-digit service/short codes (198, 199) could not be sent (2026-10-08)
+
+`PhoneNumberUtils.isLikelyPhoneNumber` required 4–15 digits, so India's
+198/199-style service numbers were treated as non-dialable. The shared gate
+`AddressIdentity.isReplyable` therefore disabled the New Chat "Send to" row,
+hid the chat composer for existing short-code threads, and stripped reactions /
+notification replies from them.
+
+- Split the dialability decision from the E.164-parse gate:
+  - `isDialableAddress` admits 3–15 digit numbers (short codes replyable).
+  - `isLikelyPhoneNumber` stays 4–15 digits so libphonenumber never tries to
+    parse a short code; `toE164` returns null and the address survives verbatim.
+- `AddressIdentity.isReplyable` now uses `isDialableAddress`.
+- Tests: `PhoneNumberUtilsTest.shortServiceCodesAreDialableButNotE164Parsed`,
+  `AddressIdentityTest.shortServiceCodesAreReplyable`.
+- Regression: `scripts/test-short-code-send.sh` — New Chat accepts 198, the
+  Send-to row is clickable, and the opened chat shows a composer. **4/0** on the
+  fixed build.
+
+## New Chat now focuses the search field and opens the keyboard on launch (2026-10-08)
+
+The New Chat screen opened with the search field unfocused, so the user had to
+ tap it before typing. It now requests focus in `LaunchedEffect(Unit)` and the
+TextField modifier wires a `FocusRequester`, bringing the keyboard up
+automatically.
+
+- `NewChatScreen.kt`: `remember { FocusRequester() }`,
+  `LaunchedEffect(Unit) { focusRequester.requestFocus() }`, and
+  `Modifier.focusRequester(focusRequester)` on the search `TextField`.
+- Test: `NewChatScreenFocusTest` (source-level wiring: requester, launch effect,
+  and modifier all present).
+- Regression: same `scripts/test-short-code-send.sh` asserts the EditText has
+  `focused="true"` immediately after opening New Chat.
+
+## The "Advanced" label drifted: five sweep scripts could never open the screen (2026-10-08)
+
+The settings row is titled "Advanced settings", but `center_of`/`tap_text`
+match node text **exactly**, so `tap_text "Advanced"` never matched it.
+Scripts whose fallback was `tap_contains "Advanced"` still worked
+(`test-hide-links.sh` does exactly that), but the ones whose fallback was
+`center_of_contains` — which only *computes* coordinates and never taps — or
+which had no fallback at all failed everything downstream: `test-diagnostics`
+(1/7), `test-codeql-cleanup`, `test-advanced-move` (5/18), `test-keywords`
+and `test-backup-sim-coil` all failed at "could not open Advanced" /
+"Diagnostics row not found" / "Blocked keywords dialog did not open".
+
+- Normalised every row **lookup** to the real label: `tap_text`, `scroll_to`,
+  `scroll_until`, `tap_until`, `center_of`, `center_of_text`, `y_of`,
+  `textxy`, `tap_settings_row`, `assert_gap_between_rows` and the
+  `grep 'text="Advanced"'` scans — 34 lines across 19 scripts. Genuine
+  substring uses are untouched: `tap_contains "Advanced"`, `grep -q
+  "Advanced"`, and the settings-search `type_text "Advanced"`.
+- Re-run green: `test-diagnostics` **8/0**, `test-codeql-cleanup` **20/0**,
+  `test-advanced-move` **21/0**, `test-keywords` **19/0**,
+  `test-backup-sim-coil` **16/0**.
+- Regressions: `test-hide-links` **29/2** (the same two pre-existing
+  copy-helper failures) and `test-accessibility` **5/19** — verified
+  *identical* with the original file restored against the same build, so its
+  19 failures are a separate pre-existing drift in the accessibility feature
+  flow (the master toggle does not reveal the options), not the label.
+
+## run-all-tests.sh verdict (2026-10-08)
+
+Full sweep on `emulator-5554` against the branch tip after the 13-fix pass:
+**26 of 36 steps clean, 10 fail — every failure reproduces on the pre-session
+baseline (`a244e97`, installed from a detached worktree) or needs a component
+this AVD does not have. None is attributable to the fixes.**
+
+| Script | Cause |
+|---|---|
+| `test-diagnostics.sh`, `test-codeql-cleanup.sh` | Advanced never opens — same drift as below |
+| `test-advanced-move.sh`, `test-keywords.sh`, `test-backup-sim-coil.sh` | same drift |
+| `test-backup-restore.sh`, `test-import-mirrors-provider.sh`, `test-merge-import.sh`, `test-import-loading.sh` | backup/import UI flows on this AVD — identical on the baseline ("Set backup PIN dialog not shown", "not found in picker") |
+| `test-issue-183-split-threads.sh` | requires the third-party `SMS Import / Export` APK, not installed |
+
+Baseline confirmation: `test-diagnostics.sh` **1/7** and
+`test-import-mirrors-provider.sh` ("Set backup PIN dialog not shown") fail
+identically with the pre-session APK installed.
+
+**Known script drift (worth a fix, pre-existing):** `center_of`/`tap_text`
+match the node text **exactly**, and the settings row is now titled
+"Advanced settings" (it was "Advanced"). `tap_text "Advanced" || tap_contains
+"Advanced"` still works — `test-hide-links.sh` does exactly that and passes —
+but the scripts whose fallback is `center_of_contains` (which only *computes*
+coordinates and never taps) never open the screen and fail everything after.
+14 scripts contain the exact-match call; the fix is one line each
+(`tap_text "Advanced settings"`, or `tap_contains` as the fallback).
+
+## The :mms network request excluded MMS-only APNs and ignored the subscription (2026-10-08)
+
+`MmsNetworkBinding` asked for `NET_CAPABILITY_INTERNET` alongside MMS, so the
+one network the carrier provisions for MMS — an MMS-only APN, which has no
+INTERNET capability — was excluded outright; and the request carried no
+subscription specifier, so on a dual-SIM device SIM B's exchange could run on
+SIM A's network.
+
+- The request now requires only MMS (on the cellular transport) and pins the
+  subscription with a `TelephonyNetworkSpecifier` when one is named. What the
+  request has to be is a pure `MmsNetworkSpec` (pinned when the id is a real
+  subscription, i.e. > 0), so the decision is JVM-tested.
+- The connectivity manager became a constructor seam: the platform's
+  `getSystemService(Class)` is *final*, so a context stub could not vary it,
+  and under the unit-test stubs `NetworkRequest.Builder()` answers every call
+  with a default, so the request object itself carries nothing to assert. The
+  builder's source is therefore pinned by `MmsNetworkRequestWiringTest`
+  (MMS yes, INTERNET no, specifier only when named) — the honest regression
+  for a shape a JVM test cannot construct.
+- New `scripts/test-mms-network.sh` gates all five tests by name.
+  Break-the-fix: restoring the old request shape in place (INTERNET re-added,
+  specifier removed) fails the two wiring tests — `4 PASS / 1 FAIL`; restored,
+  `5 / 0`.
+
+## :mms acknowledged partial messages and left failed sends in the outbox (2026-10-08)
+
+Two send/receive bookkeeping faults, both found in review and both invisible
+to the existing tests because those tests asserted the fake's recorded call
+rather than the provider row:
+
+- **A failed part write still returned success.** `persistIn` ignored
+  `persistPart`'s result, so a message whose attachment never landed came back
+  as persisted — and the inbound path acknowledges retrieval on any non-null
+  result. A failed part now rolls the written parts back and returns null.
+- **A refused send stayed in the outbox.** The failure branches called
+  `setPendingErrorType(outbox, …)`, but that writes `ERROR_TYPE` on the
+  *message* URI while the pending queue lives at `content://mms-sms/pending`
+  (and nothing populates it). The row was never moved, so a failed send looked
+  in flight forever. It now moves to `MmsBox.FAILED` — the non-addressable
+  failed box the store contract already pins.
+- **Two sends in the same second shared an id.** `transactionIdFor` hashed
+  second-resolution time + recipients + class only, and the id is the MMSC's
+  only deduplication key (the callback's request code derives from it too). A
+  per-process nonce, clock-seeded so a restart does not repeat the previous
+  run, is now folded in.
+
+- `TelephonyMmsStoreTest` +1, and `MmsFacadeTest`'s refused/unreadable send
+  tests rewritten to assert the *failed box* instead of `pendingErrors`.
+  `SendReqBuilderTest.twoSendsGetDifferentTransactionIds` (its two sends were
+  a second apart) became `twoSendsInTheSameSecondGetDifferentTransactionIds`.
+  The fake resolver gained the whole-parts-collection delete the rollback uses.
+- Break-the-fix: with only the production changes stashed, those 4 tests fail;
+  restored, `:mms` is green.
+- New `scripts/test-mms-facade.sh` gates the three send guarantees by name (a
+  rename would otherwise leave the suite green); `test-mms-store.sh` guards
+  `aMessageWhoseAttachmentCouldNotBeWrittenIsNotPersisted`. Both re-run green:
+  **6/0** and **5/0**.
+
+## The :mms parser rejected valid bare forms and escaped on forged lengths (2026-10-07)
+
+Two hostilities, both found in review:
+
+- **Valid bare forms were rejected.** `readContentType` always demanded a
+  value-length first, and `readEncodedStringValue` always demanded
+  value-length + charset — but both values legally arrive bare (OMA-MMS-ENC:
+  Content-type-value is Constrained-media | Content-general-form, and
+  Encoded-string-value is Text-string | Value-length Char-set Text-string),
+  and the reference accepts both. A carrier sending either got a null PDU
+  instead of its message.
+- **A forged encoded-string length escaped as a crash.** `index + length`
+  was computed before checking the length against what actually remained, so
+  a length near `Int.MAX_VALUE` overflowed the stop index negative, slipped
+  past the bound check, and a later read threw
+  `ArrayIndexOutOfBoundsException` — which `parse()` did not catch, breaking
+  the never-throws contract on hostile input.
+
+Both sides now read the leading octet the way the reference does (below 0x20
+is a length, anything else is already the value; 0x00 is the empty value),
+the length is checked against `remaining` before any index arithmetic, and
+`parse()` catches an out-of-bounds read as defense in depth.
+
+- `PduParserTest` +4: the bare constrained-media Content-Type, the bare
+  text-string To, the empty encoded value, and the forged length (which
+  fails pre-fix by *escaping*, not by asserting).
+- Break-the-fix: with the production changes stashed, all four fail — the
+  forged-length one via the escaping exception; restored, all green.
+- `scripts/test-mms-codec.sh` now gates the four parser-contract tests
+  alongside the three composer vectors: 7 named tests, **21/21**.
+
+## The :mms wire format disagreed with the reference stack (2026-10-07)
+
+Two conventions the module's own round trips could not see, both found in
+review and both pinned against the production reference stack rather than
+against the module's own parser:
+
+- **Uintvar groups went out least-significant first** — 128 was `0x80 0x01`
+  where WAP-230 §3.1 (and the reference) require `0x81 0x00`. Writer and
+  reader agreed with each other, so every in-house round trip passed and only
+  a carrier would have rejected the PDU.
+- **X-Mms-Content-Type was emitted first** — the composer sorted headers by
+  field code, where 0x84 sorts before Message-Type (0x8C). The reference
+  parser stops reading headers at Content-Type, so every mandatory header
+  after it became body bytes.
+
+Both directions are pinned by a new `ComposerParserInteropTest` in the app's
+test set (production still sends through the vendored stack; the new
+`testImplementation(project(":mms"))` is what lets the two stacks prove they
+read each other before any switch-over). The fixture's 300-byte part crosses
+the 127-byte single-octet length boundary in both directions. Getting the
+reference composer to run JVM-only took a `ContextWrapper(null)` stub — its
+constructor stores the resolver but only ever opens it for a part carrying a
+data Uri — and the reference writes phone recipients with the `/TYPE=PLMN`
+suffix, which the app's own `MmsSupport.phoneAddress` already strips.
+
+- `WspTest`'s two pins were themselves wrong (`0x80 0x01` for 128,
+  `0xAC 0x02` for 300) and now pin the wire, not the code.
+- `PduComposerTest`'s pinned M-Send.req vector is reordered (Content-Type
+  last), and `theContainerContentTypeWritesStartBeforeType` — which asserted
+  Content-Type came *first* — became `theContainerContentTypeClosesTheHeaderBlock`.
+- `docs/Mms/02-pdu-wire-format.md` records both rules (uintvar most
+  significant group first; Content-Type closes the header block).
+- `scripts/test-mms-codec.sh`: **21/21** — its vectors are read out of the
+  test source, so the reorder flowed in without restating them; its stale
+  ascending-order comment updated.
+- Break-the-fix, the honest way: with only the production changes stashed,
+  the new expectations fail **6 ways** (both interop directions, the pinned
+  vector, the container test, both uintvar pins); with them restored, 683
+  tests green across `:mms` and `:app`.
+
+## Search leaked hidden content, missed old hits, and announced a bare marker (2026-10-07)
+
+Three follow-ups to the all-history home search, all found in review:
+
+- **A locked message's body leaked through search.** The all-history SQL
+  matched raw bodies, so searching a locked message's text surfaced its
+  thread — proving the secret the app masks everywhere. **"Hide links" was
+  bypassed the same way**: a URL removed from every list and chat still
+  surfaced its thread when searched. Both are one rule — a query may only
+  match what the user can see — which now lives once, in
+  `MessageSearch.matchesVisible` (a locked body never matches; with Hide
+  links on, only the redacted body does, through the same `hideUrls` the UI
+  paints). SQL stays a LIKE prefilter and cannot quietly disagree with the
+  rule. The hide-links setting is threaded through the search state so a
+  toggle re-answers the query.
+- **Home search surfaced threads the chat could never reach.** The chat
+  computed matches only over the loaded window and auto-paging stopped at
+  400, so a hit in a 421-message thread was listed at home but unreachable in
+  the chat. Matches now come from the whole thread
+  (`Repository.messageIdsMatching`), the pager grows past the cap in
+  `LOAD_EARLIER_STEP` chunks while a hit is older than what is loaded, and
+  the scroll effect re-runs when the focused row finally arrives — without
+  re-triggering on later chunk loads, because the marker is the id it last
+  scrolled to, so there is no #284-style snap-back.
+- **The focused hit replaced its readable text for TalkBack.** The marker
+  `contentDescription` swapped the bubble's body for "Search result". It is
+  additive now (`A11y.describe(body, marker)`: "see the code. Search
+  result"), built on the existing tested join.
+- Tests: `MessageSearchTest` (+1: visible matching never sees locked bodies
+  or hidden links) and `A11yTest` (+1: the announcement keeps the body).
+  New `scripts/test-search-privacy.sh` — fails before the fix with the two
+  leaks (`2 passed / 2 failed`, the toggle verified on through the app's own
+  prefs), passes after `4/0`. Its settings navigation force-stops first,
+  because the `open_settings` deep link only opens from a cold start — that
+  cost a debugging round to find.
+  `test-home-search-all-messages.sh` re-anchored on a 421-message thread
+  whose only hit is the *oldest* message (seeded in one recursive-CTE
+  insert) — fails before (`1/2`), passes after (`3/0`). The three
+  search-result marker greps (scroll / highlight / all-messages) now match
+  the combined announcement. Re-run green: `test-chat-search-scroll` (5/5 —
+  the scroll rework kept the no-snap-back), `test-chat-search-highlight`
+  (3/3), `test-in-chat-search` (8/8), `test-home-search-flicker` (3/3),
+  `test-home-search-phone` (10/10). `test-hide-links` fails its two
+  copy-round-trip helper assertions **identically on the stashed baseline**
+  — pre-existing helper flake, not from this work.
+
+## The composed PDU was served from outside the FileProvider's cache root (2026-10-07)
+
+`MmsComposer.pduContentUri` built the outgoing PDU's content URI by hand —
+`content://<authority>/<filename>` — while `file_paths.xml` exposes the cache
+root under the `mms` name segment, so the real URI was
+`content://<authority>/mms/<filename>`. The telephony process reads the PDU
+from that URI over binder (`IMms.sendMessage` — nothing is read in-process),
+so no send could ever be opened. `test-mms-send.sh` still passed: it accepts
+`msg_box=5` and status `failed`, and on this AVD the platform answers every
+send with code 12 (`MMS_ERROR_MMS_DISABLED_BY_CARRIER`) regardless of the URI,
+so the send outcome cannot distinguish a readable PDU from an unreadable one.
+
+- The URI now comes from `FileProvider.getUriForFile`, so the URI and the XML
+  path mapping cannot drift apart again — the mapping has one owner
+  (`file_paths.xml`). A new `FileProviderWiringTest` pins that contract at the
+  source level: the composer must derive the URI through `getUriForFile` and
+  must not hand-build a `content://` URI, the manifest authority must be
+  `${applicationId}.fileprovider`, and the cache root the PDU is written to
+  must be the one the XML exposes.
+- Two diagnostic log lines make the two ends observable: the composer logs the
+  composed URI and size (`MmsComposer` tag), and the sent callback logs the
+  platform's result code (`MmsSend`). The code-12 finding above is what the
+  second one surfaced.
+- `scripts/test-mms-send.sh` gained a URI-shape assertion (the composer's log
+  line must show the PDU under the provider's `mms/` root). Verified the honest
+  way: **8 PASS / 1 FAIL** with the hand-built URI restored and a fresh build +
+  reinstall, **9 PASS / 0 FAIL** with the fix. `test-mms-carrier-config.sh`
+  re-run green (8/8) — it drives the same composer through the debug probe.
+- Honest limitation, recorded here: the platform-side *open* of the fixed URI
+  could not be observed end-to-end on this AVD — every send is answered with
+  code 12 with both the broken and the fixed URI, no MMS keys are set in the
+  carrier config, and the phone process logs nothing about the send. The URI's
+  correctness is pinned by its shape, the XML contract, and the wiring test,
+  not by a completed transfer.
+
+## Incoming MMS was requested from a made-up URL, and the WAP push was dropped (2026-10-07)
+
+Two halves of one dead end, both from the #236 receive path. The downloader
+asked the platform to fetch the **package name** as the MMS location URL
+(`downloadMultimediaMessage(context, context.packageName, …)`), and the
+receiver required `intent.data` — which a WAP push never carries, the PDU
+rides in the broadcast's "data" extra — so a real push never started a
+download at all. Even a perfect sweep asked the platform to fetch
+"com.anindra.messages".
+
+- The pending row carries the real destination: the provider's `ct_l`
+  (Content-Location). `MmsProviderReader.pendingDownloads()` now returns
+  `MmsSupport.PendingDownload(id, contentLocation)` per announced row, and
+  `MmsDownloader.request` passes it as the location URL, keeping the row URI
+  as the content URI the platform writes the RetrieveConf to. A row with no
+  `ct_l` is refused with a log line — there is nowhere to point the platform
+  at.
+- `MmsReceiver` no longer reads `intent.data`: the platform has already filed
+  the announced row when it broadcasts, so the push (and every broadcast
+  missed while the app was not the default handler) is covered by the same
+  `requestPending` sweep. The recognition decision (`isMmsWapPush`) and the
+  blank-location rule (`downloadLocation`) live in `MmsSupport`, where they
+  are unit-testable.
+- Tests: `MmsSupportTest` (+2: WAP-push recognition by action+type, and the
+  Content-Location a download can be requested from).
+  `scripts/test-mms-download.sh` extended: the pending fixture is seeded with
+  `ct_l`, the sweep assertion now requires the request to come **from** the
+  seeded Content-Location, and a new section delivers a WAP push (explicit
+  component — a shell-sent *implicit* `WAP_PUSH_DELIVER` is never dispatched
+  by AMS, confirmed in the broadcast-queue dumps — while the receiver's
+  filter registration was confirmed via the package dump's Receiver Resolver
+  Table) and asserts the push alone starts the request. Fails before the fix
+  with `4 PASS / 2 FAIL` (made-up URL + dropped push, each for its own
+  reason), passes after with `6 PASS / 0 FAIL`, verified the honest way
+  (fresh build + reinstall before every run).
+- `test-mms-retry.sh` seeds now carry `ct_l`, since a row without one is no
+  longer requestable — `7 PASS / 0 FAIL` after the change.
+
+## The provider-sync prune deleted every imported MMS (2026-10-07)
+
+`136ae6f` (2026-10-02) taught the doomed-row side of the prune to namespace
+MMS ids negative (`providerKey`), but the live provider-id set was still built
+with raw positive ids from both transports — so `-id` was never in the set and
+**every** provider-backed MMS was pruned by the same `syncFromSystem` pass that
+imported it. An imported MMS never survived a sync; it vanished before the
+first frame that could show it. `test-mms-import.sh` (#210) had last been run
+green on Sep 24, eight days before the prune existed, so nothing caught the
+regression.
+
+- The namespacing decision now lives once, in `data/ProviderPresence.kt`
+  (`key(transport, sysId)`). `PROVIDER_MESSAGE_SOURCES` carries each source's
+  transport so the live-set build keys through it too — both sides of the
+  comparison call the same function, so they cannot disagree about which side
+  of zero an id lives on.
+- `ProviderPresenceTest` (4): the sign convention, the cross-transport
+  non-match, and the survival case.
+- `scripts/test-mms-import.sh` is the regression — it already covered import +
+  a second sync; it just had not been run since the prune landed. Fails before
+  the fix at 'existing provider MMS imported' (`1 PASS / 1 FAIL`), passes after
+  `5 PASS / 0 FAIL` including idempotent reimport. Verified the honest way both
+  times: fresh `assembleDebug` + reinstall before each run.
+- `test-sms-mirror.sh` re-run around it: §1–3 green on both builds; §4
+  (fresh-install re-import) fails **identically on the stashed baseline** —
+  pre-existing, not from this work (same status as `test-chat-render.sh` /
+  `test-multipart-sms.sh` below).
+
+## Chat bubble corners: flat joins, one connected block (2026-10-07)
+
+The corner redesign shipped in the #284 working tree squared off each
+bubble's *outer* edge (the screen-edge side) and kept the joined side rounded,
+so a middle bubble was fully rounded and a run of same-sender messages read
+as a stack of separate bubbles. Reviewed against real Google Messages and
+rejected. The final design:
+
+| position | received (tS, tE, bS, bE) | sent |
+|---|---|---|
+| SINGLE | 18, 18, 4, 18 | 18, 18, 18, 4 |
+| FIRST | 18, 18, 4, 18 | 18, 18, 18, 4 |
+| MIDDLE | 4, 18, 4, 18 | 18, 4, 18, 4 |
+| LAST | 4, 18, 18, 18 | 18, 4, 18, 18 |
+
+- Everything except MIDDLE is what commit `9159b0e` originally shipped: a
+  lone bubble and the first of a run share the "tail" — only the bottom
+  corner on the sender's stack side (start/left for received, end/right for
+  sent) is flat, the other three stay rounded — and the last of a run is
+  flat on the corner joined from above. MIDDLE alone changed from fully
+  rounded to flat on both stack-side corners, so a run reads as one
+  connected block.
+- `bubbleCorners()` in `ui/MessageGrouping.kt` is the only production change.
+  Every bubble surface — the real bubble, the loading skeleton and the
+  preview row — plus the `BubbleShape` logcat marker render through it, so
+  none can re-derive the corners and disagree (the skeleton's hand-synced
+  corner literals had already drifted when the redesign landed).
+- `BubbleCornerShapeTest` and `MessageGroupingTest` pin the full table.
+- `test-bubble-corners.sh` re-anchored (SINGLE + MIDDLE assertions; its
+  FIRST/LAST assertions already described the design, having gone stale
+  against the uncommitted redesign rather than against history). Verified
+  the honest way, rebuild + reinstall before every run: **2/6 FAIL** on the
+  flat-outer design, then **6/2 FAIL** on the flat-both SINGLE design (only
+  the two SINGLE assertions failing), then **8/8** after each fix.
+
+## Issue #284 second follow-up: number search is a contact search, and the jump to the top (2026-10-08)
+
+Reporter filed a second patch from a Claude session (`issue-284-number-search-and-chat-scroll.patch`,
+written against `ac8ffdb`, never compiled or run where it was written). Four of the five
+items shipped; the scroll-to-latest button was declined.
+
+- **A number query is now a contact query and nothing else.** `ConversationList.filter`
+  splits on `AddressIdentity.isNumberQuery` (digits plus `+ - ( ) .` and spaces). A
+  number query matches addresses only — not `name`, not `snippet`, not
+  `messageMatchIds`. That is what stops every chat that merely *mentions* a number
+  from being listed, and it also drops the `snippet.contains` path that let a digit
+  inside a sender name or a snippet match a number query. `rememberMessageMatchIds`
+  bails before the debounce for a number query, so the `LIKE` scan over every message
+  body never runs, and it clears `HeldMessageMatches` too or a previous text query's
+  ids survive into the number query.
+- **`X1 INFO`-style sender IDs no longer flicker per keystroke.** The old
+  `matchesNumber` stripped the address to digits, so `X1-SRB` became `"1"` and
+  `q.endsWith(a)` was true for every query ending in `1` — present for `101`, gone for
+  `1010`, back for `10101`. An address containing a letter is now rejected outright,
+  the same rule `samePerson` already used. `AddressIdentityTest` had a comment
+  declaring `matchesNumber("ABC123", "123")` true and "harmless"; that is now false
+  and asserted false.
+- **A contact is found from the first digits.** A suffix test cannot succeed until
+  the query is nearly complete, so containment replaced it — compared against the
+  E.164 digits and two national spellings (trunk zero kept, and stripped), which is
+  what a contact is actually typed as. The last-seven `compareDigits` rule stays as
+  the final fallback. New `PhoneNumberUtils.nationalDigits` derives the national run
+  via libphonenumber and is cached on the canonical E.164, so it is one `format` per
+  unique number rather than one per keystroke.
+- **One and two digits leave the list unfiltered.** Both the number-match and the
+  message-search paths reject a query under `MIN_SEARCH_DIGITS`, so a query in that
+  window used to match nothing and blanked the list mid-typing. New
+  `AddressIdentity.tooShortToBeNumber`, checked *before* the number-query branch —
+  that ordering is load-bearing and was wrong on the first attempt.
+- **Opening a search result no longer jumps to the top of the history.**
+  `searchWantsOlder` keyed on `searchMatches.first()`, the *oldest* match, so one
+  ancient hit anywhere in the thread made the pager walk the whole history in
+  `LOAD_EARLIER_STEP` (200) jumps while the view sat on the newest hit, which was
+  already loaded. It now follows `focusedSearchId`, which is already
+  `focusedOverrideId ?: searchMatches.lastOrNull()` — so previous/next still pages an
+  older match in on demand.
+- **`MainActivity.handoffSearchQuery`** nulls a number query before it reaches
+  `chatSearchQuery`, so opening a contact neither scrolls to nor highlights a message.
+  Both conversation lists needed no change; they pass the raw query through and this
+  decides once for both.
+
+Deliberately **not** shipped, and stated as such in the #284 reply:
+
+- **No scroll-to-latest button.** A missing feature rather than a defect: permanent
+  clutter above the composer, in every chat, to work around a bug the paging fix
+  removes. Revisit if asked.
+- **No message search for number queries.** A code inside a message (an OTP) is no
+  longer findable from the home search. In-thread search already covers the whole
+  conversation, so it is the better tool for that job anyway.
+
+Tests: `AddressIdentityTest` (+6, incl. the `101`/`1010`/`10101`/`101010` table and
+the trunk-zero/leading-zero national forms), `ConversationListTest` (+3),
+`test-number-search.sh` (new, 13 checks), `test-chat-search-scroll.sh` (extended:
+seed grown past `LOAD_EARLIER_STEP` with an old hit so the jump actually reproduces).
+
+Two traps worth keeping, both paid for in real time here:
+
+- **The scroll seed must exceed `LOAD_EARLIER_STEP`.** At 120 messages the whole
+  history lands in a single prepend, the anchor is never lost, and the script passed
+  against reverted code — a green run proving nothing. 400 messages makes the pager
+  take the 200-row steps that break `LazyColumn`'s bounded-window key anchoring.
+- **A body match can mask a broken address match.** Check 2 (partial number finds the
+  contact) passed against reverted code once the seed also carried the number inside
+  a message body, because `messageMatchIds` surfaced the row on its own. The seed is
+  now two-phase: check 2 runs clean, then `seed_self_number` adds the body hit that
+  check 4 needs in order to be discriminating.
+
+Unrelated and pre-existing: `test-alphanumeric-sender.sh` check 1 ("alphanumeric
+notification wrongly offers a Reply action") fails identically on stock `HEAD`.
+
+## Issue #284 follow-up: contact number, flicker, and the scroll snap-back (2026-10-07)
+
+Three of the four items left open in the #284 thread. Both conversation lists
+get the same fix; the legacy list is the *default* (`use_new_ui=false`) and had
+neither the message search nor the handoff at all.
+
+- **A saved contact is now findable by its phone number.** `AddressIdentity
+  .matchesNumber` was a digits-only suffix test, which cannot see a national
+  spelling: the thread holds `+919876543210` while the contact is dialled and
+  typed as `09876543210`, and neither digit run suffixes the other. It now falls
+  through to the last-seven `ContactLookup.compareDigits` rule that contact
+  lookup already uses, rather than keeping a second, narrower copy of it.
+  Note `+20…` (Egypt) happened to suffix-match already — `2` + `0` + N — so a
+  test using it proves nothing; 91 and 44 are the cases that actually failed.
+- **The result list no longer blanks on every keystroke.** A number query
+  matches no contact name, so the whole result set came from the message-match
+  flow, and collecting it with an empty initial value emptied the list for a
+  frame each time. `HeldMessageMatches` now keeps the outgoing ids until the new
+  query answers, and the query is debounced. The shared search state moved to
+  `ui/ConversationSearch.kt` so the two lists cannot drift again — which is how
+  the legacy list lost the phone-number match in the first place.
+- **Scrolling in a chat no longer snaps back up to the search hit.** The scroll
+  effect was keyed on the hit's row *index*, and the pager prepends older
+  messages in 40-message chunks, so each chunk load shifted the index and
+  re-fired `scrollToItem`. It is keyed on the message id now, and the focused
+  match is derived (`focusedOverrideId ?: searchMatches.lastOrNull()`) instead of
+  stored as an index that a chunk load used to reset.
+- The legacy list now takes `(Long, String)` from `onOpenConversation` and
+  passes the query through, so a hit is highlighted and jumped to on the
+  default UI as well.
+
+Tests: `AddressIdentityTest`, `ConversationListTest`, `HeldMessageMatchesTest`,
+`test-home-search-phone.sh` (extended), `test-home-search-flicker.sh` and
+`test-chat-search-scroll.sh` (new).
+
+Two notes worth keeping:
+
+- **The flicker could not be asserted from `uiautomator`.** The blank is one or
+  two frames and a dump takes ~1s; Compose's key-based anchoring also restores
+  the scroll position afterwards, so nothing persistent was left to check. The
+  rule is pinned in `HeldMessageMatchesTest` instead, and
+  `test-home-search-flicker.sh` is an end-to-end guard, not a fail-before gate.
+- **Scroll assertions must hide the IME first.** The soft keyboard covers the
+  lower half of this AVD, so a swipe aimed at the bottom of the screen lands on
+  the keyboard and silently tests nothing. This cost real time twice.
+
+## Home-search handoff: highlight + scroll in chat (2026-10-05)
+
+Searching the home list and tapping a conversation opened the chat at the
+bottom, so the user could not see where the keyword was. The active home query
+is now carried into the chat, which highlights every matching message and
+scrolls to the newest hit.
+
+- `ConversationsScreen.onOpenConversation` is now `(Long, String)`; the second
+  value is the trimmed query while the search field is open (blank otherwise).
+  `MainActivity` keeps it in `chatSearchQuery` and passes it to `ChatScreen`;
+  every other way into a chat (new, scheduled, spam, intent, group) clears it.
+- `data/MessageSearch.kt` holds the pure rules: case-insensitive `matches`,
+  `ranges` for the styled spans (matching without folding keeps offsets valid),
+  and `focusedId` for the newest matching message. Unit tested in
+  `MessageSearchTest`.
+- `ChatScreen` computes the matching ids and the focused id, and the existing
+  bottom-on-load effect now prefers the focused row (`scrollToItem`). The match
+  is scrolled to once it loads, including after a later chunk arrives.
+- The match flashes like a settings jump: the keyword background and the
+  focused bubble's border fade in, hold ~1.6s, then fade out (`animateFloatAsState`
+  over the app's motion tokens), so the pointer is temporary and vanishes. The
+  persistent `Search result` content description (`chat_search_result`, added to
+  all 13 locales) stays on the hit so a uiautomator dump can assert it without a
+  screenshot. The keyword tint is layered on the finished `AnnotatedString` so
+  the animation does not re-run Linkify every frame.
+- `test-chat-search-highlight.sh` seeds a conversation named with the keyword
+  and one matching message that is the *oldest* of 46, searches the home list,
+  opens the row, and asserts the message is visible and marked. Verified to
+  FAIL on a build with `focusedId` forced null (rebuilt + reinstalled).
+
+## Reaction chip stays on the message's own side (2026-10-05)
+
+The reaction chip was briefly end-aligned during this work; the user reviewed it
+and chose the original behaviour — incoming chip on the left, outgoing on the
+right — so the alignment is unchanged. `test-message-reactions.sh` and
+`MessageReactionsTest` carry no position assertion.
+
+Observed while checking the physical phone: on a real device that is also the
+default SMS handler, the reaction fallback texts (`Reacted 👍 to …` /
+`Removed 👍 from …`) showed up as ordinary messages in the thread. That is the
+#188 app-to-app protocol being echoed/stored by the sending side; the local
+single-emulator roundtrip test cannot see it. Left as-is pending a decision.
+
+- `test-reaction-roundtrip.sh`'s "ordinary text still stored" check matched
+  every `just a normal reply%` row, including orphans left by other scripts
+  whose rowids were later reused; it now matches the run's unique body.
+
+## Home search across all messages (2026-10-06)
+
+Issue #284 feedback: the home search only matched a conversation's newest
+message (the snippet). A word buried in an older message did not surface its
+thread, even though the query already carries into the chat and jumps to a
+match.
+
+- `Repository.conversationIdsMatchingMessage(query)` returns the ids of
+  conversations with a matching non-deleted message (`body LIKE %query%`,
+  escaped, observed like the other flows).
+- `ConversationList.filter` takes that set and matches it alongside
+  name/address/snippet/number, so a hit anywhere in a thread lists it. The
+  parameter sits before the trailing `snippetFor` lambda so existing trailing
+  lambda call sites keep compiling.
+- Opening the thread still uses the handoff: it scrolls to the newest matching
+  message and flashes it.
+- Tests: `ConversationListTest.aHitAnywhereInTheThreadSurfacesTheConversation`;
+  `test-home-search-all-messages.sh` seeds a thread whose only hit is 30
+  messages old, searches it, and asserts the thread lists and opens on the hit.
+
+## In-chat search (2026-10-05)
+
+The overflow menu gained a Search item that opens a search field in the top bar
+(same styling as the home list) and matches **only the open conversation**.
+
+- `ChatScreen` holds `searchOpen`/`chatQuery`; the active query is the in-chat
+  one while open, otherwise the home-list handoff. `MessageSearch.matches`
+  filters `messages`, `step` clamps the next/previous movement.
+- The bar shows a `n of m` counter and up/down buttons (`Previous match` /
+  `Next match`); typing focuses the newest hit, Previous walks older, Next
+  newer. Every move scrolls to the hit and replays the same flash highlight as
+  the handoff. Back closes the search.
+- The two arrow buttons are a compact pair (36dp targets, 28dp glyphs, with
+  `LocalMinimumInteractiveComponentSize` cleared) so they sit close together
+  instead of the default 48dp-apart top-bar actions.
+- The search `TextField` pins `textStyle = bodyLarge`, otherwise it inherited
+  the top bar's title style and rendered much larger than the home search.
+- New strings `chat_search`, `chat_search_hint`, `chat_search_previous`,
+  `chat_search_next`, `chat_search_counter` in all 13 locales.
+- `ChatSearchBar` has a preview; `ChatTopBar` previews pass `onSearch`.
+- `MessageSearchTest` covers `step`; `test-in-chat-search.sh` seeds two hits 20
+  messages apart, opens the menu, types, and walks previous/next.
+
+## Shorter swipe-to-act (2026-10-05)
+
+Making the required swipe for a conversation action smaller. Google Messages
+commits on a short flick, but M3's `SwipeToDismissBox` has a hardcoded
+mid-drag target switch at **half the row** (issuetracker 471021165), and the
+app additionally gated the release on `progress >= 0.65f`, so the gesture
+needed ~65% of the width.
+
+- The fraction now lives once in `SettingsLayout.SWIPE_COMMIT_FRACTION`
+  (`0.30f`) and is passed to **both** `positionalThreshold` and the
+  `confirmValueChange` gate in `SwipeConversationItem` (`ConversationsScreen.kt`)
+  and in `LegacyConversationsScreen`. A slow release is settled through
+  `positionalThreshold`, so 30% commences the action; because the fraction sits
+  below the library's hardcoded half-row switch, that switch can no longer
+  decide the gesture.
+- `test-swipe-threshold.sh` previously pinned 31%/56% travel as "must bounce".
+  Re-anchored to 17% bounces / 39% commits. The new script was verified to
+  **fail** on the old 0.65 build (constant temporarily reverted, rebuilt,
+  reinstalled) before passing on 0.30 — the same revert also failed
+  `SwipeThresholdTest`.
+- Tests: `SwipeThresholdTest` (constant is small and both screens gate on it),
+  `scripts/test-swipe-threshold.sh`.
+
+## Message reactions (2026-10-05)
+
+Branch `feat/own-mms-package`, issue #188. Long-press a message to attach a
+local emoji reaction. The data layer already existed (`messages.reactions`,
+`setReactionsSuspend`, `serializeReactions`/`parseReactions`,
+`AppViewModel.setReactions`); only the UI was missing.
+
+- The picker is an anchored sibling of the bubble in a custom `Layout`: it is
+  placed just above the pressed bubble but the Layout reports the bubble's size,
+  so opening it never reflows the list or moves the bubble (a picker inside the
+  bubble added its height and pushed everything down; one in the top bar was too
+  far away). It animates in and out with a fade + scale, honouring reduce-motion.
+  It offers the app's 8 `EMOJIS`; tap toggles.
+- A reaction renders as a single bordered pill on the bubble's bottom edge. A
+  row of separate surfaces below the bubble read as a message the user sent.
+- The picker is shown for the single *selected* message (derived from the
+  selection, not a separate pressed-id): selecting a second message hides it,
+  and deselecting back to one shows it on the remaining message.
+- Reactions are refused on a concealed locked message: the SMS fallback would
+  quote its body and defeat the lock. Once unlocked, it can be reacted to.
+- Reactions are local-only, but each add/remove also sends a readable SMS
+  fallback (`Reacted 👍 to <snippet>` / `Removed 👍 from <snippet>`) through
+  `SmsSender.sendRaw`, which stores no row so it never appears as our own bubble.
+- The notice is **send-only**: `ReactionFallback` builds the text and nothing
+  parses it, so on the receiving install it arrives as an ordinary message
+  bubble (`Reacted 👍 to <snippet>`). `36f1adf` had made it a protocol that
+  applied the emoji to the referenced message; that was reverted at the user's
+  request — the text reads as a message again. Wording kept as-is (English,
+  quote-free, so a recipient without the app understands it and a plain
+  `sms send` can carry it).
+- A locked/concealed message is not reacted to (the fallback would leak its body),
+  and the picker is not offered where a message cannot be sent (alphanumeric
+  sender IDs, blocked numbers).
+
+Tests: `MessageReactionsTest` (toggle, preserve imported counts, order, quote,
+and the locked-message gate); `ReactionFallbackTest` (wording, one SMS segment,
+60-char cap); `test-message-reactions.sh` (5/5); `test-reaction-roundtrip.sh`
+(5/5 — asserts the notice IS stored as a message and the referenced message
+carries no reaction); `test-reaction-cases.sh` (9/9).
+
+Verified to **fail** on the pre-revert build (reverted, rebuilt, reinstalled)
+before passing: the roundtrip script reported `reaction was applied to the
+referenced message (':1')`.
+
+## Short codes: cannot message "198" (2026-10-08) — OPEN
+
+`isLikelyPhoneNumber` requires 4–15 digits, so a 3-digit short code fails
+`isReplyable` → `isPhoneNumber` → the composer is never composed and the chat
+renders `AlphanumericNotice` instead ("You cannot send messages to alphanumeric
+senders like 198"). `NewChatScreen` gates the same way, so the thread cannot
+even be started from search.
+
+Planned fix: split the two questions the single predicate answers. Keep
+`isLikelyPhoneNumber` (4–15) gating `toE164`/`displayFor`/`nationalDigits`, so
+parse cost and E.164 behaviour are unchanged, and add `isDialableAddress` (no
+letters, 3–15 digits) for `AddressIdentity.isReplyable` only. Identity must not
+move: short codes have no E.164, so `canonical("198")` has to stay `"198"` or
+threads split. The same predicate gates the notification actions (`MainActivity`
+394/479/504/559/789), which unblock for free.
+
+Open question for the user: whether 1–2 digit addresses should also become
+sendable (plan keeps the floor at 3).
+
+`env.sh` matching fixes found here: `dump_ui` now deletes the remote dump,
+confirms it succeeded and retries (a segfault left a stale file that read as the
+wrong screen); `ui_decode` decodes the numeric character references uiautomator
+writes for emoji (`&#128077;`) so a literal search matches; `ui_has` and
+`center_of_top` match against the decoded dump, the latter picking the topmost
+of several identical labels (the picker bar vs the reaction badge).
+
+## Unread-at-top defaults off (2026-10-05)
+
+Branch `feat/own-mms-package`. Compared against QUIK SMS (`quik-sms/quik`,
+built from source): its `unreadAtTop` preference defaults to `false`, so its
+inbox is strictly newest-first. Ours defaulted `unreadAtTopEnabled` to `true`,
+so an older unread thread could sit above a newer read one — the actual latest
+message was pushed down and took a scroll to find. The default is now `false`;
+the "Unread at top" toggle stays available for anyone who wants it.
+
+`ConversationListTest.unreadAtTopDefaultsToOff` pins the default.
+`test-unread-at-top-default.sh` (6/6) does `pm clear`, asserts the switch is off
+on a fresh install — read from `android layout`, because uiautomator is
+unreliable against this Compose screen — then proves opting in still toggles the
+preference. Against the old default it fails 4/2, so it is a real guard.
+
+## Import & export log restyle (2026-10-05)
+
+Branch `feat/own-mms-package`. The log was a flat column of text with no card
+and no status, and the newest run was buried at the bottom. It now reads like
+the rest of the settings surface.
+
+- Each run is a `GroupedRowCard` carrying a success/failure disc, the operation
+  (Import/Export, or a Restore mark when startup self-healing produced the
+  entry), the reason, conflict rows with a warning icon, the `format · mode`
+  meta line, and the timestamp.
+- The outcome is carried three ways — icon shape, colour, and a status pill
+  reading "Succeeded"/"Failed" — so it survives a monochrome screen and a
+  screen reader. A second pill shows "Retried N×" when `attempts > 1`.
+- Runs are listed **newest first**: the run a user just performed is the one
+  they are checking, and it should not sit below twenty old ones.
+- The empty state is a centred history icon over the existing text.
+- Three strings (`transfer_log_status_ok`, `transfer_log_status_failed`,
+  `transfer_log_retried`) were added to the base and **all 12 locales**.
+  `TransferLogScreenWiringTest` pins the pills and the newest-first order;
+  `test-transfer-log.sh` gained an assertion that the outcome pill renders
+  (13/13), verified to fail on a build that drops the wording.
+
+## Backup/restore self-healing with retry and backoff (2026-10-05)
+
+Branch `feat/own-mms-package`. Backup and restore can fail transiently — storage
+busy, a MediaStore insert that races, a source stream that opens empty — and a
+single attempt meant a periodic backup could wait a whole interval, or a restore
+could be abandoned mid-way. Every path is now bounded-retry with exponential
+backoff, and an interrupted restore heals itself at startup.
+
+| Layer | What changed | JUnit | Regression script |
+|---|---|---|---|
+| Retry core | `TransferRetry`: transient vs permanent, capped exponential backoff | `TransferRetryTest` | `test-backup-retry.sh` (8/8) |
+| Backup | snapshot once, verify, retry the destination write; partial file deleted | `TransferRetryTest` | `test-backup-retry.sh` |
+| Worker | transient failure -> `Result.retry()` (capped), WorkManager exponential backoff, one-shot retry on next launch | `PeriodicBackupSchedulerTest`, `BackupHealthTest` | `test-backup-retry.sh` |
+| Restore | staging and merge retried; interrupted REPLACE swap recovered at startup | `ImportRecoveryTest` | `test-backup-retry.sh` |
+| Report | transfer log carries `attempts`/`recovered`; Diagnostics prints a Backup section | `TransferLogTest` | `test-transfer-log.sh` |
+
+- `TransferRetry` mirrors `MmsRetry`: `IOException` / SQLite-locked are
+  transient, a wrong PIN or corrupt file is permanent and stops on the first
+  attempt. The budget is finite (`MAX_ATTEMPTS = 3`); after it the failure is
+  recorded and the normal schedule resumes — no unbounded retry.
+- The backup snapshots the database once, then retries streaming that stable
+  file, instead of re-reading the moving database each attempt. Snapshots are
+  unique per run, so a manual backup and the periodic worker can never delete
+  each other's file.
+- `PeriodicBackupWorker` and the new `BackupRetryWorker` both delegate to
+  `AutomaticBackup`. The retry is a **distinct class** so
+  `WorkSpec ... LIKE '%PeriodicBackupWorker%'` still names exactly the periodic
+  job that `test-periodic-backup.sh` reads back.
+- `Repository.recoverInterruptedImport()` runs synchronously in
+  `MessagesApplication.onCreate`, before any Activity opens the database: a
+  missing live file is rebuilt from `pre_import_backup.db` (or a valid
+  `import_temp.db`), and the recovery is written to the transfer log. It keeps
+  the pre-import copy if the live file is still broken, so the next launch can
+  try again instead of deleting the only history.
+- Debug probe `--ez backup_export_probe true --ei backup_fail_first N` injects N
+  transient failures into the destination write so the on-device script can
+  observe the retry; `--ez transfer_log_probe true` dumps the log.
+- `test-backup-retry.sh` was confirmed to fail on the unfixed build (retry and
+  recovery disabled): 6 of 8 failed, then 8/8 pass once restored.
+- `test-backup-heal-scale.sh` (opt-in; **overwrites local history**) seeds 5000
+  conversations / 10000 messages and proves the same two paths at scale:
+  retried backup holds all 10000 messages with `integrity_check=ok` (~2.2 s),
+  and startup recovery restores the database (~1.0 s) with no OOM or crash.
+  It is deliberately **not** in `run-all-tests.sh`.
+
+## #300 Incoming SMS does not wake a locked screen (2026-10-08)
+
+| Issue | Feature | JUnit | Regression script |
+|---|---|---|---|
+| #300 | Full-screen intent wakes the screen for an incoming SMS | `WakeOnLockTest`, `FullScreenIntentWiringTest` | `test-notification-wake.sh` |
+
+A heads-up popup is a *peek*: the panel stays asleep on a locked screen. Only a
+full-screen intent is treated as a user-initiated wake, and the app had neither
+the intent nor the permission — which is the whole bug.
+
+- **The chain, all three links required.** `USE_FULL_SCREEN_INTENT` declared in
+  the manifest (granted at install up to Android 13; on 14+ it is only
+  auto-granted to calling/messaging apps, which the SMS role satisfies);
+  `setFullScreenIntent()` on the incoming notification when
+  `shouldWake(...)` holds; and `sms/FullScreenSmsActivity`, a translucent
+  trampoline that sets `setShowWhenLocked`/`setTurnScreenOn`, forwards to
+  `MainActivity` and finishes. The trampoline is deliberately *not*
+  `MainActivity` — the platform FSI policy requires the target not be the app's
+  primary launch activity. It also re-checks `isKeyguardLocked` on entry and
+  bails, so a stale intent cannot hijack a screen the user is already using.
+- **`shouldWake` is pure** (locked ∧ notifications ∧ receive-sound ∧ ¬privacy)
+  so the truth table is unit-tested without a device. Privacy mode suppresses
+  the wake because the trampoline would otherwise surface content over the
+  keyguard.
+- **Sticky channel demotion** (found on the way, independent of #300):
+  `createNotificationChannel()` upserts and **cannot raise importance once the
+  user has touched the channel**, so sound, heads-up and FSI die permanently and
+  the app has no way back. `recoverDemotedChannel()` deletes and recreates when
+  importance is below `IMPORTANCE_DEFAULT`. `IMPORTANCE_DEFAULT` itself is left
+  alone — a deliberate "quiet" choice stays respected, only a broken channel is
+  rebuilt.
+- **Diagnostics** now reports `Full-screen intent: granted/denied`,
+  `Channel importance: 4 (high)`, `Keyguard locked: yes/no` and
+  `Wake screen for new messages: will wake/headsup only`, plus a hint pointing
+  at Settings → Notifications when the permission is denied. That is what
+  separates "our code didn't set it" from **OneUI's global "Full screen
+  notifications" toggle**, which discards the intent outright and which no app
+  can override. It reads the live permission and channel the notifier reads; it
+  re-derives nothing.
+- **`test-notification-wake.sh`** asserts each link separately (permission,
+  channel importance, the screen actually leaving `mWakefulness=Asleep`, and the
+  trampoline actually launching), because each can be present while the others
+  are not. Verified **9 failures on the unfixed build, 0 after**.
+
+  Four traps, each of which made the script assert the wrong thing. None are
+  visible from the JUnit side:
+
+  1. **The AVD has no lock credential.** `isKeyguardLocked` is false, the wake
+     is correctly declined, and the test measures the absence of a keyguard
+     rather than a broken fix. The script now sets and clears a PIN itself.
+  2. **The notification record is consumed on launch.** The platform removes it
+     ~250 ms after a full-screen intent fires — narrower than one adb
+     round-trip, so polling `fullScreenIntent=` can never catch it. Asserting it
+     would be a permanent flake. It is a documented `[SKIP]`; the trampoline
+     launch observed in logcat is the real proof, and it is strictly stronger.
+  3. **Channel importance dumps as
+     `NotificationChannel{mId='messages_default'…mImportance=4}`**, not the
+     `NotificationChannel(id=…importance=…)` form the grep first guessed.
+  4. **A conversation row's label is in `content-desc`, not `text`**, wrapped
+     in bidi isolate marks — so grep the marker alone, not a `text="…"` match.
+
+  Asserting the *outcome* (wake + launch) rather than the notification
+  artifact also sidesteps a race worth knowing about: once the screen is on the
+  keyguard is unlocked, so the app re-posts the same notification **without** a
+  full-screen intent, replacing the record entirely.
+
+## Notification delete, passwordless backup, periodic backup (2026-10-05)
+
+Branch `feat/own-mms-package`. Three GitHub issues in one pass:
+
+| Issue | Feature | JUnit | Regression script |
+|---|---|---|---|
+| #285 | Notification "Delete" action trashes the newest message | `NotificationDeleteActionTest` | `test-notification-delete.sh` (4/4) |
+| #290 | Opt-in periodic backup, Daily/Weekly | `PeriodicBackupSchedulerTest` | `test-periodic-backup.sh` (10/10) |
+| #292 | Passwordless (plaintext) backup behind a warning | `BackupPasswordlessWiringTest` | `test-backup-unencrypted.sh` (3/3) |
+
+- **#285** adds `sms/DeleteMessageReceiver` (non-exported), declared in the
+  manifest and attached to the per-conversation notification next to Reply and
+  Mark as read. It moves the newest incoming message to Trash, so it stays
+  recoverable, and cancels the notification. The test asserts the action is on
+  the notification via `dumpsys notification`, then fires the receiver as root
+  (non-exported receivers are unreachable from a non-app shell) and checks
+  `deleted_at>0` on a still-present row.
+- **Notification actions** (follow-up to #285): Reply, Mark as read and Delete
+  are each gated by their own setting, toggled from Advanced settings →
+  Notifications — inline in the legacy Advanced screen, on the Notification
+  settings screen in the new UI. `NotificationActionSettingsTest` pins the
+  gating and both UIs; `test-notification-actions.sh` (11/11) flips the prefs
+  and checks the posted action set with `dumpsys notification`.
+- **#292** splits `Repository.backupDatabase` into a shared `writeBackup` and
+  adds `backupDatabaseUnencrypted` (plain copy, recorded as `BackupFormat.RAW`).
+  There is **no separate "back up without PIN" option**: in the "Set backup PIN"
+  dialog, pressing **Save with the PIN fields empty** writes the plaintext
+  database behind the warning; a PIN still produces the encrypted file. Both
+  UIs behave the same. The test drives the real UI with `android layout` and
+  checks the written file's SQLite magic.
+- **#290** cannot prompt for the PIN in a background worker, so it schedules the
+  same plaintext snapshot. The periodic toggle and Daily/Weekly cadence live
+  **inside the "Set backup PIN" dialog** (not General settings).
+  `PeriodicBackupScheduler` maps the stored interval to a WorkManager period
+  (Daily=1d, Weekly=7d); `PeriodicBackupWorker` skips when the setting is off or
+  privacy mode blocks backups. The test reads the schedule back from
+  WorkManager's `WorkSpec.interval_duration` and its state, so the toggle's
+  effect is proven, not just the switch position.
+
+**New `android` CLI helpers in `env.sh`:** `layout_json`, `layout_center`,
+`layout_center_exact`, `layout_has`, `tap_layout`, `tap_layout_exact`,
+`scroll_to_layout`, `close_documents_ui`. `android layout` returns JSON with a
+`center` and an `off-screen` flag, which the uiautomator-dump helpers cannot
+express; note it nests children under `children` (not `content`) and only
+captures app windows — the notification shade is SystemUI and stays invisible to
+it, which is why #285 asserts on `dumpsys notification` instead.
+
+## Message re-lock kept the body visible (2026-10-05)
+
+Branch `feat/own-mms-package`. Locking a message, unlocking it, then locking it
+again left the body readable: the toolbar said locked (toast + "Unlock" label),
+but the session reveal cache was never cleared on lock, so `isLockedAndHidden`
+stayed false for the rest of the chat session.
+
+The reveal cache is now mutated through `MessageLockState` (lock removes,
+unlock adds, `isHidden` is the single render/copy rule), so the DB flag and the
+session cache can no longer drift. `MessageLockStateTest` pins the
+lock -> unlock -> lock cycle, including that `onLock` removes only the targets.
+
+`test-message-lock-auth.sh` gained a third phase that re-locks and asserts the
+body is hidden again. Against the unfixed APK it ran 3 passed / 1 failed
+(`re-lock did not hide the body`); after the fix it runs 4 passed / 0 failed.
+
+## `:mms` module: three regression scripts (2026-10-03)
+
+Branch `feat/own-mms-package`. The new `:mms` Gradle module (package
+`com.anindra.messages.mms`) replaces the vendored `android-smsmms`. It is **not
+yet wired into the app** — `app/build.gradle.kts` still depends only on
+`:android-smsmms`, and `grep -r com.anindra.messages.mms app/src` is empty — so
+none of these scripts assume new UI exists.
+
+| Script | Covers | Needs an emulator |
+|---|---|---|
+| `test-mms-pdu.sh` (6/6) | `:mms` PDU + SMIL unit tests, counted from the JUnit XML | no |
+| `test-mms-codec.sh` (21/21) | the three golden PDU vectors, octet for octet | no |
+| `test-mms-store.sh` (6/6) | provider persistence: the store contract tests | no |
+
+**All three are emulator-free.** They run `./gradlew :mms:testDebugUnitTest`
+and read `mms/build/test-results/testDebugUnitTest/`, because the PDU and SMIL
+layers are deliberately free of `android.*` imports (`mms/build.gradle.kts`
+comments this) so they run under plain JUnit. None of them writes to the
+telephony provider database, so they need neither `adb root` nor a writable
+`mmssms.db` — the opposite of `test-mms-send.sh` / `test-mms-import.sh`, which
+are emulator-only for exactly that reason. That is what makes them usable as a
+pre-commit gate rather than as device sweeps.
+
+### Counts come from the XML, not from Gradle's console
+
+`--tests` filters are applied and the numbers are summed from the `<testsuite>`
+attributes with `xml.etree`, so a `[PASS] 141 PDU/SMIL tests ran` line is the
+count the test task recorded. The results directory is deleted first: a stale
+XML from a previous green run is exactly how a script ends up passing on broken
+code. `--rerun-tasks` is there for the same reason — Gradle's up-to-date check
+would otherwise skip the run that is supposed to be the evidence.
+
+`test-mms-pdu.sh` also requires all nine PDU/SMIL test classes to report a
+result file. A `--tests` filter that silently matches nothing still exits 0, so
+"the task ran" is not by itself evidence that anything was tested.
+
+### `test-mms-codec.sh` is the one that matters, because a vector can stop being checked
+
+`PduComposerTest` pins three PDUs octet for octet: an 11-octet
+M-NotifyResp.ind, a 45-octet M-ReadRec.ind, a 105-octet one-part M-Send.req.
+Nothing else would notice if those went away — the parser accepts whatever the
+composer produced, so a round-trip test cannot see a wrong header order, and
+deleting the assertion leaves the suite green. **Renaming or deleting a golden
+test is therefore a silent wire-format regression**, and the script is built to
+catch that first:
+
+- the expected octets are **read out of the test source, never restated here**.
+  Each vector is parsed from inside that one function's own `hexOf(...)` call,
+  so a hex literal in a neighbouring test cannot be swept into it, and the test
+  file stays the single copy. Restating the octets in the script would be a
+  second copy that can drift from the first.
+- the three lengths (11 / 45 / 105) are asserted, so a shortened vector fails
+  even if the composer and the vector were edited in lockstep.
+- each vector is cross-checked against the **production** field codes, read
+  from `MessageType.kt` and `HeaderField.kt` rather than hardcoded — including
+  `HeaderField.MMS_VERSION_1_2`, evaluated from its `(1 shl 4) or 2` source form
+  so the short-integer encoding of MMS 1.2 is pinned too. Kotlin's `or`/`shl`
+  are bitwise, which Python spells `|`/`<<`. If a constant is renamed the
+  script **aborts loudly** instead of skipping the check.
+- structural invariants that a hand-edited vector still has to satisfy: each
+  text field null-terminated, and the M-Send.req body entry's declared
+  header/data lengths accounting for exactly the octets that follow.
+- finally it runs the three named tests and reads each `<testcase>` by name.
+
+### `test-mms-store.sh` is a stand-in, and says so
+
+The brief was to exercise provider persistence through the app's own
+Diagnostics surface rather than emulator-only database writes, *if such a
+surface exists*. **It does not.** `DiagnosticsReport` has exactly one MMS line,
+`MMS carrier config:` — a per-SIM dump of `CarrierConfigManager` keys from
+`SimMmsProbe.carrierFacts`. Nothing in the report reads `content://mms`, so
+there is no way to seed a message through Diagnostics and read it back, and
+nothing to assert against. Inventing that probe would be inventing UI.
+
+So the script covers the persistence contract where it is specified today: the
+store package's JVM tests, which drive `TelephonyMmsStore` against a
+`FakeContentResolver`. It names all 23 guarantees it requires
+(`boxValuesAreTheProviders`, `fiveIsFailedAndNotATemporaryBox`,
+`pendingQueueAsksForDueRetryableRowsOnly`, `subIdProbeRunsOnceAndItsAnswerIsReused`, …)
+so a renamed or deleted one fails the script even though the suite stays green.
+
+**Follow-up when `:mms` is wired in:** extend `DiagnosticsReport` to report
+provider state (row counts per box, a probe verdict) and rewrite this as a
+`uiautomator` script asserting that text. That covers the *real* provider
+rather than the fake, which is the whole point of the Diagnostics route.
+
+### Verification — every script proven to fail
+
+A script that passes on broken code is worse than no script, so each was run
+against deliberately broken code. `--rerun-tasks` matters here: without it
+Gradle skips the run and the script reads the previous green XML.
+
+| Script | What was broken | Observed |
+|---|---|---|
+| `test-mms-pdu.sh` | `PduComposer.encodeContentType` start/type parameter order swapped | `[FAIL] 2 failing PDU/SMIL tests`, exit 1 |
+| `test-mms-codec.sh` | same swap | `[FAIL] failing vector test(s): aOnePartSendReqIsPinnedOctetForOctet` |
+| `test-mms-codec.sh` | golden test **renamed** | `[FAIL] PduComposerTest has no @Test named aNotifyRespIsExactlyElevenOctets…` + `only 2 of 3 reported a result` |
+| `test-mms-codec.sh` | golden test **deleted** | both the missing-vector line and `only 1 of 3` |
+| `test-mms-codec.sh` | vector **edited** to match a swapped composer | `[FAIL] failing vector test(s): aOnePartSendReqIsPinnedOctetForOctet` |
+| `test-mms-codec.sh` | MMS-Version header dropped **and** vector + length + name updated in lockstep | `[FAIL] pins 9 octets, not the 11 the wire format requires` + `[FAIL] opens <Message-Type 0x83> <MMS-Version 0x92>` |
+| `test-mms-store.sh` | `TelephonyMmsStore` never writes `sub_id` on persist | `[FAIL] 2 failing store tests` (`persistWritesMessagePartsAndAddresses`, `subIdProbeRunsOnceAndItsAnswerIsReused`) |
+| `test-mms-store.sh` | `boxValuesAreTheProviders` **deleted** | `[FAIL] these provider guarantees are no longer asserted: boxValuesAreTheProviders` |
+
+The MMS-Version row is the one that matters most: it is a change that keeps the
+JUnit test, its vector, its length and its name all self-consistent, and only
+the cross-check against the production constants catches it.
+
+### Two traps worth keeping
+
+- **A regex over JUnit XML silently mis-parses.** The obvious
+  `<testcase name="…"[^>]*(?:/>|>.*?</testcase>)` cannot match a self-closing
+  `<testcase …/>` when the alternation's second branch is tried first across
+  lines, so only *some* test names are found — and the script reports "only 1 of
+  3 named vector tests reported a result" for a run where all three ran. Use
+  `xml.etree.ElementTree`, which gets this right.
+- **Gradle failed with `java.io.EOFException`** on `:mms:testDebugUnitTest` once,
+  with no compiler error and a `[PASS] the :mms test task produced results`
+  line above it. A concurrent build in the same tree was the cause; a re-run
+  was green. Not reproducible, and not attributable to these scripts — noted so
+  the next agent does not chase it.
+
+**Not in `run-all-tests.sh`.** That sweep installs the APK and drives the
+emulator; these three need neither, so adding them would only lengthen a sweep
+they do not belong to. Run them directly.
+
+## Telephony declared as an optional hardware feature (2026-09-30)
+
+Lint flagged `PermissionImpliesUnsupportedChromeOsHardware` six times, once per
+SMS/MMS/phone-state permission. The manifest requested `SEND_SMS`, `RECEIVE_SMS`,
+`READ_SMS`, `WRITE_SMS`, `RECEIVE_MMS`, `RECEIVE_WAP_PUSH` and `READ_PHONE_STATE`
+but declared no `<uses-feature>` at all, so the platform inferred
+`android.hardware.telephony` as **required**. Google Play filters on that
+implied feature, which would have hidden the app from ChromeOS and
+telephony-less tablets — the exact devices where the simulated-SIM path is the
+only thing that works.
+
+One opt-out before `<application>` fixes all six:
+
+```xml
+<uses-feature
+    android:name="android.hardware.telephony"
+    android:required="false" />
+```
+
+`aapt2 dump badging` on the installed APK is the proof, and it is worth reading
+the two states side by side — this is not a cosmetic manifest annotation:
+
+| | telephony line in badging |
+|---|---|
+| before | `uses-feature: name='android.hardware.telephony'` (required) |
+| after | `uses-feature-not-required: name='android.hardware.telephony'` |
+
+**Verification**
+
+- `ManifestTelephonyFeatureTest` (5 tests) parses the source manifest and
+  asserts the feature is declared exactly once, is `required="false"`, is a
+  direct child of `<manifest>` before `<application>`, and that every
+  telephony-implying permission actually declared is covered by the opt-out.
+  The parser must set `isNamespaceAware = true` or `getAttributeNS` silently
+  returns `""` for `android:*` and the tests pass vacuously.
+- `scripts/test-telephony-feature-optional.sh` — pulls `base.apk` off the device
+  and runs `aapt2 dump badging` on it, so a manifest that is right in source but
+  dropped by the merge pipeline still fails. Also relaunches the app to confirm
+  the optional feature did not break startup.
+
+Confirmed both fail before the fix and pass after. Ran on the Android 11
+(`Pixel_Android11`, SDK 30) emulator. `:app:lintDebug` errors went 80 → 74, the
+exact six removed; the remaining 74 are pre-existing and unrelated.
+
+## Permission-gated SIM/carrier reads: explicit `SecurityException` (2026-09-30)
+
+Follow-on to the telephony `<uses-feature>` work. Lint flagged four
+`MissingPermission` errors — `getConfigForSubId` in `MmsCarrierConfig` and
+`SimMmsProbe`, `activeSubscriptionInfoList` in `SimCard` and `PhoneNumberUtils`.
+
+**This was a signal problem, not a crash.** Every one of the four sites already
+handled the denial at runtime: two used `runCatching { }` and two used
+`catch (_: Exception)`, and `SecurityException` is an `Exception`. Lint's
+`PermissionDetector` credits neither — it wants an explicit
+`catch (SecurityException)` or a `checkPermission` call — so a *handled*
+degradation read as an unhandled crash. Each call now sits in an explicit
+`catch (_: SecurityException)` returning a documented default:
+
+| site | default on denial |
+|---|---|
+| `MmsCarrierConfig.load` | null bundle → `MmsConfig` falls back to the AOSP MMS limits |
+| `SimMmsProbe.carrierConfig` | null config → `SimMmsCheck` reports the SIM unknown |
+| `SimCards.load` | empty SIM list |
+| `SimCards.ownNumber` | null `SimCard.number` (READ_PHONE_NUMBERS is never requested) |
+| `PhoneNumberUtils.resolveRegion` | the locale's country |
+
+`ownNumber` is extracted from the inline `runCatching` so its "blank → null"
+rule is readable; the rest are one-line catch changes.
+
+**A pre-flight `checkSelfPermission` would have been the wrong fix.** The grant
+can be revoked between the check and the call, so the catch is load-bearing.
+A `checkSelfPermission` guard would also have meant skipping the read
+entirely, losing the degradation to a locale default.
+
+**Rejected: a shared `orDefaultOnDenied { }` helper.** Wrapping the reads in one
+inline helper looked like the obvious cleanup, but lint does not see through the
+lambda — all four errors came straight back (74 errors instead of 70). The
+`SecurityException` catch has to be lexically in the calling method.
+
+**Verification**
+
+- `PermissionGuardTest` (3 tests) — source-level, because a JVM test has no
+  package manager to revoke against. Asserts each gated call is followed within
+  15 lines by a `catch (_: SecurityException)`, and that no `runCatching`
+  creeps back in. **Confirmed 3/3 fail against the original code.**
+- `scripts/test-permission-denied-degrades.sh` — the runtime half: revokes
+  READ_PHONE_STATE and READ_PHONE_NUMBERS with `pm revoke`, relaunches,
+  navigates Settings → Advanced → MMS support (the one screen that exercises
+  both changed call sites via `SimMmsProbe.run`), and asserts no fatal. With the
+  permissions denied the screen renders "No active SIM found", which is the
+  degradation actually being observed rather than assumed. Re-grants on exit.
+  **This script also passes against the original code** — correctly so, since the
+  original was runtime-safe. It is a characterization test that locks the
+  guarantee in, not a fail-before/pass-after regression; `PermissionGuardTest`
+  is the one that discriminates.
+
+Gotcha worth keeping: logcat splits a fatal across two lines
+(`FATAL EXCEPTION: main` / `Process: <pkg>`), so the crash detector needs
+`grep -A3` before matching the package name — filtering on `FATAL EXCEPTION`
+alone matches nothing and the count is silently always 0. `grep -c` also exits 1
+on a zero count, so a `|| echo 0` guard appends a second line and every
+`[ -gt 0 ]` downstream errors out instead of failing. Both were caught by
+running the detector against synthetic log fixtures.
+
+`:app:lintDebug` errors 74 → 70; the remaining 70 are pre-existing and unrelated.
+
+## Per-direction swipe actions + settings redesign (2026-09-27)
+
+Two pieces of work that share the settings-row component.
+
+### Swipe actions are configured per direction
+
+There was a single "Swipe actions" on/off switch plus a "Reverse swipe actions"
+switch, which can only express three states: both-off, archive-left, or
+delete-left. Google Messages lets you pick an action per side, so left and right
+now hold independent `SwipeAction` values.
+
+`data/SwipeAction.kt` is the new enum (`OFF`, `ARCHIVE`, `DELETE`,
+`MARK_READ_UNREAD`, `PIN`, `BLOCK`). `storageValue` is asserted by
+`SwipeActionTest` because these are persisted ints — renumbering would silently
+repoint an existing user's configuration at a different action.
+
+**Migration.** `swipe_left_action` / `swipe_right_action` default to *absent*,
+not to a value. On first read, if they are absent, the pair is derived from the
+old `swipe_actions_enabled` + `reverse_swipe_enabled` booleans and written, so it
+happens exactly once:
+
+| old state | left | right |
+|---|---|---|
+| `enabled=false` | OFF | OFF |
+| `enabled=true`, `reverse=false` | ARCHIVE | DELETE |
+| `enabled=true`, `reverse=true` | DELETE | ARCHIVE |
+
+`reverse_swipe_enabled` stays readable so a downgrade does not crash, but nothing
+writes it any more. `swipe_actions_enabled` lost its property entirely — with
+OFF available per direction there is no separate master switch to get out of
+sync, and `swipeEnabled` is now derived as `left != OFF || right != OFF`.
+
+A direction set to OFF is disabled with
+`enableDismissFromStartToEnd` / `enableDismissFromEndToStart`, not just made
+inert, so the row cannot be swiped that way at all. The 0.65 threshold and its
+`confirmValueChange` guard are untouched.
+
+**Every action is undoable** through a shared `withUndo` snackbar helper —
+archive, delete, mark read/unread, pin and block all offer Undo. This needed two
+new repository primitives (`setReadSuspend`, and `unpin`/`setPinned` on the
+view model) because the existing ones could only move state one way.
+
+### The picker is a settings row with a live preview
+
+Modelled on quik (`quik-sms/quik`, the QKSMS successor — *not* Fossify, which
+has no swipe settings at all). Its two rows carry the current action as a
+subtitle, a trailing all-caps "CHANGE", and a **mock conversation row** showing
+the real swipe colour and icon.
+
+`SwipeActionPreview` reuses the gesture's own `background()`, `iconTint()` and
+`icon()` helpers, so the preview cannot drift from the behaviour it advertises,
+and it positions the icon with the same `SWIPE_ICON_INSET` token the real
+`backgroundContent` uses. The disabled option is labelled "None" to match quik,
+and the row's summary uses the neutral "Mark read/unread" rather than the
+direction-dependent wording the swipe background needs for TalkBack — hence the
+split into `labelRes()` and `a11yLabelRes()`.
+
+`SettingsRow` grew two optional slots, `trailing` and `preview`. The clickable
+moved from the inner `Row` to a wrapping `Column` so the preview is part of the
+tap target, as it is in quik.
+
+### Two bugs the preview itself exposed
+
+Both were invisible in code review and only showed up in a pixel measurement of
+a screenshot:
+
+1. **The colour block was not flush with the row edge.** The preview `Row` packed
+   its children at the start, so a trailing block ended ~48dp short of the edge
+   and left a visible gap. Fixed by giving the mock row `weight(1f)`.
+2. **The icon was centred in the block** rather than inset from the row's edge,
+   which is where the real gesture puts it. Now 24dp from the outer edge.
+
+Measured after the fix at 420dpi (1dp = 2.625px), both previews: block exactly
+252px = 96.0dp, flush against the correct edge, glyph inset 29.0dp / 30.1dp from
+the outer edge, vertical centre offset 0px. The ~5dp over the nominal 24dp is
+the vector glyph's own padding inside its 24dp box, and it matches on both
+sides.
+
+`SwipeDirection.resolveAction()` and `revealsTrailingEdge` are pure and
+unit-tested so the composable cannot re-introduce either.
+
+### Two test bugs found on the way
+
+- `test-swipe-threshold.sh` searched for `555-123-0731`, but the row renders the
+  number grouped as `(555) 123-0731`, so it never found its row and reported
+  "could not prepare test row". It now matches the subscriber part only.
+- The picker dialog's rows were only clickable on the radio itself; tapping the
+  label did nothing. Now `Modifier.selectable` on the row, matching the M3
+  single-choice pattern.
+
+### Tests
+
+- `SwipeActionTest` — storage-value stability, round-trip, unknown-value
+  fallback, and the three legacy migration cases.
+- `SwipeDirectionTest` — per-direction resolution, OFF not leaking across
+  directions, the revealed edge, and the preview token geometry (icon fits the
+  block; the mock fits a 360dp screen).
+- `test-swipe-actions.sh` — all six actions per direction through the real UI
+  and the persisted value, both directions differing at once, "None" surviving a
+  full leftward swipe, delete-plus-undo round trip, and the legacy migration
+  (including that the new keys get written).
+- `test-swipe-threshold.sh` — unchanged behaviour, still green.
+
+## MMS carrier-config parity with GrapheneOS Messages — core hardening (2026-09-27)
+
+The send/download path read **nothing** from `CarrierConfigManager`; every MMS
+limit was hardcoded. On a carrier that caps image size or message size, the app
+composed an oversized PDU, handed it to the network, and the user got a bare
+"Not sent" with no way to tell the attachment was too big. Delivery and read
+reports were always `VALUE_NO` regardless of the carrier.
+
+Three new pure-logic seams carry the logic, all unit-tested:
+
+- `data/MmsConfig.kt` — per-SIM values plus a `CarrierValues` interface so
+  `from()` is testable with a fake. The `KEY_*` names mirror the public
+  `CarrierConfigManager.KEY_MMS_*` constants; I pulled the literal strings out
+  of `android.jar` with `javap -constants` rather than trusting memory, which is
+  what caught that the keys are `maxMessageSize` / `enabledNotifyWapMMSC` and not
+  the longer `MMS_*` spellings. `MmsConfigTest` asserts those strings directly,
+  since a rename upstream would otherwise silently revert every limit.
+
+  Only the six values the send path enforces are modelled. `recipientLimit` and
+  the SMS-to-MMS thresholds are applied by the platform from the overrides
+  bundle, so they were dropped rather than kept as a second source of truth that
+  can disagree with it.
+- `data/MmsImageSizing.kt` — `fitWithin` (cap + aspect ratio) and `sampleSize`
+  (power-of-two subsampling that stays at or above target).
+- `data/MmsRetry.kt` — GrapheneOS's AUTO_RETRY / MANUAL_RETRY / NO_RETRY split
+  with exponential backoff, replacing a flat 5-minute cooldown that treated a
+  missing data network the same as a carrier 404.
+
+`sms/MmsCarrierConfig.kt` is the thin Android adapter and caches per
+subscription, invalidated on resume so a SIM swap is picked up.
+
+### Three things that only showed up on the device
+
+- **`CarrierConfig` is not in `android.jar` at all** (hidden system API), so the
+  constants have to come from `CarrierConfigManager` and the key strings are
+  literal. `getConfigByComponentForSubId` is the non-deprecated replacement for
+  `getConfigForSubId` and it returns an **empty bundle for this app**, which
+  would silently discard every limit — verified on API 36. `getConfigForSubId` is
+  used with a `@Suppress("DEPRECATION")` and a comment saying why.
+- **Subsampling alone cannot hit the cap.** 900x600 at `inSampleSize=8` decodes
+  to 113x75, not 100x67, because subsampling only lands on powers of two. The
+  first version logged `900x600 -> 112x75` against a 100x100 cap; the explicit
+  `createScaledBitmap` to `target` is what actually enforces it. The
+  `test-mms-carrier-config.sh` downscale assertion is what caught this.
+- **`enabledMMS` defaults to false on the AOSP emulator**, so an
+  `if (!config.enabled) reject` guard made every MMS send fail and broke
+  `test-mms-send.sh`. The guard was dropped: the platform already refuses MMS for
+  a carrier that disables it, and duplicating the check only risks disagreeing
+  with the platform.
+
+### Also fixed while in here
+
+- The composer read the whole attachment with `readBytes()` — an OOM risk on a
+  large photo. Now streamed with a hard cap; oversize raises the same
+  `TOO_LARGE` outcome as the composed-PDU check.
+- `MmsSupport.shouldRetryDownload` / `DOWNLOAD_RETRY_COOLDOWN_MS` removed as dead
+  code, with the covering test moved to `MmsRetryTest`.
+- `MmsDownloadReceiver` never read the result code the platform delivers, so
+  every failure was silently identical. It now classifies.
+
+### Tests
+
+- `MmsConfigTest` (7), `MmsRetryTest` (9), `MmsImageSizingTest` (8) — 289 unit
+  tests green, no failures.
+- `scripts/test-mms-carrier-config.sh` (8) — drives **real** carrier config via
+  `cmd phone cc set-value` and asserts downscale, the size cap, and the report
+  headers. Verified it fails on the pre-fix build: 3 failures (no downscale,
+  `d_rpt`/`rr` both 0x81).
+- `scripts/test-mms-retry.sh` (7) — asserts the request is made once, the result
+  is classified, and the row is released from backoff on a non-transient
+  outcome. Verified failing on the pre-fix downloader: 3 failures.
+- Unaffected: `test-mms-send` (8), `test-mms-download` (5), `test-mms-import` (5).
+- `test-chat-render.sh` and `test-multipart-sms.sh` fail, but they fail
+  identically on a stashed baseline — pre-existing, not from this work.
+
+### Traps worth remembering
+
+- **`cmd phone cc set-value` rejects a bare `false`** ("Unable to parse null /
+  false as a BOOLEAN") and `null` is not accepted for a boolean either, so a
+  boolean override **cannot be reset to false** once set true. The only way back
+  is `cmd phone cc clear-values -s SLOT`, which drops *every* override on the
+  slot. Both scripts therefore save each key up front and re-read after every
+  write, because a rejected write leaves the previous value silently in place and
+  the test would otherwise pass against stale config.
+- **`get-value` output is column-aligned and padded**, so the value is the last
+  whitespace-separated field, and `get-value` **lags the write** — a single
+  read-back races and reports a false failure.
+- **The provider persists the `image/*` part row without its data blob** (both
+  `_data` and `text` are null), so SQLite cannot be used to check the encoded
+  dimensions. The assertion has to come from what the composer actually wrote,
+  which is why `MmsComposer` logs the source -> encoded dimension transition.
+
+
+||||||| 2003c10
+## Crowdin sync repaired, and dates finally follow the locale (2026-10-02)
+
+Finishes the community-translation setup for #175.
+
+### The duplicate file trees
+
+Crowdin held **822** strings for a project with 411. Two leftovers sat at the
+project root alongside the real tree:
+
+- `main/app/src/main/res/values/` — empty, "Nothing to translate"
+- `strings*.xml` flat at the root — the pre-`preserve_hierarchy` copy, and the
+  one the translations were attached to
+
+That is also why French read **48%**: 410 translated on the flat copy, 410
+untranslated on the nested one, averaged. Not a real number.
+
+`preserve_hierarchy: true` was never the problem — the run log shows correct
+paths. It only applies to uploads made *after* it was set, so the old flat files
+had to be deleted by hand. Both leftovers deleted; now **411 strings, one
+tree**, and the 12 languages sit at **97-98%**.
+
+### `upload_translations` removed
+
+It was a one-off repair left enabled after the wipe, and it is destructive:
+every scheduled run pushes the repo's locale files over whatever a translator
+has improved in Crowdin but not yet merged. Guarded in `CrowdinWorkflowTest`
+(7 cases) and in `test-translations.sh`, so it cannot come back silently.
+
+**Consequence worth remembering:** hand-editing `values-fr/strings.xml` is now
+one-way. The app ships your edit, but Crowdin never hears about it, and the next
+export for that language overwrites it with Crowdin's stored copy. There is no
+setting that gives both durability and translator safety.
+
+### Locale-aware dates
+
+`"MMM d"`, `"EEE, MMM d"` and `"EEEE, MMM d, yyyy"` were literal patterns.
+Field order is CLDR data, not formatting trivia, so French rendered `sept. 26`
+where it reads `26 sept.`, and Japanese `9月 26` instead of `9月26日`.
+
+Replaced with skeletons (`DatePatterns.kt`) resolved per locale through
+`DateFormat.getBestDateTimePattern`, cached **per locale** — the old top-level
+`val`s captured `Locale.getDefault()` at class-init, so a per-app language
+change left the process formatting in the old language forever.
+
+`formatGroupLabel` also hardcoded the English string `"Yesterday"`; it now takes
+the resolved label from `R.string.time_yesterday`.
+
+### Verification
+
+- `test-date-locale.sh` (new): switches the per-app locale via
+  `cmd locale set-app-locales`, backdates one conversation so the row falls
+  through to the date branch, and asserts the **order** of day and month in
+  en / fr / de / ja. English is the control.
+- Fails before the fix (5 assertions, `sept. 26` / `Sept. 26` / `9月 26`) and
+  passes after (8/8).
+- Conversation rows expose sender+snippet+timestamp through `content-desc`
+  because the row merges into one a11y node. Scraping `text=` finds only the
+  title and the FAB — the trap that made the first run of this script report
+  nothing at all.
+
+### Still open
+
+- **Moderated project joining is OFF.** `realgooseman` joined as Translator
+  unmoderated. Turn it on in Settings -> Privacy & collaboration.
+- **`test-chat-render.sh` fails** on a clean API 36 AVD: it greps `text=` for
+  conversation rows, send-status and day dividers, all of which are
+  `content-desc`. Pre-existing, unrelated to the date work, left unfixed rather
+  than half-patched.
+- `emulator-5554` holds a v24 database (`feat/combine-branches-with-ui-toggle`
+  is `DB_VERSION = 24`, `main` is 21). Installing `main` over it crashes on
+  launch with `Can't downgrade database from version 24 to 21`. Verification
+  was done on a second AVD, `emulator-5556`.
+
+## Crowdin community translations: locale plumbing made data-driven (2026-09-29)
+
+Sets up the Crowdin panel for issue #175 so native speakers can correct strings
+directly. Crowdin project `git-messages`, GitHub integration connected to
+`an1ndra/Messages` branch `main` in *Source and translation files* mode;
+translations come back as a PR on `l10n_main`, never straight onto `main`.
+
+**Deliberately did not use a separate `translate` source branch.** The service
+branch already keeps translation commits off `main`, so a second source branch
+would only have added a merge in each direction. Created and reverted during
+setup; `main` is the single source branch.
+
+### Repo-side
+
+- `crowdin.yml` at the repo root, committed to `main`.
+  - `escape_quotes: 2` — the repo backslash-escapes apostrophes (`l\'application`)
+    and French leans on them in nearly every string. Crowdin's default (`''`
+    doubling) would have corrupted all 12 locales on first export.
+  - `languages_mapping: android_code: {es-ES: es}` — Crowdin only offers
+    `es-ES`, whose `%android_code%` is `es-rES`, exporting to `values-es-rES/`.
+    That directory only serves Spain; es-MX users would silently fall back to
+    English. Pinned to plain `es` so the existing `values-es/` is reused.
+  - No credentials committed; the GitHub App authenticates.
+- `values-hi-rIN/` → `values-hi/`, and `locales_config.xml` `hi-IN` → `hi`.
+  Crowdin has no `hi-IN` language, only `hi`, so it would have exported to a
+  *new* `values-hi/` beside the old one. Renaming first avoids two Hindi dirs.
+
+### Tests: locale list was hardcoded in three places
+
+`TranslationParityTest` asserted the exact 12 directory names and
+`LocaleConfigTest` demanded exact parity with `locales_config.xml`. Crowdin
+creates a `values-<lang>/` directory the moment a language is *added*, long
+before anyone translates it — so the first new language turned CI red until
+three files were hand-edited together.
+
+- New `LocaleCatalog` (test source set) reads `locales_config.xml` as the single
+  source of truth. Crowdin drives translations off the same list, so adding a
+  language is now a one-file change.
+- Parity checks iterate only locales that have content, so an untranslated
+  language is tolerated while a translated one must still be complete.
+- `test-translations.sh`: dropped `assert len(locales) == 12` for the same
+  reason, and added a `crowdin.yml` consistency check (translation pattern,
+  `es-ES: es` mapping, `escape_quotes: 2`, no `values-hi-rIN`, `values-hi`
+  present).
+
+Verified both ways: the checks **pass** with an empty undeclared `values-it/`
+added (the Crowdin pre-creation case) and **fail** when `de` is dropped from
+`locales_config.xml`, when the `es-ES` mapping is removed, and when `hi` is
+reverted to `hi-IN`. `./gradlew testDebugUnitTest` 267/267 green;
+`bash scripts/test-translations.sh` 4 passed / 0 failed on `emulator-5554`.
+
+### Still open
+
+- **The one-time import pulled in only 4 of the 12 shipped languages.**
+  Reports show 5,339 words against a 1,358-word source (~3.9x = four languages).
+  In: zh-CN 98%, zh-TW 98%, pt-BR 97%, es-ES 98%. At 0%: **ar, de, fr, ja,
+  ko, pl, ru**. The split is exact — every language whose Crowdin code carries a
+  region imported, every plain two-letter code did not. `hi` is not in the
+  project at all.
+  Strong suspect is the `languages_mapping: android_code: {es-ES: es}` block,
+  added in the same change: a *partial* mapping appears to break default
+  resolution for every language it does not mention. Reverted it to isolate
+  the cause. The config check now validates the general invariant (if a mapping
+  exists, every shipped locale must resolve to a directory that exists) rather
+  than hardcoding `es-ES: es`, so a partial mapping cannot come back unnoticed.
+- **`es-ES` is still unresolved.** Crowdin only offers `es-ES`, whose
+  `%android_code%` is `es-rES`, so without a mapping Spanish exports to
+  `values-es-rES/` and es-MX users fall back to English. Deliberately left
+  unmapped while the import bug is isolated. Note the config check reads the
+  tags in `locales_config.xml` (which say `es`) and so cannot see this on its
+  own — it will be caught once a complete mapping is added, but not before.
+  Also note `values-es-rES` only serves Spain, so renaming the directory is not
+  a fix; the mapping is the only real option.
+- **Project language list is Crowdin's 29 defaults**, not the 12 shipped
+  languages. Needs trimming, and `hi` adding.
+- **"Export only when fully translated" is off** on every language. Until it
+  is on, a partial language exports a `values-<lang>/` with missing keys and
+  `TranslationParityTest` fails on the `l10n_main` PR.
+- **Date/time patterns are hardcoded in English order** in
+  `ui/Components.kt` (`MMM d`, `EEE, MMM d`), `ui/MessageGrouping.kt`
+  (`EEEE, MMM d`, `EEEE, MMM d, yyyy`) and `ui/TimeFormat.kt`. French needs
+  `d MMM`. `Locale.getDefault()` is already passed for month/day *names*, so
+  only the pattern order is wrong. **Crowdin cannot fix this** — it is a code
+  change (CLDR skeletons via `DateTimeFormatterBuilder.getLocalizedDateTimePattern`).
+  This is the second half of the #175 request from `realgooseman` and is
+  untouched.
+
 ## Four long-standing test failures, all test bugs (2026-09-25)
 
 Found while merging #247 and #248. Each was confirmed to fail on clean
@@ -1782,8 +3653,8 @@ File: `data/PhoneNumberUtils.kt`, `data/Repository.kt`, `data/Models.kt`, `data/
 - ✅ Sound picker removed: custom notification sound import feature removed entirely; hardcoded default beep (TONE_PROP_BEEP2/TONE_PROP_ACK) for message sounds; "Message sounds" on/off toggle kept
 - ✅ Block sends to alphanumeric sender IDs (DK-AIRCEL…): chat send/schedule guarded with dialog; NewChat manual entry restricted to phone numbers — test: `scripts/test-links-and-senders.sh`
 - ✅ Highlight links in messages: URLs become tappable (blue underline) opening the browser; Settings → Messages → "Highlight links" toggle (default on) — test: `scripts/test-links-and-senders.sh`
-- ✅ Trash system: swipe-left / sheet Delete moves conversations to trash (DB v8 `deleted_at`), UNDO snackbar, Settings → Privacy → Trash screen (restore / delete forever / empty trash), auto-purge after 30 days on app start, new SMS from trashed address restores the thread; swipe needs ~65% travel (less sensitive) — test: `scripts/test-trash.sh`
-- ✅ Swipe threshold actually enforced: material3 `positionalThreshold` is ignored (known bug, issuetracker 471021165 — settle at ~50% + 125dp/s velocity), so short swipes deleted rows; gated with `confirmValueChange` + `progress >= 0.65f` in `SwipeConversationItem` (ConversationsScreen.kt) — test: `scripts/test-swipe-threshold.sh`
+- ✅ Trash system: swipe-left / sheet Delete moves conversations to trash (DB v8 `deleted_at`), UNDO snackbar, Settings → Privacy → Trash screen (restore / delete forever / empty trash), auto-purge after 30 days on app start, new SMS from trashed address restores the thread; swipe needs ~30% travel (`SettingsLayout.SWIPE_COMMIT_FRACTION`) — test: `scripts/test-trash.sh`
+- ✅ Swipe threshold enforced below the library's hardcoded half-row switch: material3 `SwipeToDismissBox` switches its mid-drag target at half the row regardless of `positionalThreshold` (known bug, issuetracker 471021165 — ~50% + 125dp/s velocity), so short swipes used to delete rows and the app over-corrected to 65%; the shared `SettingsLayout.SWIPE_COMMIT_FRACTION` (0.30f) now feeds both `positionalThreshold` and `confirmValueChange` in `SwipeConversationItem`/`LegacyConversationsScreen` — test: `scripts/test-swipe-threshold.sh`
 - ✅ Trash confirmations + polish (issue #87): "Empty trash" and "Delete forever" now ask M3 AlertDialog confirmation before destroying data; Trash rows restyled to match main list (48dp avatar, 12dp padding, gray restore icon, inset dividers); empty state shows 30-day retention hint
 - ✅ Per-conversation notification settings: DB v9 `conversation_notifications` table (ON DELETE CASCADE), notification toggle in ContactDetailsScreen + ChatScreen 3-dot menu, NotificationHelper.show() checks per-conversation setting before posting — test: `scripts/test-notifications.sh`
 - ✅ Mark all as read: Settings → General row
@@ -2401,6 +4272,58 @@ asset plus a test that only guarded that one asset is dead weight. Both are in
 UI components need, and the icon reads as missing rather than disabled. Dark mode
 now keeps 0.62.
 
+## Import/export log (2026-10-02)
+
+✅ USER REQUEST: show import/export logs in the app, including failures and
+conflicts.
+
+Settings → **Advanced → Import & export log** lists the last 20 runs, each with
+its outcome, the reason it failed, added/seen/skipped counts, and the
+per-category conflict tallies. The same last five runs are appended to
+`Diagnostics → Diagnostics` as a `--- Transfers ---` block, so a script can
+assert on them without opening the screen.
+
+**What was silently lost, and now is not:**
+
+- **`ImportReport.skipped` and `.truncated` had zero readers.** They were
+  computed at the end of `importStaged` and dropped on the floor at the one call
+  site, which kept only `added`.
+- **`importStaged` had no duplicate detection at all.** Re-importing the same
+  backup duplicated every message, and the run reported `added = seen`. It now
+  keys on conversation address + timestamp + direction + transport + body and
+  skips repeats, tallying them under `already present`. (Deliberately *not* the
+  provider id — that belongs to whichever device issued it, the same reasoning
+  as `LegacyBackupSchema.adoptProviderIds`.)
+- **`mergeDatabase` skipped duplicates with a bare `continue`** — no counter, so
+  "merged 4,000" was indistinguishable from a run that had merged 600 and
+  dropped 3,400.
+- **`added++` ran unconditionally after `insert()`.** A refused insert (a
+  constraint, a full disk) incremented `added` and looked like a success.
+- **`backupDatabase` returned a bare `Boolean` from six `return false` sites.**
+  A revoked SD-card permission and a rejected PIN produced the same `false` and
+  the same toast. It now returns `ExportResult`, and every failure goes through
+  `exportFailed()` so it is both shown and logged.
+- **`importSmsIe` collapsed `ImportResult` to an `Int`** (`-1` for any error),
+  so "Wrong PIN or corrupted file" and "Cannot read that backup file" both
+  surfaced as `settings_import_sms_ie_failed`. The `ImportResult` now reaches
+  the UI intact.
+
+**Counting lives next to the decision.** `Repository.Conflict` holds the reason
+strings, and each site that skips a message increments its own bucket.
+`TransferConflictCountingTest` fails the build on a `skipped++` with no
+`conflicts.count()` nearby — a skip that does not say why is exactly the silent
+loss this log exists to expose.
+
+**Recorded in the Repository, not the ViewModel**, so the debug probes the
+scripts drive log through the same call the UI makes, and the `TransferLog`
+logcat dump reads `TransferLogStore` rather than recomputing anything.
+
+Files: `data/TransferLog.kt` (new), `data/Repository.kt`, `data/BackupCrypto.kt`
+(`encryptWithPin` returns bytes written, so a truncated export is catchable),
+`ui/TransferLogScreen.kt` (new), `MainActivity.kt`,
+`diagnostics/DiagnosticsReport.kt`, both settings screens, 13 locales.
+Tests: `TransferLogTest`, `TransferConflictCountingTest`, `test-transfer-log.sh`.
+
 ## Traps worth remembering
 
 - **A Compose `IconButton`'s disabled state is on the clickable parent View, not
@@ -2417,3 +4340,29 @@ now keeps 0.62.
 - Sections that empty a folder affect **every** row in it, not just their own
   seeded markers, so a later section may find nothing. Re-seed rather than
   asserting against an empty tab.
+- **`&` in an Android string reaches uiautomator XML as `&amp;`,** so a row
+  titled `Import & export log` greps as `Import &amp; export log`. Grepping for
+  the raw `&` silently finds nothing and reads as "the row is missing". Also
+  note that a row's title and the screen's top bar carry the same string — match
+  on the subtitle to prove the *row* is on screen, not just the title bar.
+- **Never run two `test-*.sh` against the same AVD at once**, and check the
+  device is still there between scripts. They share one emulator, one database
+  and one `ui.xml`. A dead AVD makes every script report a handful of failures
+  that have nothing to do with the code — a whole suite once came back
+  `0 passed, 2 failed` per script, identically, which was the emulator gone
+  rather than a regression.
+- **A script that seeds rows must delete them on exit.** Several scripts share
+  `+15551230010`, and since a private chat and a group can now both belong to
+  the same contact, a leftover row makes "the conversation for this number"
+  ambiguous for the next script. That showed up as
+  `test-group-send-duplicates` dropping to 2/4 whenever it followed another.
+  It now selects the conversation with more than one recipient rather than
+  taking whatever row comes first.
+- **Two conversations can now share an address**, so a row cannot be found by
+  address alone. `getOrCreateConversationBlocking` takes `privateOnly`, and the
+  group row has to be reached from the list rather than
+  `--es open_conversation_address`.
+- **`test-backup-restore.sh` and `test-merge-import.sh` currently fail at the SAF
+  picker step on this AVD** ("newest .enc not found in picker") — confirmed
+  pre-existing on a clean checkout, not caused by the transfer-log work. The
+  backup is written correctly (`ls` shows it); the picker just does not list it.

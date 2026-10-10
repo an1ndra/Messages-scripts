@@ -99,8 +99,8 @@ open_advanced() {
     local i
     for i in 1 2 3 4 5; do
         dump_ui || true
-        if grep -q 'text="Advanced"' "$TMP/ui.xml"; then
-            tap_text "Advanced" >/dev/null 2>&1 && { sleep 1.5; return 0; }
+        if grep -q 'text="Advanced settings"' "$TMP/ui.xml"; then
+            tap_text "Advanced settings" >/dev/null 2>&1 && { sleep 1.5; return 0; }
         fi
         adb_ shell input swipe 540 1700 540 900 250 >/dev/null 2>&1; sleep 0.6
     done

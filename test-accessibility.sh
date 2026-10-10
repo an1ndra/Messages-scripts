@@ -5,7 +5,8 @@
 #   - Advanced holds an "Accessibility mode" master switch, default OFF. While
 #     OFF the "Accessibility options" row is absent and every option is ignored.
 #   - Master ON reveals the Accessibility screen with Font size / Bold text /
-#     High contrast / Larger touch targets / Reduce motion.
+#     High contrast / Larger touch targets / Reduce motion, stacked as a single
+#     evenly spaced group rather than split into sections.
 #   - Each option persists to shared_prefs and font size visibly scales text.
 #   - All settings are restored to defaults and the master left OFF.
 source "$(dirname "$0")/env.sh"
@@ -43,15 +44,51 @@ ensure_switch() {
     fi
 }
 
-# Height of the first node with the exact text, in px (0 when missing).
-node_height() {
-    local b y1 y2
+# Top and bottom y of the first node with the exact text, space separated.
+node_y() {
+    local b
     b=$(grep -oE "text=\"$1\"[^>]*bounds=\"\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]\"" "$TMP/ui.xml" \
         | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]' | head -1)
-    [ -z "$b" ] && { echo 0; return; }
-    y1=$(sed -E 's/\[[0-9]+,([0-9]+)\].*/\1/' <<< "$b")
-    y2=$(sed -E 's/.*\]\[[0-9]+,([0-9]+)\]/\1/' <<< "$b")
-    echo $((y2 - y1))
+    [ -z "$b" ] && return 1
+    echo "$(sed -E 's/\[[0-9]+,([0-9]+)\].*/\1/' <<< "$b") \
+$(sed -E 's/.*\]\[[0-9]+,([0-9]+)\]/\1/' <<< "$b")"
+}
+
+node_height() {
+    local y
+    y=$(node_y "$1") || { echo 0; return; }
+    echo $(( ${y#* } - ${y% *} ))
+}
+
+# Gaps in px between the row cards holding the given labels, in listing order,
+# or MISSING. Cards in one group are separated by the row gap; a new group is
+# set off by the wider group gap, so the gaps alone tell the two apart.
+row_card_gaps() {
+    python3 - "$TMP/ui.xml" "$@" <<'PY'
+import re, sys
+nodes = re.findall(r'<node[^>]*>', open(sys.argv[1]).read())
+def bounds(s):
+    m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', s)
+    return tuple(map(int, m.groups())) if m else None
+def card_for(label):
+    hits = [b for b in (bounds(n) for n in nodes if re.search(r'text="%s"' % re.escape(label), n)) if b]
+    if not hits:
+        return None
+    cards = [b for b in (bounds(n) for n in nodes if 'clickable="true"' in n) if b]
+    cy = (hits[0][1] + hits[0][3]) // 2
+    return max((c for c in cards if c[1] <= cy <= c[3]), key=lambda c: c[2] - c[0], default=None)
+gaps, prev = [], None
+for label in sys.argv[2:]:
+    card = card_for(label)
+    if card is None:
+        print("MISSING")
+        break
+    if prev is not None:
+        gaps.append(card[1] - prev)
+    prev = card[3]
+else:
+    print(" ".join(str(g) for g in gaps))
+PY
 }
 
 launch_settings() {
@@ -59,8 +96,8 @@ launch_settings() {
     adb_ shell am start -n "$ACT" --ez open_settings true; sleep 3
 }
 open_advanced() {
-    scroll_to "Advanced"
-    tap_text "Advanced" || tap_contains "Advanced"
+    scroll_to "Advanced settings"
+    tap_text "Advanced settings" || tap_contains "Advanced"
     sleep 1.5
 }
 
@@ -68,7 +105,11 @@ info "Phase 1: conversation rows expose screen-reader descriptions"
 launch_settings
 adb_ shell input keyevent 4; sleep 1.2
 if dump_ui; then
-    ROWS=$(grep -oE 'content-desc="[^"]+"' "$TMP/ui.xml" \
+    # The address is wrapped in Unicode bidi isolates for RTL support, so the
+    # description starts with U+2066 rather than the digit. Strip them before
+    # matching, or every row looks like it has no description.
+    ROWS=$(strip_isolates < "$TMP/ui.xml" \
+        | grep -oE 'content-desc="[^"]+"' \
         | grep -cE '^content-desc="[0-9(]')
     if [ "$ROWS" -gt 0 ]; then
         ok "conversation rows carry a TalkBack description ($ROWS rows)"
@@ -79,7 +120,7 @@ if dump_ui; then
     fi
     # The description must live on the same node TalkBack focuses/activates,
     # not on a non-focusable child (regression: row desc was on a split node).
-    ROW_NODE=$(ui_tags | grep 'content-desc="[0-9(]' | grep 'clickable="true"' | head -1)
+    ROW_NODE=$(ui_tags | strip_isolates | grep 'content-desc="[0-9(]' | grep 'clickable="true"' | head -1)
     if [ -n "$ROW_NODE" ]; then
         ok "row description is on the clickable/activatable node"
     else
@@ -123,6 +164,23 @@ for label in "Font size" "Bold text" "High contrast" "Larger touch targets" "Red
         bad "Accessibility screen missing '$label'"
     fi
 done
+
+info "All five options sit in one group"
+DENSITY=$(adb_ shell wm density | tr -d '\r' | grep -oE '[0-9]+$')
+GROUP_PX=$(( (14 * DENSITY + 159) / 160 ))
+GAPS=$(row_card_gaps "Font size" "Bold text" "High contrast" "Larger touch targets" "Reduce motion")
+if [ "$GAPS" = "MISSING" ]; then
+    bad "an option row card is missing from the dump"
+elif [ "$(tr ' ' '\n' <<< "$GAPS" | grep -c '[0-9]')" -ne 4 ]; then
+    bad "expected 4 gaps between the 5 option rows, got: $GAPS"
+else
+    SPLIT=$(tr ' ' '\n' <<< "$GAPS" | awk -v g="$GROUP_PX" '$1 >= g' | tr '\n' ' ')
+    if [ -n "$SPLIT" ]; then
+        bad "options are split into separate groups (gap(s) $SPLIT px reach the ${GROUP_PX}px group gap, all: $GAPS)"
+    else
+        ok "the 5 options stack as one continuous group (gaps: $GAPS px)"
+    fi
+fi
 
 info "Options persist to shared_prefs"
 ensure_switch "Bold text" a11y_bold on

@@ -108,8 +108,8 @@ scroll_until() {
 open_keywords() {
     adb_ shell am force-stop "$PKG"; sleep 1
     adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 3
-    scroll_until "Advanced" >/dev/null 2>&1
-    tap_text "Advanced" >/dev/null 2>&1; sleep 1.5
+    scroll_until "Advanced settings" >/dev/null 2>&1
+    tap_text "Advanced settings" >/dev/null 2>&1; sleep 1.5
     scroll_until "Blocked keywords" >/dev/null 2>&1
     tap_text "Blocked keywords" >/dev/null 2>&1; sleep 1.5
 }

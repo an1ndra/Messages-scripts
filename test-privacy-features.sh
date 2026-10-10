@@ -34,8 +34,8 @@ scroll_until() {
 
 # App lock / Privacy mode moved to Settings -> Advanced.
 open_advanced() {
-    scroll_until "Advanced" >/dev/null || return 1
-    tap_text "Advanced" >/dev/null 2>&1 || return 1
+    scroll_until "Advanced settings" >/dev/null || return 1
+    tap_text "Advanced settings" >/dev/null 2>&1 || return 1
     sleep 1.5
     return 0
 }

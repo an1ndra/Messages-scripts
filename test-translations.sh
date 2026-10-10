@@ -66,14 +66,40 @@ def read_dir(d):
 
 
 base, _, _ = read_dir(os.path.join(res, 'values'))
-locales = sorted(d for d in os.listdir(res) if re.match(r'^values-[a-z]{2}(-r[A-Z]{2})?$', d))
+
+# Declared languages come from locales_config.xml, the same list Crowdin drives
+# off, so adding a language is a one-file change instead of three.
+cfg = os.path.join(res, 'xml', 'locales_config.xml')
+declared = set(re.findall(r'android:name="([^"]+)"', open(cfg, encoding='utf-8').read()))
+declared.discard('en')
+
+
+def tag_for(name):
+    if not name.startswith('values-'):
+        return None
+    m = re.match(r'^values-([a-z]{2})(?:-r([A-Z]{2}))?$', name)
+    if not m:
+        return None
+    return m.group(1) if not m.group(2) else '%s-%s' % (m.group(1), m.group(2))
+
+
+locales = sorted(d for d in os.listdir(res) if tag_for(d) is not None)
+shipped = {tag_for(d) for d in locales}
 print('base keys: %d, locales: %d' % (len(base), len(locales)))
-assert len(locales) == 12, 'expected 12 locale dirs, found %d' % len(locales)
+if shipped != declared:
+    print('LOCALE DRIFT declared-only=%s shipped-only=%s'
+          % (sorted(declared - shipped), sorted(shipped - declared)))
+    sys.exit(1)
 
 fails = 0
 for loc in locales:
     d = os.path.join(res, loc)
     values, order, _ = read_dir(d)
+    # Crowdin creates values-<lang>/ as soon as a language is added to the
+    # project, before anyone translates it. Tolerated; must stay declared.
+    if not values:
+        print('EMPTY %s declared but untranslated, skipped' % loc)
+        continue
     missing = sorted(set(base) - set(values))
     extra = sorted(set(values) - set(base))
     if missing:
@@ -97,9 +123,95 @@ for loc in locales:
 sys.exit(1 if fails else 0)
 PY
 if [ $? -eq 0 ]; then
-    ok "12 locales complete, placeholders/order/duplicates clean, no English leftovers"
+    ok "locale parity clean, placeholders/order/duplicates clean, no English leftovers"
 else
     bad "resource parity check reported problems"
+fi
+
+info "Crowdin config matches the shipped locale directories"
+python3 - "$PROJECT_DIR" <<'PY'
+import os, re, sys
+root = sys.argv[1]
+res = os.path.join(root, 'app/src/main/res')
+path = os.path.join(root, 'crowdin.yml')
+if not os.path.isfile(path):
+    print('MISSING crowdin.yml - Crowdin cannot resolve file patterns')
+    sys.exit(1)
+text = open(path, encoding='utf-8').read()
+fails = 0
+if 'values-%android_code%' not in text:
+    print('CONFIG translation pattern is not values-%%android_code%%'); fails += 1
+if re.search(r'escape_quotes:\s*2', text) is None:
+    print('CONFIG missing escape_quotes: 2'); fails += 1
+if 'hi-IN' in text:
+    print('CONFIG crowdin.yml mentions hi-IN, Crowdin only has "hi"'); fails += 1
+
+# upload_translations pushes the repo's locale files over whatever a translator
+# has done in Crowdin but not yet merged, silently reverting their work on the
+# next scheduled run. It was needed once to re-seed after the duplicated file
+# trees were wiped; it must never come back.
+wf = os.path.join(root, '.github/workflows/crowdin.yml')
+if not os.path.isfile(wf):
+    print('MISSING .github/workflows/crowdin.yml'); fails += 1
+else:
+    wtext = open(wf, encoding='utf-8').read()
+    if re.search(r'upload_translations:\s*true', wtext):
+        print('WORKFLOW upload_translations: true would overwrite translator work')
+        print('WORKFLOW   with the repo locale files on every run')
+        fails += 1
+    for required, why in (
+        (r'upload_sources:\s*true', 'sources must be pushed to Crowdin'),
+        (r'download_translations:\s*true', 'translations must come back'),
+        (r'skip_untranslated_files:\s*true', 'English must not overwrite partial files'),
+        (r'create_pull_request:\s*true', 'translations must arrive as a PR'),
+    ):
+        if re.search(required, wtext) is None:
+            print('WORKFLOW missing %s (%s)' % (required, why)); fails += 1
+
+# A partial android_code mapping is worse than none: an import with only
+# `es-ES: es` present pulled in zh-CN / zh-TW / pt-BR / es and left every plain
+# two-letter locale (ar, de, fr, ja, ko, pl, ru) at 0%. So when a mapping exists
+# it must resolve every shipped locale to a directory that actually exists.
+declared = set(re.findall(r'android:name="([^"]+)"',
+                          open(os.path.join(res, 'xml/locales_config.xml'), encoding='utf-8').read()))
+declared.discard('en')
+mapping = {}
+m = re.search(r'android_code:\s*\n((?:\s+\S+:\s*\S+\n)+)', text)
+if m:
+    for line in m.group(1).strip().splitlines():
+        k, _, v = line.strip().partition(':')
+        if k and v:
+            mapping[k.strip()] = v.strip().strip('\'"')
+stale = sorted(k for k in mapping if k not in declared and mapping[k] not in declared)
+if stale:
+    print('CONFIG mapping has entries matching no locale: %s' % stale)
+    fails += 1
+# A locale is pinned when it appears as a mapping key (pt-BR) or as a mapped
+# value (es-ES -> es, since locales_config calls Spanish plain "es").
+unpinned = sorted(t for t in declared if t not in mapping and t not in set(mapping.values()))
+if unpinned:
+    print('CONFIG locales relying on Crowdin default resolution: %s' % unpinned)
+    print('CONFIG   defaults region-qualify bare codes (ar -> ar-rSA, es-ES -> es-rES),')
+    print('CONFIG   which invented values-af-rZA / values-ar-rZA and left the real dirs empty.')
+    fails += 1
+for tag in sorted(declared):
+    # A mapping value is already an android_code (pt-rBR). An unmapped tag falls
+    # back to the documented default, which region-qualifies it (pt-BR -> pt-rBR).
+    code = mapping.get(tag) or (tag.replace('-', '-r', 1) if '-' in tag else tag)
+    want = 'values-%s' % code
+    if not os.path.isdir(os.path.join(res, want)):
+        print('CONFIG %s resolves to %s/ which does not exist' % (tag, want))
+        fails += 1
+if os.path.isdir(os.path.join(res, 'values-hi-rIN')):
+    print('CONFIG values-hi-rIN still present, Crowdin exports values-hi'); fails += 1
+if not os.path.isdir(os.path.join(res, 'values-hi')):
+    print('CONFIG values-hi missing'); fails += 1
+sys.exit(1 if fails else 0)
+PY
+if [ $? -eq 0 ]; then
+    ok "crowdin.yml aligned with the shipped resource directories"
+else
+    bad "crowdin.yml is out of step with the shipped locales"
 fi
 
 info "Device: app launches with the new resources"

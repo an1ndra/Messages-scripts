@@ -76,10 +76,10 @@ adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null
 sleep 3
 for _ in 1 2 3 4 5 6 7 8; do
     dump_ui >/dev/null 2>&1
-    grep -q 'text="Advanced"' "$TMP/ui.xml" && break
+    grep -q 'text="Advanced settings"' "$TMP/ui.xml" && break
     adb_ shell input swipe 540 1700 540 900 250 >/dev/null 2>&1; sleep 0.5
 done
-c=$(center_of "Advanced") || c=""
+c=$(center_of "Advanced settings") || c=""
 [ -n "$c" ] && adb_ shell input tap $c; sleep 2
 for _ in 1 2 3 4 5 6; do
     dump_ui >/dev/null 2>&1
@@ -135,10 +135,10 @@ set_privacy() {
     adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null; sleep 3
     for _ in 1 2 3 4 5 6; do
         dump_ui >/dev/null 2>&1
-        grep -q 'text="Advanced"' "$TMP/ui.xml" && break
+        grep -q 'text="Advanced settings"' "$TMP/ui.xml" && break
         adb_ shell input swipe 540 1800 540 500 300 >/dev/null 2>&1; sleep 0.5
     done
-    c=$(center_of "Advanced") || c=""
+    c=$(center_of "Advanced settings") || c=""
     [ -n "$c" ] && adb_ shell input tap $c; sleep 2
     for _ in 1 2 3 4; do
         dump_ui >/dev/null 2>&1
