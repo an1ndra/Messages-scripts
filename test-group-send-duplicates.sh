@@ -43,7 +43,17 @@ info "Preparing a two-member group"
 adb_ shell am start -a android.intent.action.SENDTO -d "smsto:$PRIMARY" "$PKG" >/dev/null 2>&1
 sleep 3
 cleanup
-CID=$(q "SELECT id FROM conversations WHERE address='$PRIMARY'")
+# Exactly two recipients, deliberately. Several conversations can share an
+# address -- a private chat and a group both belong to the primary contact --
+# so "the conversation for this number" is ambiguous and picking the first row
+# can land on the private chat instead of the thread under test.
+CID=$(q "SELECT id FROM conversations WHERE address='$PRIMARY'
+         AND (SELECT count(*) FROM conversation_recipients r
+               WHERE r.conversation_id=conversations.id)>1")
+if [ -z "$CID" ]; then
+    # None yet: make one, then take it back the same way.
+    CID=$(q "SELECT id FROM conversations WHERE address='$PRIMARY'")
+fi
 [ -n "$CID" ] || { bad "no conversation for $PRIMARY"; exit 1; }
 sql "INSERT OR IGNORE INTO conversation_recipients(conversation_id,address)
      VALUES($CID,'$PRIMARY')" >/dev/null 2>&1

@@ -23,6 +23,24 @@ has no 1:1 of their own belongs in the group.
 Tests: `NewChatSkipsGroupTest` (4) and `test-new-chat-skips-group.sh`
 (9/0 after, 6/3 with `privateOnly` removed).
 
+## A group is listed by its own name (2026-10-10)
+
+The home list filed "Sarah + Dad" under "Sarah". A group's `address` is its
+primary contact's, so the ordinary "known contact shows their name" rule
+picked the wrong name — and the label a screen reader announced for the row
+had it too.
+
+The legacy list had the group branch and the redesigned one never did, which
+is why only the redesigned UI showed it. The rule now lives once, in
+`ContactDetails.listLabel`, and both lists call it; the visible title in each
+was a third copy of it and now reuses the same `senderLabel` the row is
+announced with, so the two cannot disagree.
+
+Tests: `ContactDetailsListLabelTest` (5) and
+`test-conversation-list-group-title.sh` (4/0 under either UI flag, and 3/1
+with the redesigned list's group branch removed — which reproduces the
+reported symptom exactly).
+
 ## One contact-details page (2026-10-10)
 
 The contact page existed twice — `ui/ContactDetailsScreen.kt` and
@@ -4327,17 +4345,23 @@ Tests: `TransferLogTest`, `TransferConflictCountingTest`, `test-transfer-log.sh`
   the raw `&` silently finds nothing and reads as "the row is missing". Also
   note that a row's title and the screen's top bar carry the same string — match
   on the subtitle to prove the *row* is on screen, not just the title bar.
-- **Never run two `test-*.sh` against the same AVD at once.** They share one
-  emulator, one database and one `ui.xml`, so they fight over it — the second
-  run's taps land on the first's screens and the emulator dies mid-suite. That
-  produced a convincing fake regression (group-send 2/4) and a dead AVD. Run
-  them one at a time.
+- **Never run two `test-*.sh` against the same AVD at once**, and check the
+  device is still there between scripts. They share one emulator, one database
+  and one `ui.xml`. A dead AVD makes every script report a handful of failures
+  that have nothing to do with the code — a whole suite once came back
+  `0 passed, 2 failed` per script, identically, which was the emulator gone
+  rather than a regression.
+- **A script that seeds rows must delete them on exit.** Several scripts share
+  `+15551230010`, and since a private chat and a group can now both belong to
+  the same contact, a leftover row makes "the conversation for this number"
+  ambiguous for the next script. That showed up as
+  `test-group-send-duplicates` dropping to 2/4 whenever it followed another.
+  It now selects the conversation with more than one recipient rather than
+  taking whatever row comes first.
 - **Two conversations can now share an address**, so a row cannot be found by
   address alone. `getOrCreateConversationBlocking` takes `privateOnly`, and the
   group row has to be reached from the list rather than
-  `--es open_conversation_address`. The redesigned conversation list also still
-  titles a group by its primary contact, so find group rows by a snippet
-  marker.
+  `--es open_conversation_address`.
 - **`test-backup-restore.sh` and `test-merge-import.sh` currently fail at the SAF
   picker step on this AVD** ("newest .enc not found in picker") — confirmed
   pre-existing on a clean checkout, not caused by the transfer-log work. The

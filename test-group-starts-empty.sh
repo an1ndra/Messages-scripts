@@ -16,6 +16,17 @@ q()   { sql "$1" | tr -d '\r'; }
 
 SARAH="+15551230010"
 DAD="+1555771010"
+
+cleanup() {
+    # Leaving these behind makes the address ambiguous for the next script: a
+    # private chat and a group both belong to the primary contact, so "the
+    # conversation for this number" stops having one answer.
+    sql "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$SARAH');" >/dev/null
+    sql "DELETE FROM conversation_recipients WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$SARAH');" >/dev/null
+    sql "DELETE FROM conversations WHERE address='$SARAH';" >/dev/null
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 PASS=0; FAIL=0
 ok()   { echo "[PASS] $1"; PASS=$((PASS+1)); }
 bad()  { echo "[FAIL] $1"; FAIL=$((FAIL+1)); }

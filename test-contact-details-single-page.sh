@@ -74,7 +74,16 @@ tap_label() {
     dump_ui >/dev/null 2>&1
 }
 
-cleanup() { pin_new_ui on; }
+cleanup() {
+    # The rows, not just the flag: several scripts seed this same address, and
+    # a leftover 1:1 plus group makes "the conversation for this number"
+    # ambiguous for whoever runs next.
+    sql "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$SARAH');" >/dev/null
+    sql "DELETE FROM conversation_recipients WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$SARAH');" >/dev/null
+    sql "DELETE FROM conversations WHERE address='$SARAH';" >/dev/null
+    pin_new_ui on
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
 
 # --- Arrange: a 1:1 with Sarah, and a group containing her -------------------
