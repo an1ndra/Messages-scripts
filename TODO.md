@@ -5,6 +5,44 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Granular notification channels per category and conversation (2026-10-17)
+
+Feature request #339: users want per-chat / per-category control of sound,
+vibration and importance. Android only lets an app set those when it creates a
+channel and hands them to the user afterwards, so the only real lever is
+**distinct channels**. The app previously kept one channel (chosen by the global
+sound setting) and deleted every other variant, which is exactly what this
+removes.
+
+- **Three category channels**, one per sound selection because a channel's
+  sound is fixed once it exists: `messages_direct_*`, `messages_group_*`,
+  `messages_unknown_*` (suffixes `default/app/dragon/uf09/uf062/silent`).
+  `NotificationCategory.resolve` decides — group wins, then unknown for
+  alphanumeric/short-code senders and numbers not in Contacts. Changing a
+  category's sound switches to the matching id and deletes the stale variant.
+- **Per-conversation override**: a `sound` column on `conversation_notifications`
+  (schema **v29**). Setting one creates `messages_convo_<id>`; clearing it deletes
+  the channel. Empty means "inherit the category/global sound".
+- **Per-category default** in `SettingsStore` (`notificationSoundFor` /
+  `setNotificationSoundFor`), surfaced in the new UI's Notification settings
+  screen, plus a "Manage in system settings" deep link.
+- The old single-channel ids are deleted once the category channels exist
+  (soft-deleted by the OS, so dumpsys still lists them with `mDeleted=true`).
+- Backup is a raw DB copy, so the new column rides along on export; import reads
+  it only when the backup actually has the column (`backupHasColumn`).
+- Diagnostics now lists every channel the app created, read from the
+  NotificationManager (not re-derived).
+- JUnit: `NotificationCategoryTest` (category precedence, stable channel ids,
+  no legacy collision) and `NotificationChannelWiringTest` (schema, backup
+  import tolerance, poster wiring, every locale defines the new keys).
+- Script: `test-notification-channels.sh`. **Verified** on `emulator-5554`
+  (SDK 35): 11/11 pass; with `NotificationCategory.resolve` broken back to a
+  single category it reports 2 FAILs, so it is not vacuous.
+- New strings shipped in all 13 locales (`notification_channel_direct_title`,
+  `_group_title`, `_unknown_title`, `_convo_desc`, `contact_notification_sound`,
+  `contact_notification_sound_default`, `settings_notif_manage_channels`,
+  `settings_notif_manage_channels_subtitle`).
+
 ## MMS that arrives with mobile data off: wait for data, then a deferred re-check (2026-10-15)
 
 Follow-up to #328, after @Zokii0's report that an MMS does not fetch when mobile
