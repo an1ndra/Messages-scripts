@@ -36,17 +36,20 @@ them were run on `emulator-5554` (SDK 35) against the fixed build.
   `test-bidi-persian-amount.sh` (5/0).
 - **#340 — several conversations can be selected and deleted at once.**
   Long-press keeps the action sheet it always had (Pin / Archive / **Multi
-  select** / Delete / Block); the new "Multi select" row, placed right after
-  Archive, switches the inbox into a selection bar. Long-press was briefly made
-  to start a selection instead, which read as "the options disappeared", so the
-  sheet is the entry point and the bar has Delete, Archive, Select all and Close
-  (no overflow submenu). The bar is shared by **both** conversation lists — the
+  select** / Delete / Block); the new "Select more" row, placed right after
+  Archive and carrying the dotted-square select-all glyph, switches the inbox
+  into a selection bar. Long-press was briefly made to start a selection
+  instead, which read as "the options disappeared", so the sheet is the entry
+  point and the bar has Delete, Archive, Select all and Close (no overflow
+  submenu). The title row and the bar share `ConversationHeader.HEIGHT`, so the
+  list does not move when the bar appears (it used to jump 30px); the script
+  compares the same row's top edge before and after. The bar is shared by **both** conversation lists — the
   legacy one is still the default, so a fix in only the redesigned list would
   have missed most users. Bulk delete goes to Trash with one undo; permanent
   delete stays a per-conversation choice because its dialog names one thread.
   Pure set arithmetic lives in `ConversationSelection`, tested by
   `ConversationSelectionTest`; wiring pinned by `ConversationListWiringTest`;
-  script `test-conversation-multi-select.sh` (9/0 on the legacy list and 9/0
+  script `test-conversation-multi-select.sh` (10/0 on the legacy list and 10/0
   with `use_new_ui=true`). Preview added for the bar, so `PreviewCoverageTest`
   stays green.
 - **#347 follow-up — the "Start chat" pill painted itself black under a

@@ -3,7 +3,7 @@
 # together.
 #
 # The entry point is the row's own action sheet - a long press still opens
-# Pin / Archive / Multi select / Delete / Block, and "Multi select" switches the
+# Pin / Archive / Select more / Delete / Block, and "Select more" switches the
 # inbox into a selection bar. Asserting the database afterwards is what matters:
 # a bar that says "2 selected" while deleting one thread looks identical in a
 # dump.
@@ -87,6 +87,22 @@ row_centre() { python3 -c "$NODE_CENTRE" "$TMP/ui.xml" "$1" substring clickable;
 # Centre of any node whose content-desc is exactly $1 (toolbar actions).
 icon_centre() { python3 -c "$NODE_CENTRE" "$TMP/ui.xml" "$1" exact any; }
 
+# Top edge of the clickable row carrying $1, in px.
+ROW_TOP=$(cat <<'PY'
+import re, sys
+xml, needle = open(sys.argv[1], encoding='utf-8', errors='replace').read(), sys.argv[2]
+for m in re.finditer(r'<node\b[^>]*>', xml):
+    tag = m.group(0)
+    if 'clickable="true"' not in tag or needle not in tag:
+        continue
+    b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', tag)
+    if b:
+        print(b.group(2))
+        raise SystemExit(0)
+PY
+)
+row_top() { python3 -c "$ROW_TOP" "$TMP/ui.xml" "$1"; }
+
 # Centre of a text node, matched on its exact label.
 text_centre() { python3 -c "$NODE_CENTRE" "$TMP/ui.xml" "$1" exact any; }
 
@@ -98,31 +114,42 @@ if [ -z "$POS_A" ] || [ -z "$POS_B" ]; then
 fi
 ok "both seeded rows are listed"
 
+BEFORE_TOP=$(row_top "$MARK beta")
+
 info "Long-press still opens the row's options"
 set -- $POS_A
 adb_ shell input swipe "$1" "$2" "$1" "$2" 800 >/dev/null 2>&1
 sleep 2
 dump_ui
-if grep -qE 'text="Multi select"' "$TMP/ui.xml" && grep -qE 'text="Archive"' "$TMP/ui.xml"; then
-    ok "long-press opens the action sheet with Multi select"
+if grep -qE 'text="Select more"' "$TMP/ui.xml" && grep -qE 'text="Archive"' "$TMP/ui.xml"; then
+    ok "long-press opens the action sheet with Select more"
 else
-    bad "long-press did not open the action sheet (no 'Multi select' row)"
+    bad "long-press did not open the action sheet (no 'Select more' row)"
 fi
 
-info "Multi select switches the inbox into a selection"
-SEL=$(text_centre "Multi select")
+info "Select more switches the inbox into a selection"
+SEL=$(text_centre "Select more")
 if [ -n "$SEL" ]; then
     set -- $SEL
     adb_ shell input tap "$1" "$2" >/dev/null 2>&1
     sleep 2
     dump_ui
     if grep -qE 'text="1 selected"' "$TMP/ui.xml"; then
-        ok "'Multi select' starts a selection with that conversation"
+        ok "'Select more' starts a selection with that conversation"
     else
-        bad "'Multi select' did not start a selection (no '1 selected')"
+        bad "'Select more' did not start a selection (no '1 selected')"
     fi
 else
-    bad "the sheet has no 'Multi select' row to tap"
+    bad "the sheet has no 'Select more' row to tap"
+fi
+
+# The bar replaces the title row. Both are the shared header height, so the list
+# must not move; a mismatch here is the "UI shifts" report.
+AFTER_TOP=$(row_top "$MARK beta")
+if [ -n "$BEFORE_TOP" ] && [ -n "$AFTER_TOP" ] && [ "$BEFORE_TOP" = "$AFTER_TOP" ]; then
+    ok "rows stayed put when the selection bar opened (top y=$AFTER_TOP)"
+else
+    bad "the list shifted when entering a selection (top y ${BEFORE_TOP:-?} -> ${AFTER_TOP:-?})"
 fi
 
 info "Tapping a second row extends it"
