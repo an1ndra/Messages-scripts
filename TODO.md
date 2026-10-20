@@ -37,8 +37,9 @@ them were run on `emulator-5554` (SDK 35) against the fixed build.
 - **#340 — several conversations can be selected and deleted at once.**
   Long-press keeps the action sheet it always had (Pin / Archive / **Multi
   select** / Delete / Block); the new "Select more" row, placed right after
-  Archive and carrying the dotted-square select-all glyph, switches the inbox
-  into a selection bar. Long-press was briefly made to start a selection
+  Archive and carrying the dotted-square select-all glyph (the bar's own
+  "select all" uses the same glyph, so one icon means one idea), switches the
+  inbox into a selection bar. Long-press was briefly made to start a selection
   instead, which read as "the options disappeared", so the sheet is the entry
   point and the bar has Delete, Archive, Select all and Close (no overflow
   submenu). The title row and the bar share `ConversationHeader.HEIGHT`, so the
