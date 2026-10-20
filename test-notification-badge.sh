@@ -121,15 +121,17 @@ badge_numbers() {
     '
 }
 # Launchers that render a count AGGREGATE across the app's active
-# notifications (Lawnchair sums them, verified on device). So each notification
-# must carry exactly 1, and the badge is then the number of unread
-# conversations. Publishing the unread *message* total per notification was
-# observed rendering 45 for three notifications that each carried 15.
+# notifications (Lawnchair sums them, verified on device). Each notification
+# carries its own conversation's unread count, so the aggregate is the unread
+# message total - what the inbox shows. Carrying a flat 1 counted unread
+# conversations instead (#345).
+UA=$(db_sql "SELECT unread_count FROM conversations WHERE id=$CID_A;")
+UB=$(db_sql "SELECT unread_count FROM conversations WHERE id=$CID_B;")
 NA=$(number_for_id "$CID_A"); NB=$(number_for_id "$CID_B")
-if [ "$NA" = "1" ] && [ "$NB" = "1" ]; then
-    pass "both notifications carry badge number 1 (A=$NA B=$NB -> badge aggregates to the unread-conversation count)"
+if [ "$NA" = "$UA" ] && [ "$NB" = "$UB" ] && [ "${UA:-0}" -ge 2 ]; then
+    pass "each notification carries its conversation's unread count (A=$NA/$UA B=$NB/$UB -> badge aggregates to the unread message total)"
 else
-    fail "expected number 1 on each of this run's notifications, got A='${NA:-none}' B='${NB:-none}'"
+    fail "expected number == unread count per conversation, got A='${NA:-none}'/$UA B='${NB:-none}'/$UB"
 fi
 
 if [ "$(notif_count)" -ge 2 ]; then
