@@ -2,10 +2,11 @@
 # Regression for #340: several conversations can be picked at once and deleted
 # together.
 #
-# Long-press is the entry point (it used to open the per-conversation sheet).
-# The assertion is on the database afterwards: a selection bar that says "2
-# selected" while deleting only one thread is the failure this catches, and a
-# dump of the toolbar alone cannot tell the two apart.
+# The entry point is the row's own action sheet - a long press still opens
+# Pin / Archive / Multi select / Delete / Block, and "Multi select" switches the
+# inbox into a selection bar. Asserting the database afterwards is what matters:
+# a bar that says "2 selected" while deleting one thread looks identical in a
+# dump.
 #
 # Both conversation lists carry the bar - the redesigned one and the legacy one,
 # which is still the default - so run this with either UI selected.
@@ -83,8 +84,11 @@ PY
 # toolbar button above it.
 row_centre() { python3 -c "$NODE_CENTRE" "$TMP/ui.xml" "$1" substring clickable; }
 
-# Centre of the icon whose content-desc is exactly $1 (toolbar actions).
+# Centre of any node whose content-desc is exactly $1 (toolbar actions).
 icon_centre() { python3 -c "$NODE_CENTRE" "$TMP/ui.xml" "$1" exact any; }
+
+# Centre of a text node, matched on its exact label.
+text_centre() { python3 -c "$NODE_CENTRE" "$TMP/ui.xml" "$1" exact any; }
 
 POS_A=$(row_centre "$MARK alpha")
 POS_B=$(row_centre "$MARK beta")
@@ -94,15 +98,31 @@ if [ -z "$POS_A" ] || [ -z "$POS_B" ]; then
 fi
 ok "both seeded rows are listed"
 
-info "Long-press starts a selection"
+info "Long-press still opens the row's options"
 set -- $POS_A
 adb_ shell input swipe "$1" "$2" "$1" "$2" 800 >/dev/null 2>&1
 sleep 2
 dump_ui
-if grep -qE 'text="1 selected"' "$TMP/ui.xml"; then
-    ok "long-press selects one conversation"
+if grep -qE 'text="Multi select"' "$TMP/ui.xml" && grep -qE 'text="Archive"' "$TMP/ui.xml"; then
+    ok "long-press opens the action sheet with Multi select"
 else
-    bad "long-press did not start a selection (no '1 selected')"
+    bad "long-press did not open the action sheet (no 'Multi select' row)"
+fi
+
+info "Multi select switches the inbox into a selection"
+SEL=$(text_centre "Multi select")
+if [ -n "$SEL" ]; then
+    set -- $SEL
+    adb_ shell input tap "$1" "$2" >/dev/null 2>&1
+    sleep 2
+    dump_ui
+    if grep -qE 'text="1 selected"' "$TMP/ui.xml"; then
+        ok "'Multi select' starts a selection with that conversation"
+    else
+        bad "'Multi select' did not start a selection (no '1 selected')"
+    fi
+else
+    bad "the sheet has no 'Multi select' row to tap"
 fi
 
 info "Tapping a second row extends it"

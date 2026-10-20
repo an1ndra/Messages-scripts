@@ -35,16 +35,31 @@ them were run on `emulator-5554` (SDK 35) against the fixed build.
   Tests: three new `BidiTextTest` cases; script
   `test-bidi-persian-amount.sh` (5/0).
 - **#340 — several conversations can be selected and deleted at once.**
-  Long-press starts a selection instead of opening the sheet; the shared
-  `ConversationSelectionBar` (used by **both** the redesigned and the legacy
-  list, since the legacy one is still the default) carries count, Delete,
-  Archive, "Select all" and — for a single selection — the old per-conversation
-  sheet. Bulk delete always goes to Trash with one undo; permanent delete stays
-  a per-conversation choice because its dialog names one thread. Pure set
-  arithmetic lives in `ConversationSelection`, tested by
-  `ConversationSelectionTest`; script `test-conversation-multi-select.sh`
-  (8/0 on the legacy list and 8/0 with `use_new_ui=true`). Preview added for
-  the bar, so `PreviewCoverageTest` stays green.
+  Long-press keeps the action sheet it always had (Pin / Archive / **Multi
+  select** / Delete / Block); the new "Multi select" row, placed right after
+  Archive, switches the inbox into a selection bar. Long-press was briefly made
+  to start a selection instead, which read as "the options disappeared", so the
+  sheet is the entry point and the bar has Delete, Archive, Select all and Close
+  (no overflow submenu). The bar is shared by **both** conversation lists — the
+  legacy one is still the default, so a fix in only the redesigned list would
+  have missed most users. Bulk delete goes to Trash with one undo; permanent
+  delete stays a per-conversation choice because its dialog names one thread.
+  Pure set arithmetic lives in `ConversationSelection`, tested by
+  `ConversationSelectionTest`; wiring pinned by `ConversationListWiringTest`;
+  script `test-conversation-multi-select.sh` (9/0 on the legacy list and 9/0
+  with `use_new_ui=true`). Preview added for the bar, so `PreviewCoverageTest`
+  stays green.
+- **#347 follow-up — the "Start chat" pill painted itself black under a
+  wallpaper palette.** `StartChatFab` drew `primary` on `secondaryContainer`,
+  which is not a pair Material defines. The seeded scheme made it look fine by
+  luck; the AVD's wallpaper palette hands back `secondaryContainer=#6E7488` and
+  `primary=#2A4174`, so the pill became dark-on-dark (2.14:1) and read as a
+  black blob. The pair now lives in one place (`startChatContent` /
+  `startChatContainer`), the FAB paints with it, and Diagnostics reports it as
+  `Resolved Start chat colours: #content on #container` — the script computes
+  the contrast from that line (4.65:1 now, **2.14:1 with the old pairing**, so
+  it fails on the bug). `ConversationListWiringTest` pins the wiring.
+
 - **#347 — Material You wallpaper colours.** New `dynamic` theme mode, offered
   on Android 12+ only: `dynamicSchemeOrNull()` feeds `schemeFor()`, which is
   still the only place a mode becomes a scheme, so Diagnostics reports the

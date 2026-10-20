@@ -74,14 +74,15 @@ read_report() {
     sleep 4
     scroll_to_and_tap "Diagnostics" || { back_out 3; echo "|"; return; }
     sleep 6
-    local mode colour
+    local mode colour fab
     for _ in $(seq 1 12); do
         dump_ui
         mode=$(grep -oE 'Theme mode: [a-z]+' "$TMP/ui.xml" | head -1 | sed 's/.*: //')
         colour=$(grep -oE 'Resolved page colour: #[0-9A-F]{6}' "$TMP/ui.xml" | head -1 | sed 's/.*#//')
-        if [ -n "$mode" ] && [ -n "$colour" ]; then
+        fab=$(grep -oE 'Resolved Start chat colours: #[0-9A-F]{6} on #[0-9A-F]{6}' "$TMP/ui.xml" | head -1 | sed 's/.*colours: //')
+        if [ -n "$mode" ] && [ -n "$colour" ] && [ -n "$fab" ]; then
             back_out 3
-            echo "$mode|$colour"
+            echo "$mode|$colour|$fab"
             return 0
         fi
         adb_ shell input swipe 540 1800 540 800 300 >/dev/null 2>&1; sleep 1
@@ -103,6 +104,7 @@ fi
 OUT=$(read_report)
 MODE=$(echo "$OUT" | cut -d'|' -f1)
 COLOUR=$(echo "$OUT" | cut -d'|' -f2)
+FAB=$(echo "$OUT" | cut -d'|' -f3)
 if [ -z "$COLOUR" ]; then
     bad "could not read the Diagnostics sheet"
 else
@@ -127,6 +129,33 @@ else
                 bad "below Android 12 dynamic should fall back to a seed, got #$COLOUR" ;;
         esac
     fi
+fi
+
+info "The Start chat pill stays legible on this palette"
+# A wallpaper palette can hand back a dark container and a dark primary; the
+# pill then paints dark-on-dark and reads as a black blob. Diagnostics reports
+# the pair the FAB actually paints with, so the contrast is checkable without a
+# screenshot.
+if [ -z "$FAB" ]; then
+    bad "Diagnostics did not report the Start chat colours"
+else
+    echo "  reported pair: $FAB"
+    RATIO=$(python3 - "$FAB" <<'PY'
+import sys
+pair = sys.argv[1]
+content, container = [h.strip().lstrip('#') for h in pair.split(' on ')]
+def lum(h):
+    c = [int(h[i:i+2], 16) / 255 for i in (0, 2, 4)]
+    c = [v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4 for v in c]
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+a, b = lum(content), lum(container)
+hi, lo = max(a, b), min(a, b)
+print(round((hi + 0.05) / (lo + 0.05), 2))
+PY
+)
+    awk -v r="$RATIO" 'BEGIN { exit (r >= 3.0) ? 0 : 1 }' \
+        && ok "Start chat content/container contrast is ${RATIO}:1 (>= 3)" \
+        || bad "Start chat content/container contrast is ${RATIO}:1 (< 3, the pill reads as a black blob)"
 fi
 
 info "The theme picker offers Dynamic"
