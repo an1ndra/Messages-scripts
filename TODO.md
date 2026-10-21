@@ -5,6 +5,34 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Appearance feedback on the rc2 build (2026-10-21)
+
+From @Astrid-starr on #347, after trying the dynamic theme:
+
+- **The "Start chat" pill was the wrong colour.** It used
+  `secondaryContainer`, which a wallpaper palette can turn into a dark slab. It
+  now uses Material's FAB pair, `primaryContainer`/`onPrimaryContainer`
+  (`startChatContainer`/`startChatContent` are still defined once and reported by
+  Diagnostics). On the AVD's palette that is 13.29:1.
+- **A faded send button read as broken.** With nothing to send there is now no
+  send button at all, like Google Messages; it appears the moment there is text
+  or a staged picture.
+- **Avatars can follow the theme.** New setting "Theme colours for avatars"
+  (`avatar_theme_colors`) paints them in `primaryContainer`/`onPrimaryContainer`
+  instead of the fixed per-contact palette. Provided through `LocalThemedAvatars`
+  from `MessagesTheme`, so every avatar in both UIs agrees.
+- **The redesigned interface is the default.** `useNewUi` now defaults to true;
+  the legacy screens stay reachable, but a fresh install gets the new one (which
+  is also where the appearance rows look right).
+
+Tests: `AppearanceOptionsTest` (5) plus `PendingMediaWiringTest` updated for the
+new send gate; script `test-composer-and-appearance.sh` — 6/0 (no Send while
+empty, appears on typing, disappears when cleared, the avatar row exists and the
+switch persists). `test-dynamic-theme.sh` 5/0, `test-chat-pinch-zoom.sh` 9/0,
+`test-conversation-multi-select.sh` 10/0 unchanged.
+
+Not done, deliberately: no RC tag was pushed for this batch.
+
 ## Issue batch #340–#348 (2026-10-20)
 
 The four actionable reports from the tracker, plus the automation that was
