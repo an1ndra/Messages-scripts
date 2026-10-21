@@ -5,6 +5,94 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Issue batch #340–#348 (2026-10-20)
+
+The four actionable reports from the tracker, plus the automation that was
+failing on every new issue. Every change ships with JUnit + a script; all of
+them were run on `emulator-5554` (SDK 35) against the fixed build.
+
+- **#341 — a conversation emptied from its notification stayed in the inbox.**
+  `DeleteMessageReceiver` trashed the message but nothing pruned the thread,
+  because the empty-chat prune (`trashConversationIfEmptySuspend`) only ran on
+  chat exit and a notification delete never opens a chat. The receiver now
+  prunes the conversation it just emptied, and skips the chat the user is
+  looking at (`repo.viewedConversationId`) so the open screen is not pulled out
+  from under them. Tests: `NotificationDeleteActionTest` (two new assertions);
+  script `test-notification-delete-empty-chat.sh` — 4/4 pass, and **2/4 with the
+  prune call disabled**, so it is not vacuous.
+- **#345 (badge) — the number counted conversations, not messages.** Every
+  notification carried `number=1`, so a launcher that aggregates the app's live
+  notifications showed the unread *conversation* count while the inbox showed
+  unread *messages*. Each notification now carries its own conversation's
+  unread count (`Repository.unreadCountFor`), which aggregates to the message
+  total. `BadgePolicyTest` rewritten; `test-notification-badge.sh` now asserts
+  the published number equals the seeded `unread_count` per conversation (10/0).
+- **#345 (bank SMS) — a Persian amount was reordered.** Java's `\d` is
+  ASCII-only, so `۱۲۳٬۴۵۶٬۷۸۹` was never recognised as a number run and the
+  following word ("مانده") was dropped into the middle of it by the bidi
+  algorithm. `BidiText` now matches Arabic-Indic and Extended Arabic-Indic
+  digits plus the Arabic thousands/decimal separators and the Arabic comma.
+  Tests: three new `BidiTextTest` cases; script
+  `test-bidi-persian-amount.sh` (5/0).
+- **#340 — several conversations can be selected and deleted at once.**
+  Long-press keeps the action sheet it always had (Pin / Archive / **Multi
+  select** / Delete / Block); the new "Select more" row, placed right after
+  Archive and carrying the dotted-square select-all glyph (the bar's own
+  "select all" uses the same glyph, so one icon means one idea), switches the
+  inbox into a selection bar. Long-press was briefly made to start a selection
+  instead, which read as "the options disappeared", so the sheet is the entry
+  point and the bar has Delete, Archive, Select all and Close (no overflow
+  submenu). The title row and the bar share `ConversationHeader.HEIGHT`, so the
+  list does not move when the bar appears (it used to jump 30px); the script
+  compares the same row's top edge before and after. The bar is shared by **both** conversation lists — the
+  legacy one is still the default, so a fix in only the redesigned list would
+  have missed most users. Bulk delete goes to Trash with one undo; permanent
+  delete stays a per-conversation choice because its dialog names one thread.
+  Pure set arithmetic lives in `ConversationSelection`, tested by
+  `ConversationSelectionTest`; wiring pinned by `ConversationListWiringTest`;
+  script `test-conversation-multi-select.sh` (10/0 on the legacy list and 10/0
+  with `use_new_ui=true`). Preview added for the bar, so `PreviewCoverageTest`
+  stays green.
+- **#347 follow-up — the "Start chat" pill painted itself black under a
+  wallpaper palette.** `StartChatFab` drew `primary` on `secondaryContainer`,
+  which is not a pair Material defines. The seeded scheme made it look fine by
+  luck; the AVD's wallpaper palette hands back `secondaryContainer=#6E7488` and
+  `primary=#2A4174`, so the pill became dark-on-dark (2.14:1) and read as a
+  black blob. The pair now lives in one place (`startChatContent` /
+  `startChatContainer`), the FAB paints with it, and Diagnostics reports it as
+  `Resolved Start chat colours: #content on #container` — the script computes
+  the contrast from that line (4.65:1 now, **2.14:1 with the old pairing**, so
+  it fails on the bug). `ConversationListWiringTest` pins the wiring.
+
+- **#347 — Material You wallpaper colours.** New `dynamic` theme mode, offered
+  on Android 12+ only: `dynamicSchemeOrNull()` feeds `schemeFor()`, which is
+  still the only place a mode becomes a scheme, so Diagnostics reports the
+  colour that is actually painted. High contrast and AMOLED still win over the
+  wallpaper. Tests: `DynamicThemeWiringTest` (10 cases); script
+  `test-dynamic-theme.sh` (4/0, device resolving `dynamic` to `#FAF8FF` rather
+  than a seed). AMOLED/light/dark still resolve as before
+  (`test-amoled-theme.sh` 10/0).
+- **#348 — pinch-to-zoom on the conversation.** The pinch scales the chat's
+  font density, not a graphics layer, so text grows and bubbles re-lay out
+  instead of being cropped; bounds are 0.8x–2x (`ChatZoom`), remembered per
+  conversation while it is open. `adb` cannot inject two fingers, so the
+  gesture is driven through the `--ef chat_zoom` hook and the script asserts the
+  rendering half — the same message occupies 252px at 1.0x, 618px at 1.8x and
+  clamps at 2x (6/0). `ChatZoomTest` + `ZoomWiringTest` cover the arithmetic and
+  the wiring.
+- **#346 — the "Issue TODO" workflow was failing on every run** (16/16 since it
+  was added, always `HTTP Error 403: Forbidden` from the model endpoint, which
+  also emailed a failure notice to whoever filed the issue). Removed rather than
+  patched: the credentials live in repository settings the code cannot verify,
+  and re-adding it is one file once the endpoint answers. Committed on
+  `chore/remove-issue-todo-workflow-main` (based on `main`, because `issues`
+  workflows only run from the default branch).
+
+Note for the next run: the emulator's database was at schema **29** (from the
+unmerged #339 branch) and this branch is 28, so the app crashed on launch with
+`Can't downgrade database from version 29 to 28` until app data was cleared. The
+old database was copied to `/sdcard/db-backup-v29/` first.
+
 ## Granular notification channels per category and conversation (2026-10-17)
 
 Feature request #339: users want per-chat / per-category control of sound,
