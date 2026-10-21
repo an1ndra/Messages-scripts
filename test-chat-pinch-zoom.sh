@@ -87,13 +87,52 @@ if [ -n "$H1" ] && [ -n "$H2" ]; then
     fi
 fi
 
-info "An absurd request is clamped, not honoured"
+info "The zoom is shown, and one tap goes back to 100%"
+open_chat 1.5
+dump_ui
+if grep -qE 'text="150%"' "$TMP/ui.xml"; then
+    ok "a 150% pill reports the current zoom"
+else
+    bad "no 150% pill while the chat is zoomed"
+fi
+CHIP=$(python3 - "$TMP/ui.xml" <<'PY'
+import re, sys
+xml = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+m = re.search(r'content-desc="Zoom 150%[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
+if m:
+    x1, y1, x2, y2 = map(int, m.groups())
+    print((x1 + x2) // 2, (y1 + y2) // 2)
+PY
+)
+if [ -n "$CHIP" ]; then
+    set -- $CHIP
+    adb_ shell input tap "$1" "$2" >/dev/null 2>&1
+    sleep 1
+    dump_ui
+    if grep -qE 'text="100%"' "$TMP/ui.xml" || ! grep -qE 'text="[0-9]+%"' "$TMP/ui.xml"; then
+        ok "tapping the pill resets the zoom"
+    else
+        bad "the pill did not reset the zoom"
+    fi
+    H4=$(text_height)
+    if [ -n "$H4" ] && [ "$H4" = "$H1" ]; then
+        ok "the text is back to its 100% layout (${H4}px)"
+    else
+        bad "text did not return to the 100% layout (${H4:-none}px, was ${H1:-none}px)"
+    fi
+else
+    bad "the zoom pill is not tappable"
+fi
+
+info "An absurd request is clamped to the 2.5x ceiling"
 open_chat 9.0
 H3=$(text_height)
-if [ -n "$H3" ] && [ "$H3" -le $((H2 * 3 / 2)) ]; then
-    ok "9x clamps to the 2x ceiling (height ${H3}px)"
+open_chat 2.5
+H_MAX=$(text_height)
+if [ -n "$H3" ] && [ -n "$H_MAX" ] && [ "$H3" = "$H_MAX" ]; then
+    ok "9x renders exactly like 2.5x (height ${H3}px)"
 else
-    bad "9x was not clamped (height ${H3:-none}px, 1.8x was ${H2:-none}px)"
+    bad "9x was not clamped (height ${H3:-none}px, 2.5x was ${H_MAX:-none}px)"
 fi
 
 echo ""

@@ -77,9 +77,11 @@ them were run on `emulator-5554` (SDK 35) against the fixed build.
   instead of being cropped; bounds are 0.8x–2x (`ChatZoom`), remembered per
   conversation while it is open. `adb` cannot inject two fingers, so the
   gesture is driven through the `--ef chat_zoom` hook and the script asserts the
-  rendering half — the same message occupies 252px at 1.0x, 618px at 1.8x and
-  clamps at 2x (6/0). `ChatZoomTest` + `ZoomWiringTest` cover the arithmetic and
-  the wiring.
+  rendering half. **Refined after tester feedback on rc1** ("works but takes too
+  much work"): the range widened from 0.8–2x to 0.7–2.5x, and a pill shows the
+  current zoom ("150%") with one tap back to 100% — before that the only way
+  back was pinching the other way. Script now 9/0: 252px at 1.0x, 618px at 1.8x,
+  the pill appears and resets, and 9x renders exactly like 2.5x.
 - **#346 — the "Issue TODO" workflow was failing on every run** (16/16 since it
   was added, always `HTTP Error 403: Forbidden` from the model endpoint, which
   also emailed a failure notice to whoever filed the issue). Removed rather than
@@ -92,6 +94,14 @@ Note for the next run: the emulator's database was at schema **29** (from the
 unmerged #339 branch) and this branch is 28, so the app crashed on launch with
 `Can't downgrade database from version 29 to 28` until app data was cleared. The
 old database was copied to `/sdcard/db-backup-v29/` first.
+
+## #339 channels merged into Develop (2026-10-21)
+
+The channel work had never been merged, so a tester on `v1.0.31-rc1` still saw a
+single "Messages" channel. Merging it also merged `scripts` (both sides had
+diverged: the channel tests existed only on the feature branch, the
+select-more/badge/bidi/zoom tests only on the batch branch). Schema 28 → 29;
+`test-notification-channels.sh` is 11/0 on the merged build.
 
 ## Granular notification channels per category and conversation (2026-10-17)
 
