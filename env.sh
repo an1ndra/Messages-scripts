@@ -301,6 +301,17 @@ sys.exit(0 if walk(data) else 1)
 PY
 }
 
+# Poll the layout dump until $1 appears, $2 attempts (default 6). Unlike
+# wait_for_text this never touches uiautomator, which is unreliable on this AVD.
+wait_layout_has() {
+    local q="$1" tries="${2:-6}" i
+    for i in $(seq 1 "$tries"); do
+        layout_has "$q" && return 0
+        sleep 1
+    done
+    return 1
+}
+
 # Tap the center of the first on-screen node containing $1.
 tap_layout() {
     local c

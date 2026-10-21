@@ -36,8 +36,11 @@ make_group() {
     launch
     sq "insert or replace into conversations (address,name,snippet,timestamp,unread_count)
         values ('$primary','Grp','seed',$(date +%s)000,0);" >/dev/null
+    # address is not unique (a 1:1 and its group share it), so `insert or
+    # replace` adds a row rather than replacing. Take the newest row for this
+    # primary, never every row for it.
     local cid
-    cid=$(sq "select id from conversations where address='$primary' and deleted_at=0;")
+    cid=$(sq "select max(id) from conversations where address='$primary' and deleted_at=0;")
     [ -z "$cid" ] && return 1
     sq "insert or ignore into conversation_recipients(conversation_id,address)
         values ($cid,'$primary');" >/dev/null
@@ -162,14 +165,13 @@ fi
 
 # ---------------------------------------------------------------------------
 info "7. Group naming"
-sq "update conversations set group_title='' where id=$CID;" >/dev/null
-GROUPED=$(make_group "$CLINIC" "$ALEX" 2>/dev/null)
-# ensureGroupTitle runs when a second member is added through the app; drive it
-# by adding via the repository path the UI uses.
-NEWCID=$(sq "select id from conversations where address='$CLINIC' and deleted_at=0 order by id desc limit 1;")
-sq "insert or ignore into conversation_recipients(conversation_id,address)
-    values ($NEWCID,'$ALEX');" >/dev/null
-if [ "$(member_count "$NEWCID")" -ge 2 ]; then
+# Leave exactly one conversation at this address: a 1:1 and its group share the
+# address, and "open by address" in section 8 must not be a coin toss.
+sq "delete from messages where conversation_id in (select id from conversations where address='$CLINIC');
+    delete from conversation_recipients where conversation_id in (select id from conversations where address='$CLINIC');
+    delete from conversations where address='$CLINIC';" >/dev/null
+NEWCID=$(make_group "$CLINIC" "$ALEX" 2>/dev/null)
+if [ -n "$NEWCID" ] && [ "$(member_count "$NEWCID")" -ge 2 ]; then
     pass "group of $(member_count "$NEWCID") ready for naming"
 else
     fail "could not build a group to name"

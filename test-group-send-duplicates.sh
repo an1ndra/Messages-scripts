@@ -22,6 +22,31 @@ BODY="GroupSendProbe$(date +%s)"
 sql() { echo "$1" | adb_ shell "run-as $PKG sqlite3 databases/messages.db"; }
 q()   { sql "$1" | tr -d '\r'; }
 
+# Focus the composer. uiautomator is unreliable on this AVD, so the EditText is
+# located through the android layout dump instead.
+tap_composer() {
+    layout_json || return 1
+    local c
+    c=$(python3 - "$TMP/layout.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); found = [None]
+def walk(x):
+    if found[0] is not None: return
+    if isinstance(x, list):
+        for y in x: walk(y)
+    elif isinstance(x, dict):
+        cls = str(x.get("class") or x.get("className") or "")
+        if "EditText" in cls and x.get("center"):
+            found[0] = x["center"]; return
+        for k in ("content", "children"): walk(x.get(k) or [])
+walk(d)
+print(found[0].strip("[]").replace(",", " ")) if found[0] else sys.exit(1)
+PY
+)
+    [ -z "$c" ] && return 1
+    adb_ shell input tap $c < /dev/null
+}
+
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1
     [ -n "$CID" ] || return 0
@@ -67,10 +92,13 @@ MEMBERS=$(q "SELECT count(*) FROM conversation_recipients WHERE conversation_id=
 info "Sending one message to the group"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" --es open_conversation_address "$PRIMARY" >/dev/null 2>&1; sleep 5
-tap_edittext >/dev/null 2>&1 || true
+# uiautomator is unreliable on this AVD, so focus the composer by tapping the
+# EditText node the layout dump reports. "Send" must match exactly: the probe
+# bodies contain "Send" as a substring.
+tap_composer >/dev/null 2>&1 || adb_ shell input tap 540 2179
+sleep 1
 adb_ shell input text "$BODY"; sleep 1
-dump_ui >/dev/null 2>&1 || true
-if tap_text "Send" >/dev/null 2>&1; then
+if tap_layout_exact "Send" >/dev/null 2>&1; then
     ok "send button tapped"
 else
     bad "could not tap Send"

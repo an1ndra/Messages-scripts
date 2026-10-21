@@ -33,6 +33,25 @@ app_lock_state() {
         | grep -oE '(true|false)$' | tr -d '\r'
 }
 
+# The setting is written through SharedPreferences, which applies asynchronously,
+# so a single read right after the prompt races the commit. Poll for the expected
+# value instead of reading once.
+wait_app_lock() { # expected true|false
+    local want="$1" i
+    for i in $(seq 1 8); do
+        [ "$(app_lock_state)" = "$want" ] && return 0
+        sleep 1
+    done
+    return 1
+}
+
+# The emulator screen sleeps during a long run; a locked/off screen leaves the
+# app behind it and every later navigation fails with "could not reach the row".
+wake_device() {
+    adb_ shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1
+    adb_ shell wm dismiss-keyguard >/dev/null 2>&1
+}
+
 row_centre() {
     python3 - "$TMP/ui.xml" "$1" <<'PY'
 import re, sys
@@ -130,6 +149,7 @@ try_toggle() {
 
 open_advanced() {
     local c
+    wake_device
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
     adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 6
     # With App lock on the app opens behind its own gate; get past it first.
@@ -144,6 +164,7 @@ open_advanced() {
 
 # Relaunches and gets past the app's own unlock gate, for the disable direction.
 relaunch_and_unlock() {
+    wake_device
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
     adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 6
     prompt_is_up && { enter_pin; sleep 1; }
@@ -218,7 +239,7 @@ info "A successful verification does apply the change"
 if open_advanced && scroll_to_row "App lock" >/dev/null && try_toggle; then
     if prompt_is_up; then
         enter_pin
-        if [ "$(app_lock_state)" = "true" ]; then
+        if wait_app_lock true; then
             ok "a verified user does enable App lock"
         else
             bad "the prompt was satisfied but App lock was not enabled"

@@ -86,7 +86,7 @@ info "A finished transfer must be classified and the row released from backoff"
 # download and reports a result code on the PendingIntent, so this exercises the
 # real path. Before the fix the result was never looked at at all.
 for i in $(seq 1 20); do
-    CLASSIFIED=$(adb_ logcat -d 2>/dev/null | grep -oE "MMS content://mms/$ID1 (permanently failed|needs manual retry|failed \(code [0-9]+\), retrying)" | tail -1 || true)
+    CLASSIFIED=$(adb_ logcat -d 2>/dev/null | grep -oE "MMS content://mms/$ID1 (permanently failed|needs manual retry|has no data network|failed \(code [0-9]+\), retrying)" | tail -1 || true)
     [ -n "${CLASSIFIED:-}" ] && break
     sleep 2
 done
