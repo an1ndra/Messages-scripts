@@ -10,6 +10,12 @@
 #
 # The assertion is geometric: the same message occupies more vertical space at
 # 1.8x than at 1.0x, and still renders its text (no cropping of the bubble).
+# Two follow-ups from the #348 report are covered here too: the zoom survives
+# leaving the chat and killing the process (it is written through to settings per
+# conversation), and a double-tap is a one-gesture zoom. The pinch centroid, which
+# decides what stays under the user's fingers, cannot be injected through adb at
+# all — that half is ChatZoomTest's anchoring maths plus the wiring assertions in
+# ZoomWiringTest.
 source "$(dirname "$0")/env.sh"
 
 PASS=0; FAIL=0
@@ -60,6 +66,53 @@ open_chat() {
         >/dev/null 2>&1
     sleep 6
     dump_ui
+}
+
+# Same, without the script hook: what the app opens at on its own, i.e. the zoom
+# this conversation was last left at.
+open_chat_plain() {
+    local addr="${1:-$NUM}"
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+    adb_ shell am start -n "$ACT" --es open_conversation_address "$addr" >/dev/null 2>&1
+    sleep 6
+    dump_ui
+}
+
+# Double-tap on an empty patch of the list: adb cannot inject multi-touch, and the
+# two taps have to be further apart than the platform's 40 ms double-tap floor. A
+# bubble's own tap handler swallows the gesture, so candidates are tried from just
+# below the message down to the input bar until the zoom actually changes.
+zoom_percent() {
+    python3 - "$TMP/ui.xml" <<'PY'
+import re, sys
+xml = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+m = re.search(r'text="([0-9]+)%"', xml)
+print(m.group(1) if m else "100")
+PY
+}
+
+double_tap_empty() {
+    local y before after
+    for y in $(python3 - "$TMP/ui.xml" "$MARK" <<'PY'
+import re, sys
+xml, needle = open(sys.argv[1], encoding='utf-8', errors='replace').read(), sys.argv[2]
+bottom = 0
+for m in re.finditer(r'text="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml):
+    if needle in m.group(1):
+        bottom = max(bottom, int(m.group(5)))
+for y in (bottom + 300, bottom + 500, 1750, 1950):
+    if 320 <= y <= 2050:
+        print(y)
+PY
+    ); do
+        before=$(zoom_percent)
+        adb_ shell "input tap 540 $y; sleep 0.09; input tap 540 $y" >/dev/null 2>&1
+        sleep 2
+        dump_ui
+        after=$(zoom_percent)
+        [ "$before" != "$after" ] && return 0
+    done
+    return 1
 }
 
 info "Open at 1.0x"
@@ -134,6 +187,62 @@ if [ -n "$H3" ] && [ -n "$H_MAX" ] && [ "$H3" = "$H_MAX" ]; then
 else
     bad "9x was not clamped (height ${H3:-none}px, 2.5x was ${H_MAX:-none}px)"
 fi
+
+info "The zoom is remembered after leaving the chat and killing the app"
+# The reporter's "takes too much work" was partly about having to re-pinch after
+# coming back. The zoom is written through to settings per conversation, so a
+# plain reopen (no hook, process killed first) still lands at 180%.
+open_chat 1.8
+open_chat_plain
+if grep -qE 'text="180%"' "$TMP/ui.xml"; then
+    ok "reopening the chat without the hook comes back at 180%"
+else
+    bad "the zoom was lost when the chat was reopened"
+fi
+
+info "A conversation that was never zoomed stays at 100%"
+OTHER="+1555982${MARK: -4}"
+OTHER_TS=$(date +%s000)
+sql "INSERT INTO conversations(address,name,snippet,timestamp,unread_count) VALUES('$OTHER','$MARK-o','$MARK',$OTHER_TS,0);" >/dev/null 2>&1
+OTHER_CID=$(sql "SELECT id FROM conversations WHERE address='$OTHER';")
+sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($OTHER_CID,'$MARK other thread',$OTHER_TS,'received');" >/dev/null 2>&1
+open_chat_plain "$OTHER"
+if grep -qE 'text="[0-9]+%"' "$TMP/ui.xml"; then
+    bad "the zoom leaked into a conversation that was never zoomed"
+else
+    ok "another conversation opens at 100%"
+fi
+sql "DELETE FROM messages WHERE conversation_id=$OTHER_CID;" >/dev/null 2>&1
+sql "DELETE FROM conversations WHERE address='$OTHER';" >/dev/null 2>&1
+
+info "A double-tap zooms out in one gesture, and again zooms back in"
+open_chat 1.8
+if double_tap_empty; then
+    if ! grep -qE 'text="[0-9]+%"' "$TMP/ui.xml"; then
+        ok "a double-tap went back to 100%"
+    else
+        bad "a double-tap did not leave the zoom"
+    fi
+    H_DT=$(text_height)
+    if [ -n "$H_DT" ] && [ "$H_DT" = "$H1" ]; then
+        ok "the text re-laid out at the 100% height (${H_DT}px)"
+    else
+        bad "text height after the double-tap was ${H_DT:-none}px, expected ${H1:-none}px"
+    fi
+    double_tap_empty
+    if grep -qE 'text="150%"' "$TMP/ui.xml"; then
+        ok "a second double-tap zooms in to 150%"
+    else
+        bad "the second double-tap did not zoom in"
+    fi
+else
+    bad "could not find an empty patch of the list to double-tap"
+fi
+
+# The zoom is persisted per conversation; drop the seeded conversation's entry so
+# a re-run starts from 100%.
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1
+adb_ shell "sed -i \"/chat_zoom_$CID/d\" /data/data/$PKG/shared_prefs/messages_settings.xml" >/dev/null 2>&1
 
 echo ""
 echo "=== RESULTS: $PASS passed, $FAIL failed ==="
