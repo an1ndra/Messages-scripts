@@ -129,6 +129,20 @@ them were run on `emulator-5554` (SDK 35) against the fixed build.
   current zoom ("150%") with one tap back to 100% — before that the only way
   back was pinching the other way. Script now 9/0: 252px at 1.0x, 618px at 1.8x,
   the pill appears and resets, and 9x renders exactly like 2.5x.
+  **Second pass after the reporter's follow-up** ("takes too much work", with a
+  recording next to Google Messages): the pinch now anchors on the two-finger
+  centroid — `ChatZoom.anchorAt`/`anchorScroll` read the row under the finger
+  before the scale change and scroll it back under the finger afterwards, so the
+  message no longer slides away mid-gesture. A **double-tap** zooms in/out in one
+  gesture on an empty patch of the list, and the zoom is **persisted per
+  conversation** in `SettingsStore` (`chat_zoom_<id>`), so it survives leaving
+  the chat and a process kill instead of dying with the screen's saved state.
+  Tests: `ChatZoomTest` anchor maths + double-tap target, `ZoomWiringTest`
+  centroid/double-tap/persistence wiring, `ChatZoomPersistenceTest` key naming;
+  script `test-chat-pinch-zoom.sh` now 14/0 (adds reopen-at-180% after
+  `force-stop`, no leak into a second conversation, and a real adb double-tap),
+  and **fails 10/2 with the persistence restore and the double-tap handler
+  removed**, so those assertions are not vacuous.
 - **#346 — the "Issue TODO" workflow was failing on every run** (16/16 since it
   was added, always `HTTP Error 403: Forbidden` from the model endpoint, which
   also emailed a failure notice to whoever filed the issue). Removed rather than
