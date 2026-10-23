@@ -101,7 +101,7 @@ fi
 
 info "The notification channel is high importance"
 IMP=$(adb_ shell dumpsys notification 2>/dev/null \
-    | grep -oE "NotificationChannel\{mId='messages[a-z_]*'[^}]*mImportance=[0-9]+" \
+    | grep -oE "NotificationChannel\{mId='messages[a-z0-9_]*'[^}]*mImportance=[0-9]+" \
     | grep -oE 'mImportance=[0-9]+' | cut -d= -f2 | tr -d '\r' | sort -rn | head -1)
 if [ -z "${IMP:-}" ]; then
     bad "no messages notification channel found"

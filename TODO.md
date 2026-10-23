@@ -5,6 +5,74 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Native conversation bubbles (#354, 2026-10-23)
+
+A user asked for Google Messages-style chat bubbles: open a conversation in a
+floating bubble from its notification, read and reply there, one bubble per
+conversation, on/off through Android's own notification settings.
+
+What the platform actually requires, checked against the AVD (`dumpsys
+notification`, `dumpsys shortcut`) rather than assumed:
+
+- The launched activity must be `allowEmbedded` **and** resizable. `MainActivity`
+  now declares both; it hosts the chat already, so there is no second chat
+  activity to keep in step with the theme/lock/nav decisions.
+- A notification only bubbles when it references a **published long-lived
+  shortcut**. `NotificationBubble` publishes `conversation_<id>` (short label =
+  sender, `Person`, `setLongLived`) and the poster sets `setShortcutId` +
+  `addPerson` + `setBubbleMetadata`.
+- **The app cannot set `NotificationChannel.setAllowBubbles`**: the platform
+  overrides it with `DEFAULT_ALLOW_BUBBLE` for every channel an app creates
+  (`PreferencesHelper.createNotificationChannel`), which is why an initial
+  attempt to force it produced `mAllowBubbles=-1`. Bubbles are enabled by the
+  user (notification's "bubble" chip, or Settings → Notifications → Bubbles),
+  which is exactly what the issue asked for. The notification stays a normal
+  one until then.
+- `BubbleMetadata`'s PendingIntent **must be mutable** — an immutable one makes
+  `notify()` throw `IllegalArgumentException: PendingIntents attached to
+  bubbles must be mutable`, and `SmsReceiver` swallows receiver exceptions, so
+  every message notification silently vanished. The launch intent is explicit
+  (component + package + per-conversation data URI) to keep the mutable flag
+  safe, and shortcut updates are rate limited (10/interval here), so a shortcut
+  is published at most once per conversation and a failure degrades to a plain
+  notification instead of losing it.
+- **Cancelling a notification cancels its bubble**, and the chat dismisses its
+  notification as soon as it is read. `BubbleHost` records the conversations a
+  live bubble is showing; `clearConversationNotification` defers the dismissal
+  until the bubble host finishes (its `onDestroy` with `isFinishing`).
+- In a bubble the chat is the root, so back finishes the activity (collapsing
+  the bubble) instead of navigating to the conversation list, and the route
+  starts at `"opening"` so the inbox never flashes inside the bubble window.
+
+Tests: `NotificationBubbleTest` (policy: id required, sender must be
+replyable) and `NotificationBubbleWiringTest` (manifest flags, shortcut +
+metadata wiring, the mutable PendingIntent trap, the deferred dismissal,
+Diagnostics reporting). Diagnostics now prints
+`Bubbles: allowed by <channels>` and `Bubble shortcuts: <ids>`, read from the
+platform instead of re-derived.
+
+Script `test-notification-bubbles.sh` — **12/0** on `emulator-5554` (SDK 35):
+notification carries `shortcut=conversation_<id>`, the shortcut is published
+and long-lived, bubbles-off leaves an ordinary notification, bubbles-on flags it
+`BUBBLE` and shows a bubble surface, the bubble intent opens the chat without
+cancelling its notification, and back dismisses both. **3 FAILs** with the
+metadata attach removed (rebuild + reinstall) and **1 FAIL** with the
+`BubbleHost` guard removed, so the assertions are not vacuous.
+`test-notification-actions.sh` 11/0, `test-notif-dismiss.sh` all pass,
+`test-grouped-notifications.sh` 18/1 (the pre-existing "number is not 1" badge
+assertion, identical on the pre-change APK).
+`test-notification-channels.sh` is 7/7 failing before and after: the script
+submodule already describes the not-yet-implemented "every conversation owns a
+channel" work, unrelated to bubbles.
+
+Not done, deliberately: the bubble's avatar is the app icon, not the contact's
+picture. Shortcut and bubble icons have to be bitmaps
+(`TYPE_URI`/adaptive-bitmap is what the platform asks for), so a per-contact
+avatar means drawing the existing letter avatar into one; the bubble's title
+already carries the contact name. Android 10 (API 29) also stays
+notification-only: bubbles there need `documentLaunchMode="always"`, and on the
+launcher activity that spawns a duplicate task on every launcher tap.
+
 ## Appearance feedback on the rc2 build (2026-10-21)
 
 From @Astrid-starr on #347, after trying the dynamic theme:
@@ -144,6 +212,75 @@ single "Messages" channel. Merging it also merged `scripts` (both sides had
 diverged: the channel tests existed only on the feature branch, the
 select-more/badge/bidi/zoom tests only on the batch branch). Schema 28 → 29;
 `test-notification-channels.sh` is 11/0 on the merged build.
+
+## #339 follow-up: every conversation owns a channel (2026-10-23)
+
+The reporter on Pixel 8 Pro / Android 17 still saw a single "Messages" channel
+and asked for one per chat. The shipped design only created
+`messages_convo_<id>` once a per-chat sound override was picked, so chats with
+no override stayed hidden behind the category channels.
+
+Checked how the apps the reporter named actually behave:
+
+- **Fossify Messages 1.10.1 (F-Droid, installed on `emulator-5554`)** exposes
+  exactly one channel: `fossify_messages` / "Received SMS". Its source
+  (`ConversationDetailsActivity.createNotificationChannel`) creates a
+  `<threadId>` channel only after the user turns on "Custom notifications" for
+  that conversation; posting then uses `threadId.toString()` as the channel id.
+  So it is opt-in there too, just surfaced on the conversation screen.
+- The reporter's expectation (a row per conversation in system settings) is
+  therefore a superset of both apps, not a regression fix.
+
+What changed:
+
+- **Every conversation gets its own channel**, created on the first message and
+  for the 100 most recent threads at launch (`syncConversationChannels`), titled
+  `ContactDetails.listLabel(...)` (group name, contact name, or formatted
+  number). Older threads get one the moment they receive a message.
+- **The sound is part of the conversation channel id**
+  (`messages_convo_<id>_<suffix>`), matching the category channels. Android
+  reserves a deleted channel id — recreating it restores the old sound and
+  importance — so a selection change must move to a new id; the previous
+  variant is deleted. This was caught by `test-notification-sound.sh`: a
+  delete-then-recreate on the same id silently kept the old tone.
+- **The poster always uses the conversation channel** when the sender has a
+  conversation row; the category channel is only the fallback for a sender with
+  no row yet.
+- **Changing a sound reconciles channels** (`syncNotificationChannels`, IO
+  thread) for conversations that already own one, so a long history does not
+  dump hundreds of rows into system settings at once. The old sound variant is
+  deleted, not edited.
+- **Deleting a conversation deletes its channels**; the launch sync also prunes
+  channels whose conversation row is gone.
+- `NotificationChannels.conversationIdOf` parses the id back for pruning.
+- Also fixed while here: the global sound dialog's option rows were not
+  clickable — only the radio dot responded, so tapping the label did nothing.
+- JUnit: `NotificationCategoryTest` (conversation id wins without an override,
+  id round-trip, sound-suffixed ids) and `NotificationChannelWiringTest`
+  (target query wiring, launch sync, settings-screen reconciliation, deletion).
+- One query decides everything a channel needs: `ConversationChannelTarget`
+  (`Repository.conversationChannelTargetBlocking` / `...TargetsBlocking`) carries
+  the label parts, member count and override tone, so the poster and both syncs
+  cannot label or tone the same chat differently. `categoryFor(target)` is the
+  single category decision; the poster no longer resolves it separately.
+- The launch sync reads the desired channel id first and returns on a match, so
+  a steady-state cold start is one binder read per conversation instead of six
+  writes; a tone change is what triggers the delete of the stale variant.
+- Scripts: `test-notification-channels.sh` rewritten for the new invariants
+  (14/0; **7 FAILs** against the pre-change APK after a rebuild+reinstall, so it
+  is not vacuous). `test-notification-sound.sh` updated for conversation
+  channels and the new Settings → Advanced settings → Notifications route
+  (23/0). Its navigation now uses the `android layout` CLI instead of
+  `dump_ui`/`tap_text`: on this AVD `uiautomator dump` started returning
+  `rc=137` and every navigation assertion failed while the app was fine. The
+  settings list also remembers its scroll position, so the helper scrolls it to
+  the top and retries instead of assuming "Advanced settings" is on the first
+  screen. `test-notification-wake.sh` channel grep now accepts digits.
+
+Verified on `emulator-5554` (SDK 35) against the rebuilt app: channels 14/0,
+sound 23/0, bubbles (#354) 12/0, actions 11/0, dismiss all pass, grouped 18/1
+(the pre-existing "number is not 1" badge assertion, identical on the pre-change
+APK), `testDebugUnitTest` green.
 
 ## Granular notification channels per category and conversation (2026-10-17)
 
