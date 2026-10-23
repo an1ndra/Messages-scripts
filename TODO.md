@@ -5,6 +5,25 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Send circle is permanent again (2026-10-23)
+
+Feedback after the rc2 build: "how send button was showing in v1.0.30 build,
+change it to that — currently when I am typing then only send button showing but
+I want to show it everytime". So the #347 decision to drop the button from an
+empty composer is reversed:
+
+- `InputBar` always draws the 48.dp circle in `primary`/`onPrimary`, exactly the
+  1.0.30 look; nothing shifts when the first character is typed.
+- It is only *live* when there is something to send
+  (`canSend(draft, hasAttachments)` in `ui/ComposerSend.kt`), so an empty tap
+  cannot fire a send and long-press-to-schedule stays text-only. The dump
+  reports the difference as `clickable` on the node carrying `content-desc="Send"`.
+
+Tests: `ComposerSendTest` (6) — empty/whitespace false, text or a staged picture
+true, cleared false again; `AppearanceOptionsTest` and `PendingMediaWiringTest`
+keep watch on the wiring. `test-composer-and-appearance.sh` — 6/0, and it fails
+on the pre-change build ("Send is missing from an empty composer").
+
 ## Appearance feedback on the rc2 build (2026-10-21)
 
 From @Astrid-starr on #347, after trying the dynamic theme:

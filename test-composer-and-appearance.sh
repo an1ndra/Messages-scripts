@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Regression for the appearance feedback on #347:
-#   - the send button is absent while there is nothing to send (a faded circle
-#     read as a broken control rather than "empty composer");
+# Regression for the appearance feedback on #347 and the follow-up asking for
+# the 1.0.30 composer back:
+#   - the send circle is on screen at all times, including an empty composer;
+#   - it only fires when there is a message or a staged picture, so typing
+#     turns it live and clearing the field turns it inactive again;
 #   - Settings offers "Theme colours for avatars" and the switch persists.
 #
-# Both are asserted from uiautomator dumps / the settings store, so no screenshot
-# is involved and the check is cheap enough to run on every change.
+# Asserted from uiautomator dumps / the settings store, so no screenshot is
+# involved and the check is cheap enough to run on every change.
 source "$(dirname "$0")/env.sh"
 
 PASS=0; FAIL=0
@@ -19,6 +21,28 @@ PREFS="/data/data/$PKG/shared_prefs/messages_settings.xml"
 adb_ root >/dev/null 2>&1; adb_ wait-for-device; sleep 1
 sql() { adb_ shell "sqlite3 /data/data/$PKG/databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r'; }
 pref() { adb_ shell "run-as $PKG cat $PREFS" 2>/dev/null | grep -oE "name=\"$1\" value=\"[^\"]*\"" | sed 's/.*value="//;s/"//'; }
+
+# The Send node's live state from the last dump: "live" when the circle accepts
+# a tap, "inert" when it is drawn but cannot fire, "missing" when absent. The
+# circle carries the content description itself, so both live on one node;
+# Compose reports the inactive state as enabled="false" (clickable stays true,
+# so `enabled` is the honest signal).
+send_state() {
+    python3 - "$TMP/ui.xml" <<'PY'
+import re, sys
+try:
+    xml = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+except OSError:
+    print("missing"); raise SystemExit(0)
+for tag in re.findall(r'<node[^>]*/>', xml):
+    if 'content-desc="Send"' not in tag:
+        continue
+    m = re.search(r'enabled="(\w+)"', tag)
+    print("live" if (m and m.group(1) == "true") else "inert")
+    raise SystemExit(0)
+print("missing")
+PY
+}
 
 cleanup() {
     sql "DELETE FROM messages WHERE body LIKE '%$MARK%';" >/dev/null 2>&1
@@ -45,15 +69,16 @@ open_chat() {
     dump_ui
 }
 
-info "An empty composer has no send button"
+info "An empty composer still shows the send circle, inert"
 open_chat
-if grep -q 'content-desc="Send"' "$TMP/ui.xml"; then
-    bad "send button is rendered with an empty composer"
-else
-    ok "no send button while the composer is empty"
-fi
+STATE=$(send_state)
+case "$STATE" in
+    inert) ok "Send is on screen but cannot fire while the composer is empty" ;;
+    live)  bad "Send is live on an empty composer" ;;
+    *)     bad "Send is missing from an empty composer" ;;
+esac
 
-info "Typing reveals it"
+info "Typing turns it live"
 # Tap the message field (the only EditText on screen), then type.
 FIELD=$(python3 - "$TMP/ui.xml" <<'PY'
 import re, sys
@@ -69,25 +94,25 @@ if [ -n "$FIELD" ]; then
     adb_ shell input tap "$1" "$2" >/dev/null 2>&1; sleep 1
     adb_ shell input text "$MARK" >/dev/null 2>&1; sleep 2
     dump_ui
-    if grep -q 'content-desc="Send"' "$TMP/ui.xml"; then
-        ok "typing shows the send button"
-    else
-        bad "send button still missing after typing"
-    fi
+    STATE=$(send_state)
+    [ "$STATE" = "live" ] \
+        && ok "typing makes the send button live" \
+        || bad "send button not live after typing (state=$STATE)"
 else
     bad "no message field found"
 fi
 
-info "Clearing the text hides it again"
+info "Clearing the text turns it back off without removing it"
 adb_ shell input keyevent 123 >/dev/null 2>&1
 for _ in $(seq 1 40); do adb_ shell input keyevent 67 >/dev/null 2>&1; done
 sleep 2
 dump_ui
-if grep -q 'content-desc="Send"' "$TMP/ui.xml"; then
-    bad "send button stayed after the text was cleared"
-else
-    ok "send button disappears again when the field is empty"
-fi
+STATE=$(send_state)
+case "$STATE" in
+    inert) ok "Send stays on screen, inert again once the field is empty" ;;
+    live)  bad "Send stayed live with an empty field" ;;
+    *)     bad "Send vanished when the text was cleared" ;;
+esac
 
 info "Settings offers theme colours for avatars"
 adb_ shell am force-stop "$PKG"; sleep 1
