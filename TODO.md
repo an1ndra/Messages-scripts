@@ -5,6 +5,138 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Pinch-to-zoom that feels like Google Messages (#348, 2026-10-24)
+
+The report: "not working like GM — I am not able to zoom pinch easily". Two
+separate faults, both reproduced with a real two-finger gesture on the emulator:
+
+- **The list ate the pinch.** `Modifier.transformable` on the LazyColumn lost the
+  gesture to the list's own scroll: as soon as one finger moved, the scrollable
+  consumed the pointers, and `detectTransformGestures` cancels when its changes
+  are consumed — for the entire touch sequence. A real pinch starts with one
+  finger landing a few milliseconds before the other, so that was the *normal*
+  case: the chat only zoomed when both fingers landed on the same frame. The
+  handler now watches in `PointerEventPass.Initial`, where it sees two-finger
+  events before the scrollable can take them, and consumes them while zooming.
+  Two-finger events that keep the finger distance unchanged are not consumed, so
+  a two-finger drag still scrolls.
+- **The magnitude was thrown away twice.** `transformable` only counts from the
+  frame that beats the touch slop, and the start spread lived inside the
+  `pointerInput` block, which Compose restarts whenever its lambda changes — and
+  this chat recomposes on every zoom step. A 3.3x finger spread therefore moved
+  the text 1.19x. `ChatZoom.pinch` measures the ratio from the spread at the
+  moment the second finger landed, and `ChatZoom.Pinch` keeps that baseline
+  outside the restartable block.
+
+Measured against Google Messages (messages 2023.05.29 on a `google_apis` AVD,
+same 1080x2400@420 screen, same injected gestures):
+
+| gesture | Google Messages | Messages before | Messages now |
+|---|---|---|---|
+| both fingers land together, spread 3.3x | text 112px -> 346px (≈3.1x) | 119% | 250% (the ceiling) |
+| one finger drags first, then pinch 3.3x | text 112px -> 346px | no zoom at all | 250% |
+| 1.5x spread | — | 105% | 150% |
+| pinch in | no change observed | 100% | 70% (the floor) |
+
+So the gesture now matches GM on the two cases that were broken. The remaining
+difference is the ceiling: GM reaches at least 3.1x where this app stops at
+2.5x, so the same pinch grows visibly less. GM also did not shrink on a
+pinch-in in that build; the 70% floor and the one-tap reset stay as they are.
+
+Tests: `ChatZoomTest` (+3: spread, pinch ratio, the baseline surviving a restart),
+`ZoomWiringTest` (the transformable assertions now assert the Initial-pass
+handler and the consumed two-finger events). Script
+`test-chat-pinch-zoom.sh` finally tests the *gesture*: `adb shell input` can only
+inject one pointer, so it writes a real two-finger pinch to the emulator's
+touchscreen node with `sendevent`. Fails 4/4 of the pinch cases on the old build
+(1.19x and no zoom at all).
+
+Emulator gotcha for the next person: the AVD exposes `virtio_input_multi_touch_1`
+… `_11`, and **only `_1` is the touchscreen**. Writing to any other node is
+silently ignored, which looks exactly like a broken pinch — half an hour went
+into that. The script picks `_1` explicitly.
+
+## Per-message RTL/LTR text direction (#362, 2026-10-24)
+Issue #362: Persian messages in an English-locale app were laid out as if they
+were English — lines hugged the left of the bubble and mixed Persian/English
+text did not match Google Messages. Two different rules, because the two places
+answer different questions:
+
+- **Message text** — `BidiText.direction(text)`: the first and last strong
+  characters decide. Weak characters never vote, so a trailing "!" or a phone
+  number at the end is ignored; when the two ends disagree the **last** one
+  wins, so "Order 48291 تکمیل شد" is laid out as Persian and "سلام OK" as
+  English. The bubble paints through that value (`TextStyle.textDirection`).
+- **Composer** — `BidiText.firstStrongDirection(text)`: Unicode P2, the first
+  strong character alone, so the caret and the lines flip as soon as a Persian
+  word is typed and do not flip back when an English word is appended.
+
+`isolateNumberRuns` now decides through `direction()` too, so the isolate
+transform and the painted base direction can never disagree (first strong was
+Latin but last strong Persian used to render RTL with no isolates). Also fixed:
+`BidiText`'s direction helpers are now unit-testable rather than a private
+boolean.
+
+Tests: `BidiTextDirectionTest` (9) — both rules, punctuation/digit immunity,
+mixed ends, no-strong-character fallback, and the isolation/direction
+agreement; `BidiTextTest.remapShiftsStyledRangeOverIsolates`'s fixture now ends
+in Persian (it was mixed, so the new rule lays it out LTR and correctly
+isolates nothing). Script `test-rtl-direction.sh` (10/0) drives the real UI and
+asserts the `BubbleDirection` / `ComposerDirection` logcat markers the app emits
+from the exact `TextStyle` it paints with. Fails 4/10 with the old
+first-strong-only rule and a pinned-LTR composer. The composer case enters
+Persian through the `sms:?body=` share path, since `adb shell input text` is
+ASCII-only — a DB-seeded draft does not work, see below.
+
+**Found, not fixed (separate bug):** `ChatScreen`'s draft restore is a lambda
+literal that is never invoked — `if (convo != null && !draftLoaded) { { … } }` —
+so a saved draft is never put back in the composer on re-open. It is why the
+script seeds the composer through a share intent instead of the database.
+
+## "Mark all as read" asks first (#355, 2026-10-23)
+
+Issue #355: a user tapped the row while reaching for Notifications and every
+unread badge vanished with no way back. The row acted immediately and only
+toasted afterwards.
+
+- Both settings UIs (`ui/SettingsScreen.kt` and the legacy `SettingsScreen`)
+  now open a confirmation instead of marking read: title "Mark all as read?",
+  body "Unread badges will be cleared on every conversation. This can’t be
+  undone.", Cancel / Mark all as read. `vm.markAllRead()` and the success toast
+  moved into the confirm branch, so backing out changes nothing.
+- Two new strings in `strings_settings.xml` × 13 locales
+  (`settings_mark_read_confirm_title`, `..._message`).
+
+Tests: `MarkAllReadConfirmTest` (4) — the row only opens the dialog, the single
+`markAllRead()` call sits in the confirm branch, cancelling has no side effects,
+and the dialog carries its title + body. `test-mark-all-read-confirm.sh`
+(16/0) seeds an unread conversation and, in **both** settings UIs, asserts the
+dialog appears, the DB badge is still 1 while it waits and after Cancel, and 0
+after confirming. Fails on the pre-fix build ("tapping the row marked read
+without asking").
+
+## "Theme colours for avatars" switch removed (2026-10-23)
+
+Follow-up to #347. The dynamic (wallpaper) theme made the fixed per-contact
+palette the only thing on screen not derived from the wallpaper, so dynamic now
+always themes avatars: `avatarsFollowTheme(mode)` in `ui/theme/Theme.kt` is the
+one rule, `MessagesTheme` publishes it through `LocalThemedAvatars`, and every
+fixed mode (light/dark/amoled/system) keeps the Google-Messages palette.
+
+Since that left the switch dead under dynamic and marginal elsewhere, the row,
+the `avatarThemeColors` preference, its `SettingsSearch` entry and its two
+strings (× 13 locales) are gone. Diagnostics gained `Avatar fill: theme
+(dynamic)` / `Avatar fill: palette (per contact)`, read through the same
+function the theme paints through, so the rule stays assertable without a
+screenshot.
+
+Tests: `AvatarThemeResolutionTest` (5) — dynamic only, fixed modes keep the
+palette, the theme and Diagnostics both go through the shared function, and the
+switch is gone from both UIs, search and `SettingsStore`. `AppearanceOptionsTest`
+dropped its three avatar-toggle assertions. `test-avatar-theme-dynamic.sh`
+asserts no avatar row in either UI and reads the Diagnostics line under dynamic,
+system and amoled.
+
 ## Send circle is permanent again (2026-10-23)
 
 Feedback after the rc2 build: "how send button was showing in v1.0.30 build,
