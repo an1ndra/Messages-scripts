@@ -5,6 +5,58 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Start chat pill back to the v1.0.30 colours (2026-10-25)
+
+Feedback: the "Start chat" pill's background and text no longer matched the
+v1.0.30 design. That was true — #347 had moved it from `secondaryContainer` +
+`primary` to Material's FAB pair `primaryContainer`/`onPrimaryContainer` to fix a
+wallpaper palette that made it dark-on-dark. In the seeded themes that swap is
+plainly visible: light went from blue-on-pale-blue to near-black navy on a
+slightly different blue, dark from light-blue-on-grey-blue to near-white on a
+vivid blue.
+
+The pill is back on the v1.0.30 pair: container `secondaryContainer`, content
+`primary`. The legibility fix moved into the content rule instead of the pair —
+`startChatContent` falls back to `onSecondaryContainer` only when `primary` on
+`secondaryContainer` drops below 3:1 (the AVD wallpaper palette: 2.14:1 before).
+Seeded light/dark/AMOLED/high-contrast themes all keep `primary`, and
+Diagnostics still reports the pair the FAB paints with.
+
+Tests: `StartChatPillColorTest` (5: seeded themes keep the v1.0.30 pair, high
+contrast too, a dim wallpaper primary falls back, every resolved pair >= 3:1,
+contrast helper sanity). `ConversationListWiringTest` now pins the new
+definition. Script `test-start-chat-colours.sh` reads Diagnostics for
+light/dark/amoled and compares against the exact seeded pairs — 3/3 FAIL on the
+pre-fix build, 3/3 PASS after. `test-dynamic-theme.sh` still passes 5/0, so the
+wallpaper fallback is covered too.
+
+## Undo follows LIFO after consecutive swipes (#374, 2026-10-25)
+
+Issue #374: archive six chats in a row and the one Undo snackbar you can see
+restores the *first* one. Root cause was Material's `SnackbarHostState`: every
+swipe launched its own `showSnackbar` call and those queue **FIFO**, so the
+visible snackbar described the oldest action (and the remaining five appeared
+one after another, oldest first). The screen now owns the order:
+
+- `UndoStack<T>` (`ui/UndoStack.kt`) is the LIFO stack of pending actions.
+- One presenter coroutine shows only the newest entry, cancelling the snackbar
+  it replaces (`cancelAndJoin`), so a new swipe never queues behind the old one.
+- Undo pops the newest action; the next entry is then offered, so repeated
+  Undo keeps walking back. Closing the snackbar (timeout or swipe-away) clears
+  the whole window, so stale actions cannot resurface later.
+- Every swipe action (archive, delete, mark read/unread, pin, block) and both
+  bulk actions go through the same stack.
+
+Tests: `UndoStackTest` (LIFO order, peek does not consume, clear) and
+`UndoSnackbarWiringTest` (one snackbar call, replacement cancel, all five swipe
+handlers record through `showUndo`). Script `test-undo-lifo.sh` archives two
+seeded chats back to back and asserts the *newer* one returns from a single
+Undo — it fails 2 assertions on the pre-fix build and passes 8/8 after.
+
+The script reads archive state from sqlite instead of negative uiautomator
+dumps: a "row is gone" check costs three dumps (~10s) and outlives the snackbar,
+which is what made the first draft report "no Undo snackbar" on a working app.
+
 ## Pinch-to-zoom that feels like Google Messages (#348, 2026-10-24)
 
 The report: "not working like GM — I am not able to zoom pinch easily". Two
@@ -233,6 +285,8 @@ From @Astrid-starr on #347, after trying the dynamic theme:
   now uses Material's FAB pair, `primaryContainer`/`onPrimaryContainer`
   (`startChatContainer`/`startChatContent` are still defined once and reported by
   Diagnostics). On the AVD's palette that is 13.29:1.
+  *(Reverted 2026-10-25: the settled design is v1.0.30's pair — see the top
+  entry. The wallpaper legibility fix is now the content fallback.)*
 - **A faded send button read as broken.** With nothing to send there is now no
   send button at all, like Google Messages; it appears the moment there is text
   or a staged picture.
