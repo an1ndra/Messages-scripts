@@ -4,9 +4,9 @@
 
 Manual/automated UI test scripts for the **Messages** Android app
 (`com.anindra.messages`, a Google-Messages-clone SMS app). They drive the app
-on the `emulator-5554` AVD over adb and assert state via **uiautomator dumps**
-(never screenshots). This repo ships as a **git submodule** at `scripts/` inside
-the Messages app repo (`git@github.com:an1ndra/Messages.git`).
+on the default comparison AVDs over adb and assert state via **uiautomator
+dumps** (never screenshots). This repo ships as a **git submodule** at
+`scripts/` inside the Messages app repo (`git@github.com:an1ndra/Messages.git`).
 
 ## Environment (defaults, all env-overridable via `env.sh`)
 
@@ -15,14 +15,32 @@ the Messages app repo (`git@github.com:an1ndra/Messages.git`).
 | `PKG` | `com.anindra.messages` | target app package |
 | `ACT` | `$PKG/.MainActivity` | derived from `PKG` |
 | `ADB` | `$HOME/android/platform-tools/adb` | adb binary |
-| `ANDROID_SERIAL` | `emulator-5554` | primary test device |
+| `ANDROID_SERIAL` | `emulator-5558` | standing default: `Pixel_AOSP12_AOSP31` (AOSP 12). Alternate: `emulator-5557` = `Pixel_AOSP11_AOSP30` (AOSP 11). Both Magisk-rooted with microG + Google Messages — see "Standing comparison AVDs" below |
 | `SHOTS_DIR` | `screenshots/` (next to the app repo) | screenshot output |
 | `TMP` | `/tmp/opencode/messages-tests` | scratch dir (ui.xml dumps) |
 
-Screens assume **1080x2400 @ 420dpi**. Inbound SMS injection:
+Screens assume **1080x2400 @ 420dpi** — exact on `emulator-5557` (and the
+historical `emulator-5554`); `emulator-5558` is **1080x2340 @ 440dpi**, so
+hardcoded screen-coordinate candidates shift there. Inbound SMS injection:
 `adb_ emu sms send <number> "<text>"`; the emulator's own numbers are the
-`+15551230004` range; real Google Messages also runs on the AVD as default
-SMS handler.
+`+15551230004` range; real Google Messages also runs on the comparison AVDs
+with the default-SMS role.
+
+### Standing comparison AVDs (Magisk + microG + Google Messages)
+
+`emulator-5558` = `Pixel_AOSP12_AOSP31` (AOSP 12, API 31, 1080x2340 @ 440dpi)
+and `emulator-5557` = `Pixel_AOSP11_AOSP30` (AOSP 11, API 30, 1080x2400 @
+420dpi) are the defaults. Both run **Magisk v25.2 root** (`su` →
+`u:r:magisk:s0`, via the rootAVD ramdisk patch), **microG** (GmsCore 0.3.17 +
+FakeStore) and **Google Messages 2026.x**, GM holding the default-SMS role.
+Scripts that take the role for `$PKG` with
+`cmd role add-role-holder android.app.role.SMS $PKG` are still valid; hand it
+back afterwards with
+`su -c 'cmd role add-role-holder android.app.role.SMS com.google.android.apps.messaging'`
+(rooted, so plain `adb_ shell cmd role ...` fails on these AVDs — wrap it in
+`su -c`). Port arithmetic and image-level gotchas (AOSP-31 ramdisk
+`persist.sys.usb.config=none` repacked to `=adb`, `content insert` no-op on
+AOSP-30) live in the app repo's root `AGENTS.md`.
 
 ## How to run
 
@@ -52,8 +70,9 @@ Full reference in `Development.md`.
    xml, or `center_of_contains`. Screenshot-based verification is slow — never
    add a script that "verifies" only via saved PNGs, and don't take screenshots
    without the user's permission.
-3. **Coordinate taps default to 1080x2400 @ 420dpi**; prefer dump-derived
-   centers (`tap_text`, `center_of_contains`) over fixed coordinates.
+3. **Coordinate taps default to 1080x2400 @ 420dpi** (`emulator-5557`); the
+    5558 target is 1080x2340 @ 440dpi. Prefer dump-derived centers
+    (`tap_text`, `center_of_contains`) over fixed coordinates.
 4. **Keep the PASS/FAIL counter convention** (`pass()/fail()` or `ok()/bad()`
    with `PASS`/`FAIL` counters) and `exit $((FAIL > 0))` so scripts are
    automatable.
@@ -64,8 +83,9 @@ Full reference in `Development.md`.
    change (not just bug fixes) needs a **JUnit test** under
    `app/src/test/java/...` (`./gradlew testDebugUnitTest`, must stay green)
    **and** a `test-<area>.sh` regression script the developer can re-run on
-   `emulator-5554`. For a bug fix the script must fail before the fix and pass
-   after. A change is not "done" until both exist and pass.
+   `emulator-5558` (or `emulator-5557` for Android 11). For a bug fix the
+   script must fail before the fix and pass after. A change is not "done"
+   until both exist and pass.
 7. **Always update `TODO.md`** and check off completed tasks — never skip it.
 8. **No comments** unless genuinely non-obvious (repo style).
 9. **Split large work across agents** (new agent per task) so implementation/
