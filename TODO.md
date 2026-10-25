@@ -43,6 +43,23 @@ image's adbd works without the `persist.sys.usb.config=adb` rewrite — so leave
 the stock LZ4 ramdisk in place. `adb root` gives uid 0 (userdebug) which covers
 the `su -c` paths, and `run-as` covers the rest.
 
+### The other half of #345 — Saman's split balance — verified against the report
+
+The screenshots on the issue (which only became readable late, from the
+`user-attachments` URLs in the issue body) show two distinct problems on
+**v1.0.30**: a launcher badge of 4 while the inbox sums 30 unread messages
+(the per-conversation count), and a Saman balance painted as
+`78,556 مانده ,010`. The badge half is the `BadgePolicy.badgeCount` change
+already on `Develop` (v1.0.31); the balance half is `BidiText.isolateNumberRuns`,
+which already permits ASCII **and** Persian digits with ASCII, Arabic and
+Arabic-Indic separators — but the issue's own string was only covered in the
+Persian-digit form. `BidiTextTest.isolatesAPersianLineBalanceWrittenInAsciiDigits`
+and the new section of `test-bidi-persian-amount.sh` (seeded with the
+photographed body verbatim, 7/7 PASS) pin the ASCII form, so the label cannot
+land inside the amount again. What is left for #345 is a release: `9e63840`,
+the v1.0.31 badge change and this block fix are all unreleased.
+
+
 ## Start chat pill back to the v1.0.30 colours (2026-10-25)
 
 Feedback: the "Start chat" pill's background and text no longer matched the
