@@ -5,6 +5,44 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Blocked senders no longer leak into the icon badge (#345, 2026-10-25)
+
+A launcher badge sums the numbers the app's live notifications carry, and the
+count a thread publishes is its own unread total. Blocking a sender left its
+notification alive: the messages it counted stay unread in Spam & blocked, and
+the messages that follow a block are never posted (the receiver files them
+silently), so nothing ever replaced or cancelled the number. The icon kept
+counting a sender the user had explicitly silenced.
+
+`Repository.blockNumber` now cancels every notification the sender owns —
+one per matching conversation row (both address spellings, the same rows
+`setConversationBlockedForAddress` flags, via `blockedConversationIds`) plus the
+address-hash id `NotificationHelper.show` falls back to when no conversation row
+existed — through the new `NotificationHelper.clearBlockedConversationNotifications`.
+Both the plain id and the `"failed"` tag are cancelled, and an id a live bubble
+host owns is skipped, exactly like `clearConversationNotification`.
+
+Tests: `BadgePolicyTest` pins `idsToDismissOnBlock` (every conversation id, the
+hash fallback, dedupe of Long→Int collisions, empty input) and
+`BlockedBadgeDismissTest` anchors the wiring (blockNumber calls the helper,
+the helper cancels both tags, skips held bubbles, and queries the same address
+rows the flag uses). Script `test-blocked-badge.sh` receives two SMS, blocks the
+sender from the conversation row sheet (not the chat — opening the chat would
+mark it read and dismiss the notification, masking the bug), then asserts the
+live notification id is gone, a later SMS from the blocked sender posts no
+number, all messages survive in the folder, and the flag is set. Pre-fix build:
+2 of 6 FAIL (`notification for id N still live`, `posted number=2`). Post-fix:
+6/6 PASS on emulator-5558.
+
+AVD note from this session: `Pixel_AOSP12_AOSP31`'s ramdisk.img had been
+re-patched as a **gzip** cpio; this kernel accepts only the legacy-LZ4 framing,
+so first-stage `init` aborted with `Failed to mount required partitions early`
+and the guest reboot-looped forever (gray window, adb permanently `offline`).
+The pristine `x86_64/ramdisk.img` from `x86_64-31_r05.zip` boots fine, and this
+image's adbd works without the `persist.sys.usb.config=adb` rewrite — so leave
+the stock LZ4 ramdisk in place. `adb root` gives uid 0 (userdebug) which covers
+the `su -c` paths, and `run-as` covers the rest.
+
 ## Start chat pill back to the v1.0.30 colours (2026-10-25)
 
 Feedback: the "Start chat" pill's background and text no longer matched the
