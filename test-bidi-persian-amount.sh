@@ -100,6 +100,40 @@ else
     ok "an LTR message is not isolated"
 fi
 
+info "The issue's own Saman line, written in ASCII digits"
+# #345's screenshot renders "78,556,010" as "78,556 مانده ,010" on 1.0.30: the
+# bank wrote the balance in ASCII digits with ASCII commas, and only the
+# Persian-digit form was pinned. The same run must be isolated whole.
+ASCII="78,556,010"
+sql "UPDATE messages SET body='بانک سامان
+برداشت مبلغ
+خرید کالا
+مانده $ASCII
+1405/7/28
+10:58:22' WHERE conversation_id=$CID;" >/dev/null 2>&1
+adb_ shell am force-stop "$PKG"; sleep 1
+adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" >/dev/null 2>&1
+sleep 6
+dump_ui
+out=$(python3 - "$TMP/ui.xml" "$LRI" "$PDI" "$ASCII" <<'PY'
+import sys
+xml = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+lri, pdi, amount = sys.argv[2], sys.argv[3], sys.argv[4]
+print("yes" if lri + amount + pdi in xml else "no")
+print("raw" if amount in xml else "absent")
+PY
+)
+if [ "$(echo "$out" | sed -n 1p)" = "yes" ]; then
+    ok "the ASCII-digit balance is rendered inside one LTR isolate"
+else
+    bad "the ASCII-digit balance is not isolated, so مانده can reorder into it"
+fi
+if [ "$(echo "$out" | sed -n 2p)" = "raw" ]; then
+    ok "the ASCII amount itself is still on screen"
+else
+    bad "the ASCII amount is missing from the rendered text"
+fi
+
 echo ""
 echo "=== RESULTS: $PASS passed, $FAIL failed ==="
 [ "$FAIL" -eq 0 ]
