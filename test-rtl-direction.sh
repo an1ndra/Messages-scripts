@@ -4,8 +4,10 @@
 # Two rules, both pure functions in BidiText (unit-tested in
 # BidiTextDirectionTest), here checked against the real UI:
 #
-#   bubble     first and last strong characters decide; digits and punctuation
-#              never vote; when the two ends disagree the last one wins.
+#   bubble     first and last strong characters decide; digits, punctuation and
+#              links never vote; when the two ends disagree the last one wins.
+#   lines      a line that is only numbers or links is pinned LTR inside an RTL
+#              message, so it is neither reordered nor pushed to the wrong edge.
 #   composer   first strong character alone decides, so the field flips as soon
 #              as a Persian/Arabic word is typed and does not flip back when an
 #              English word follows.
@@ -16,6 +18,7 @@
 # direction it actually painted with, the way BubbleShape reports corner radii:
 #
 #   BubbleDirection:   id=<id> dir=Rtl|Ltr     (per composed bubble)
+#   BubbleBidi:        dir=Rtl|Ltr ltrLines=<n> (the transformed bubble body)
 #   ComposerDirection: dir=Rtl|Ltr             (per composer direction change)
 #
 # The chat is opened through the real `sms:`/SENDTO share path rather than a
@@ -67,6 +70,9 @@ wake() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1
     sleep 1
     adb_ shell logcat -c >/dev/null 2>&1
+    # API 30 empties the buffer lazily: without a settle the previous case's
+    # direction lines are still readable and get counted as this case's.
+    sleep 1
 }
 
 # A cold launch on a freshly booted AVD can take well over the 6s a warm one
@@ -81,13 +87,24 @@ await_marker() {
     return 1
 }
 
+# SQLite string literal for a possibly multi-line body: what the issue's own
+# examples are, and a literal newline on the adb command line does not survive
+# the trip. char(10) keeps each line a line.
+sqltext() {
+    python3 - "$1" <<'PY'
+import sys
+print("||char(10)||".join("'%s'" % line.replace("'", "''")
+      for line in sys.argv[1].split("\n")), end="")
+PY
+}
+
 # The seeded body is the only bubble on screen, so the direction lines in a
 # freshly cleared log are unambiguous.
 bubble_case() {
     local desc="$1" body="$2" want="$3"
     wake
     sql "DELETE FROM messages WHERE conversation_id=$CID;" >/dev/null 2>&1
-    sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($CID,'$body',$TS,'received');" >/dev/null 2>&1
+    sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($CID,$(sqltext "$body"),$TS,'received');" >/dev/null 2>&1
     adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" >/dev/null 2>&1
     await_marker BubbleDirection "$want"
     local seen
@@ -96,6 +113,28 @@ bubble_case() {
         ok "$desc -> $want"
     else
         bad "$desc -> expected dir=$want, got '${seen:-nothing}'"
+    fi
+}
+
+# A line pinned LTR is invisible in a dump and in a screenshot of a single
+# line, so the count comes from the transform that actually painted.
+bidi_case() {
+    local desc="$1" body="$2" want="$3" want_lines="$4"
+    wake
+    sql "DELETE FROM messages WHERE conversation_id=$CID;" >/dev/null 2>&1
+    sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($CID,$(sqltext "$body"),$TS,'received');" >/dev/null 2>&1
+    adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" >/dev/null 2>&1
+    local i
+    for i in $(seq 1 10); do
+        adb_ logcat -d -s BubbleBidi:D 2>/dev/null | grep -q "ltrLines=$want_lines" && break
+        sleep 1.5
+    done
+    local seen
+    seen=$(adb_ logcat -d -s BubbleBidi:D 2>/dev/null | grep -o 'dir=.*' | tr -d '\r' | tail -1)
+    if [ "$seen" = "dir=$want ltrLines=$want_lines" ]; then
+        ok "$desc -> $want, $want_lines LTR line(s)"
+    else
+        bad "$desc -> expected dir=$want ltrLines=$want_lines, got '${seen:-nothing}'"
     fi
 }
 
@@ -128,6 +167,32 @@ info "Trailing punctuation and digits do not vote"
 bubble_case "Persian with a trailing bang"        "سلام!"                              Rtl
 bubble_case "English with a trailing bang"        "hello!"                             Ltr
 bubble_case "Persian ending on a phone number"    "شماره من 09123456789"               Rtl
+
+info "Links do not vote for the message"
+bubble_case "Persian broadcast ending on a bare link" "ارسال رایگان شد
+l.tpshp.co/3lDXoA"                                                                  Rtl
+bubble_case "Persian line then an https link"        "تخفیف ویژه
+https://zbl.io/RogeAbne"                                                            Rtl
+bubble_case "a message that is only a link"          "https://zbl.io/RogeAbne"        Ltr
+
+info "Emoji never vote"
+bubble_case "Persian message ending on an emoji"     "ارسال رایگان شد 📣"             Rtl
+bubble_case "Persian message opening on an emoji"    "📣 ارسال رایگان شد"             Rtl
+bubble_case "English message ending on an emoji"     "hello 📣"                       Ltr
+
+info "A line of only numbers or links is pinned LTR"
+bidi_case "OTP code line in a Persian message"       "کد ورود به صرافی تبدیل:
+85904
+@tabdeal.org #85904
+لغو11"                                                                              Rtl 2
+bidi_case "Persian broadcast with a bare link line"  "ارسال رایگان شد
+l.tpshp.co/3lDXoA
+لغو 11r.eu/t"                                                                       Rtl 1
+bidi_case "an emoji-only line in a Persian message"  "کد تخفیف را ثبت کن
+🎁🎁"                                                                                Rtl 1
+bidi_case "no weak-only line, nothing pinned"        "بانک سامان
+برداشت مبلغ
+مانده 78,556,010"                                                                   Rtl 0
 
 info "Composer: the first strong character typed decides"
 composer_case "draft opening in Persian"           "سلام hello"                         Rtl

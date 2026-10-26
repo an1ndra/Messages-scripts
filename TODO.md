@@ -200,6 +200,62 @@ literal that is never invoked — `if (convo != null && !draftLoaded) { { … } 
 so a saved draft is never put back in the composer on re-open. It is why the
 script seeds the composer through a share intent instead of the database.
 
+### Follow-up from the issue thread (#362, 2026-10-26)
+The reporter came back with real Persian broadcasts where the rule above still
+picked the wrong direction:
+
+- **Links voted.** `📣ارسال تپسی‌شاپ رایگان شد … l.tpshp.co/3lDXoA` is Persian,
+  but the link's Latin letters are strong and sat last, so the *last*-strong
+  rule laid the whole bubble out LTR. `direction()` now ignores link ranges:
+  `BidiText.linkRanges` recognises both shapes an SMS carries — with a scheme
+  or `www.`, and bare like `11r.eu/t` / `l.tpshp.co/3lDXoA`. A bare host needs
+  a dot and a two-letter TLD, so "e.g" is not a link and still votes.
+  `Linkify.WEB_URLS` remains the authority on what is *tappable*; this is only
+  the direction side of the same question.
+- **A line of nothing but numbers or a link was still laid out in the
+  paragraph's direction.** `کد ورود …\n85904\n\n@tabdeal.org #85904\nلغو11`
+  pushed the OTP and the handle line to the wrong edge and reordered them
+  against their own reading order. `isolateNumberRuns` now pins any line with
+  no strong character outside a link as one LTR run, and skips the per-number
+  isolates inside it (the line isolate already covers them — nesting a second
+  one changed nothing).
+
+- **Emoji voted LTR.** A second comment on the same thread: "it also sees
+  emoji as LTR characters, so it gets whole of my 100% Persian message as an
+  LTR message". It does — `Character.getDirectionality(char)` reports a *lone
+  surrogate* as `DIRECTIONALITY_LEFT_TO_RIGHT`, and an emoji is a surrogate
+  pair, so `📣` at the end of a Persian line was the last strong character.
+  Flags are worse: two regional indicators, which Unicode really does class
+  `L`. Only letters vote now (`Character.isLetter(codePoint)`), and the scan
+  walks **code points**, so a whole emoji is neutral instead of two LTR
+  halves. Reproduced with a throwaway `java Dir.java` before changing anything:
+
+      D83C L  HIGH SURROGATES D83C
+      1F4E3 . CHEERING MEGAPHONE      (only via the int overload)
+
+`Isolated` now carries `direction` and `ltrLines`, so the count the script
+asserts is the one the transform actually produced instead of a second,
+re-derivable guess. `styledBody` logs it as
+`BubbleBidi: dir=Rtl|Ltr ltrLines=<n>` (the layout itself is unreadable from a
+dump, same reason `BubbleDirection` exists).
+
+Tests: `BidiTextDirectionTest` (+3: links don't vote, both link shapes, `e.g`
+still votes; emoji at either end; the composer's emoji trap) and `BidiTextTest`
+(+3: the issue's OTP/handle message, the bare-link broadcast with its
+`ltrLines` count, an emoji-only line). `test-rtl-direction.sh` grew from 10 to
+**20** cases — three "link does not vote" bubbles, three "emoji never vote"
+bubbles and four `bidi_case` assertions on `BubbleBidi`'s `ltrLines`, one of
+which must stay at 0 so the pinning cannot be over-applied. Reverting just the
+three rules gives **14 passed / 6 failed**, and exactly the new cases fail;
+with the rules back, 20/0.
+
+**Unrelated trap found while running it:** `scripts/env.sh` still defaulted
+`ANDROID_SERIAL` to `emulator-5554`, the retired 1080x2400 AVD, while both
+AGENTS.md files document `emulator-5558` as the standing default. Every script
+therefore sat silent on `adb wait-for-device` — no error, no output, forever.
+Default is now 5558 and `env.sh` fails loudly with the connected-device list if
+the serial is not attached.
+
 ## "Mark all as read" asks first (#355, 2026-10-23)
 
 Issue #355: a user tapped the row while reaching for Notifications and every
