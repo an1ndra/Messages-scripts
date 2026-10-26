@@ -10,7 +10,9 @@
 #   * with the app's bubbles preference on, the record is flagged BUBBLE,
 #   * with it off, the notification is an ordinary one (no BUBBLE flag),
 #   * opening the bubble's launch intent keeps the notification alive while the
-#     bubble is on screen, and dismissing the bubble dismisses it.
+#     bubble is on screen,
+#   * Back inside a bubble leaves the bubble up (#354 follow-up) unless the
+#     "Close bubble with Back" setting is turned on, in which case it closes.
 #
 # Run: scripts/test-notification-bubbles.sh
 source "$(dirname "$0")/env.sh"
@@ -27,6 +29,13 @@ adb_ root >/dev/null 2>&1
 adb_ wait-for-device; sleep 1
 
 sql() { adb_ shell "sqlite3 /data/data/$PKG/databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r'; }
+
+PREFS="/data/data/$PKG/shared_prefs/messages_settings.xml"
+# Add-or-update a boolean pref while the app is stopped; the key may be absent,
+# so a plain sed update is not enough.
+pref_bool() {
+    adb_ shell "if grep -q 'name=\"$1\"' $PREFS; then sed -i 's#name=\"$1\" value=\"[^\"]*\"#name=\"$1\" value=\"$2\"#' $PREFS; else sed -i 's#</map>#    <boolean name=\"$1\" value=\"$2\" /></map>#' $PREFS; fi"
+}
 
 notif_dump() { adb_ shell "dumpsys notification --noredact" 2>/dev/null | tr -d '\r'; }
 
@@ -50,6 +59,7 @@ cleanup() {
     sql "DELETE FROM messages WHERE body LIKE '%$MARK%';" >/dev/null 2>&1
     sql "DELETE FROM conversations WHERE address='$NUM';" >/dev/null 2>&1
     adb_ shell cmd notification set_bubbles "$PKG" 0 >/dev/null 2>&1
+    pref_bool bubble_back_closes false
 }
 
 trap cleanup EXIT
@@ -169,19 +179,44 @@ else
     bad "opening the bubble cancelled its notification (the bubble would vanish)"
 fi
 
-info "Dismissing the bubble dismisses its notification"
+info "Back leaves the bubble open by default"
 adb_ shell input keyevent KEYCODE_BACK >/dev/null 2>&1
 sleep 4
 if adb_ shell cmd notification list 2>/dev/null | tr -d '\r' | grep -q "|$PKG|"; then
-    bad "notification was left behind after the bubble closed"
+    ok "the bubble's notification survives Back"
 else
-    ok "notification dismissed with the bubble"
+    bad "Back dismissed the notification and closed the bubble"
 fi
-if adb_ shell dumpsys activity activities 2>/dev/null | tr -d '\r' | grep -m1 "topResumedActivity" | grep -q "$PKG"; then
-    bad "the bubble activity is still on screen after back"
+# Back collapses the bubble to its floating icon — that is the platform's
+# gesture, and the app cannot keep it expanded. What the app controls is whether
+# the bubble still *exists*, which is the surface plus its notification.
+if adb_ shell dumpsys window windows 2>/dev/null | tr -d '\r' | grep -q "Bubbles!"; then
+    ok "the bubble still exists after Back (collapsed to its icon)"
 else
-    ok "back closed the bubble instead of showing the conversation list"
+    bad "Back removed the bubble surface entirely"
 fi
+
+info "With 'Close bubble with Back' on, Back closes it"
+pref_bool bubble_back_closes true
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+post_message
+adb_ shell am start -a android.intent.action.VIEW -d "messages://conversation/$CONVO" \
+    -n "$ACT" -f 0x10000000 \
+    --es open_conversation_address "$NUM" --ez open_in_bubble true >/dev/null 2>&1
+sleep 4
+adb_ shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+sleep 4
+if adb_ shell cmd notification list 2>/dev/null | tr -d '\r' | grep -q "|$PKG|"; then
+    bad "the notification survived Back even with the setting on"
+else
+    ok "Back closed the bubble and its notification"
+fi
+if adb_ shell dumpsys window windows 2>/dev/null | tr -d '\r' | grep -q "Bubbles!"; then
+    bad "the bubble surface survived Back even with the setting on"
+else
+    ok "Back removed the bubble and its surface"
+fi
+pref_bool bubble_back_closes false
 
 echo
 echo "PASS=$PASS FAIL=$FAIL"
