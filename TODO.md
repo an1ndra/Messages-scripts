@@ -5,6 +5,60 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Badge survives reboot and app update; card-mask digits; dialog punctuation (#345 round 2, 2026-10-26)
+
+Three fixes for the follow-up comments on #345 (Samsung A54, Persian locale,
+One UI 8.5):
+
+1. **Badge dies after reboot / app update.** A boot and an app update wipe the
+   notification shade, and the launcher badge sums the numbers of the app's
+   live notifications — unread messages survived in the database but lost
+   their badge ("the phone turned off and on again; the counter no longer
+   shows any number"). New `sms/BootReceiver` (non-exported,
+   `BOOT_COMPLETED` + `MY_PACKAGE_REPLACED`, `RECEIVE_BOOT_COMPLETED`
+   permission) calls `NotificationHelper.repostUnread`: one **silent**
+   re-post per unread conversation, via `show(silentRepost = true)` (no
+   sound, no full-screen wake). It is deliberately NOT wired to onResume —
+   a re-post there would resurrect notifications the user dismissed.
+   `Repository.unreadForRepostBlocking` selects the same rows the receive
+   path posts for (not deleted, not blocked, unread, non-empty snippet).
+2. **Card-mask digits reorder inside Persian text.** `5022-29xx-xxxx-9227`
+   broke into fragments around the strong-LTR `x` masks and only read
+   correctly once selected. `BidiText.NUMBER_RUN` now swallows `xX*` so a
+   masked card stays one LTR isolate (verified against the reporter's
+   verbatim Pasargad body).
+3. **Dialog punctuation parked at the visual start.** On a Persian-locale
+   device every window is RTL while this app's strings are English (no
+   values-fa yet), so the mark-all-read dialog's trailing "?" painted at the
+   visual start. New `directionalStyle()` in `Components.kt` paints dialog
+   copy in the string's own strong direction (both settings UIs) and logs
+   `DialogBidi dir=Ltr|Rtl` — the paint order itself is invisible to a
+   dump, so the direction is reported like BubbleDirection/ComposerDirection.
+
+Tests: `BadgeRepostWiringTest`, `DialogDirectionTest`, and two new
+`BidiTextTest` cases (masked cards, the verbatim Pasargad body). Scripts:
+`test-badge-reboot.sh` (real arrivals → `adb reboot` → shade re-posted with
+the same per-conversation numbers → `adb install -r` → re-posted again),
+`test-bidi-card-numbers.sh`, `test-dialog-rtl-punctuation.sh`;
+`test-notification-badge.sh` gained the reporter's "6 messages from one
+number" case (six arrivals leave `number=6` on the sender notification, so
+a launcher-side 0 with the in-app row at 6 is the launcher's rendering, not
+the app's count). Pre-fix build: bidi script 4 FAIL, dialog script 2 FAIL,
+reboot script FAIL on both re-post assertions (after reboot AND after a
+same-version reinstall, verified by updating the device with the pre-fix
+APK). Post-fix: all green on emulator-5558, plus 11 PASS
+(test-notification-badge), 16 PASS (test-mark-all-read-confirm), and
+test-blocked-badge / test-bidi-persian-amount / test-bidi-bank-time /
+test-rtl-direction / test-no-network-permission all pass.
+
+Not fixed in this round (reporter follow-up needed): the missing-SMS +
+~7h timestamp skew (needs the reporter's logs and a default-handler
+confirmation — suspect a non-default-handler import gap or SMSC skew;
+`requeryFromSystem` only runs when `needsInitialImport`), and
+"6 messages → badge 0" on the launcher side (the app-side number is now
+proven correct). values-fa translation would fix the whole English-in-RTL
+window class at the root.
+
 ## Blocked senders no longer leak into the icon badge (#345, 2026-10-25)
 
 A launcher badge sums the numbers the app's live notifications carry, and the
