@@ -3,6 +3,8 @@
 #
 # Android only floats a notification as a bubble when all of these hold, so the
 # script asserts each one from the system dumps rather than from a screenshot:
+#   * the notification and the bubble show the chat's own picture, not the app
+#     icon (#354 follow-up), and the shortcut carries that picture as a bitmap,
 #   * the posted notification references a per-conversation shortcut,
 #   * that shortcut is published and long-lived,
 #   * with the app's bubbles preference on, the record is flagged BUBBLE,
@@ -61,6 +63,20 @@ post_message() {
     sleep 2
 }
 
+# API 31 prints flags as a hex mask (0x1010 for BUBBLE|AUTO_CANCEL) while newer
+# images print them by name, and the old name-only grep therefore never matched
+# on emulator-5558 — the bubble was there, the assertion was not.
+FLAG_BUBBLE=0x1000
+record_is_bubble() {
+    local hex
+    hex=$(record | grep -o "flags=0x[0-9a-fA-F]*" | head -1 | cut -d= -f2)
+    if [ -n "$hex" ]; then
+        [ $(( hex & FLAG_BUBBLE )) -ne 0 ]
+    else
+        record | grep -q "flags=[^ ]*BUBBLE"
+    fi
+}
+
 info "Preconditions"
 adb_ shell cmd role add-role-holder android.app.role.SMS "$PKG" >/dev/null 2>&1
 adb_ shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null
@@ -78,7 +94,7 @@ if record | grep -q "shortcut=conversation_"; then
 else
     bad "notification carries no conversation shortcut (bubble metadata cannot attach)"
 fi
-if record | grep -q "flags=[^ ]*BUBBLE"; then
+if record_is_bubble; then
     bad "notification is a bubble even though bubbles are off for the app"
 else
     ok "notification stays an ordinary notification while bubbles are off"
@@ -94,10 +110,39 @@ else
     bad "conversation shortcut is not long-lived (the platform will not bubble it)"
 fi
 
+info "The chat's own picture reaches the panel and the bubble"
+if record | grep -q "android.largeIcon=Icon"; then
+    ok "the notification carries a large icon (the panel avatar)"
+else
+    bad "no large icon: the panel shows no contact picture"
+fi
+# The bitmap path is a field of its own further down the ShortcutInfo block.
+if adb_ shell dumpsys shortcut 2>/dev/null | tr -d '\r' \
+        | grep -A 20 "id=conversation_$CONVO," | grep -q "bitmapPath=.*\.png"; then
+    ok "the conversation shortcut carries its own bitmap icon"
+else
+    bad "the shortcut has no bitmap icon, so it falls back to the app icon"
+fi
+# The decision and the colour are logged by the code that built the icon, so a
+# script can hold them to account without reading pixels.
+ICON_LINE=$(adb_ shell logcat -d -s BubbleIcon:D 2>/dev/null | tr -d '\r' \
+    | grep -F "address=$NUM" | tail -1)
+case "$ICON_LINE" in
+    *source=AVATAR*shade=\#*)
+        ok "a photo-less sender gets the app silhouette on its palette colour"
+        ;;
+    *source=PHOTO*)
+        bad "an address with no contact row resolved a photo"
+        ;;
+    *)
+        bad "no BubbleIcon record for $NUM ('${ICON_LINE:-none}')"
+        ;;
+esac
+
 info "Bubbles on in system settings: the same notification becomes a bubble"
 adb_ shell cmd notification set_bubbles "$PKG" 1 >/dev/null 2>&1
 sleep 3
-if record | grep -q "flags=[^ ]*BUBBLE"; then
+if record_is_bubble; then
     ok "notification is flagged BUBBLE"
 else
     bad "notification is not flagged BUBBLE with bubbles enabled"
