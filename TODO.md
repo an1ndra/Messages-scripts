@@ -529,6 +529,40 @@ diverged: the channel tests existed only on the feature branch, the
 select-more/badge/bidi/zoom tests only on the batch branch). Schema 28 → 29;
 `test-notification-channels.sh` is 11/0 on the merged build.
 
+## #339 follow-up 2: channels after the first import (2026-10-26)
+
+The reporter confirmed per-chat channels work, then added: "app creates message
+channels for each conversation I have *after* I receive a new SMS after
+installing. I think it should do it after installation."
+
+They were right, and it was an ordering bug, not a missing feature. A fresh
+install has an empty database, so `MessagesApplication.onCreate` ran
+`syncConversationChannels` against nothing; the whole history is imported
+afterwards — by `syncFromSystem` there, or by `requeryFromSystem` in
+`MainActivity.onResume` once the SMS role and permissions land — and nothing
+synced again. Each chat then got its channel only when its first new message
+arrived, which is exactly what they saw.
+
+- The launch sync now runs **after** the import, at the end of the same IO
+  coroutine.
+- `onResume`'s first-run import triggers `syncConversationChannelsAsync`, which
+  is new: the same work off the main thread.
+- Restore and sms-ie import (`importDatabase`, `importSmsIe`) call
+  `syncChannelsAfterBulkImport()` on success. Both land hundreds of rows at
+  once, so they had the same gap.
+
+Tests: `NotificationChannelWiringTest.channelsAreCreatedAfterTheImportThatFillsTheDatabase`
+pins the ordering by source index (launch sync after `syncFromSystem`, resume
+sync after `requeryFromSystem`, both import callbacks syncing). The device case
+in `test-notification-channels.sh` imports a chat through the real sms-ie probe
+and asserts `messages_convo_<id>_*` exists **without a single inbound SMS**:
+16/0 with the fix, and 15/1 with the three sync points reverted (the imported
+chat gets no channel), so it is not vacuous. Note what it does and does not
+cover — the device case proves the *import-after-launch* class through the
+ViewModel hook; the `MessagesApplication` ordering on the system-import path has
+only the JUnit source-order guard, because the emulator cannot seed
+`content://sms` (`content insert` exits 0 and stores nothing, same as AOSP-11).
+
 ## #339 follow-up: every conversation owns a channel (2026-10-23)
 
 The reporter on Pixel 8 Pro / Android 17 still saw a single "Messages" channel

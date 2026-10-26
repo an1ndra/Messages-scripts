@@ -13,6 +13,8 @@
 #   - the three category channels still exist
 #   - the pre-category single channel ids are deleted, not left behind
 #   - existing conversations get their channel at launch, before any message
+#   - a chat that lands in the database *after* launch — the fresh-install
+#     import — gets its channel without waiting for a new SMS
 #   - a conversation's sound override is applied when its channel is created
 #
 # Channel state is read from `dumpsys notification`; rows are seeded with
@@ -175,6 +177,48 @@ category_sound=$(channel_sound "$(live_channels | grep '^messages_unknown_' | he
 [ -n "$sound" ] && [ -n "$category_sound" ] && [ "$sound" != "$category_sound" ] \
     && pass "the override differs from the category channel's sound" \
     || fail "the override did not change the channel sound ('$sound' vs '$category_sound')"
+
+info "A chat imported after launch gets its channel, with no new message"
+# The reporter's case (#339): on a fresh install the whole history arrives via
+# the provider import, after the launch sync has already run, so those chats
+# stayed channel-less until a message happened to arrive. Drive a real import
+# instead of a new SMS and the channel has to appear anyway.
+IMPORTED="+1555444${MARK: -3}"
+ZIP="$TMP/nc-$MARK.zip"
+REMOTE="/data/local/tmp/nc-$MARK.zip"
+INAPP="files/nc-$MARK.zip"
+python3 - "$IMPORTED" "$ZIP" "$MARK" <<'PY'
+import json, sys, zipfile
+addr, out, mark = sys.argv[1:4]
+row = {"_id": "1", "thread_id": "1", "address": addr, "date": "1790279506001",
+       "read": "1", "type": "1", "body": "imported chat %s" % mark, "sub_id": "1"}
+with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
+    z.writestr('messages.ndjson', json.dumps(row))
+PY
+adb_ push "$ZIP" "$REMOTE" >/dev/null 2>&1
+adb_ shell "run-as '$PKG' sh -c 'cp $REMOTE $INAPP'" >/dev/null 2>&1
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --es sms_ie_probe "file:///data/data/$PKG/$INAPP" >/dev/null 2>&1
+IMP_CID=""
+for _ in $(seq 1 20); do
+    sleep 1
+    IMP_CID=$(convo_id "$IMPORTED")
+    [ -n "$IMP_CID" ] && break
+done
+[ -n "$IMP_CID" ] && pass "the backup added conversation $IMP_CID" \
+    || fail "the import never created the conversation"
+IMP_CH=""
+for _ in $(seq 1 10); do
+    IMP_CH=$(convo_ch "$IMP_CID")
+    [ -n "$IMP_CH" ] && break
+    sleep 1
+done
+[ -n "$IMP_CH" ] && pass "$IMP_CH exists without a single inbound SMS" \
+    || fail "an imported chat got no channel until its first message"
+sql "DELETE FROM conversations WHERE address='$IMPORTED';" >/dev/null 2>&1
+adb_ shell "run-as '$PKG' rm -f $INAPP" >/dev/null 2>&1
+adb_ shell "rm -f $REMOTE" >/dev/null 2>&1
+rm -f "$ZIP"
 
 info "No crashes"
 adb_ shell "logcat -d -b crash" 2>/dev/null | grep -c "$PKG" >/dev/null \
