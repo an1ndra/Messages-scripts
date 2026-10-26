@@ -529,6 +529,57 @@ diverged: the channel tests existed only on the feature branch, the
 select-more/badge/bidi/zoom tests only on the batch branch). Schema 28 → 29;
 `test-notification-channels.sh` is 11/0 on the merged build.
 
+## #354 follow-up: bubbles show the person, not the app (2026-10-26)
+
+Three asks from the reporter on the bubble build, all three done.
+
+**1. The picture.** `NotificationBubble` drew `R.mipmap.ic_launcher` once into a
+process-wide cache and reused it for every conversation, and `groupedStyle`
+built each `Person` on `R.drawable.ic_stat_message` — so every bubble was the
+app's icon and the notification panel had no picture at all (it never set a
+large icon). `ConversationAvatar.forAddress()` now resolves, per chat, the
+contact photo or the same silhouette-on-palette-colour that `PersonAvatar`
+draws in the list, and hands it over as an *adaptive* bitmap so the platform
+applies its own icon shape. The poster uses the same icon for `setLargeIcon`,
+the MessagingStyle sender and the added `Person`; privacy mode skips it. The
+photo cache has a TTL, so a picture added later is picked up.
+`ConversationAvatarWiringTest` (3) + `test-notification-bubbles.sh` (17/0, and
+13/2 with the poster and bubble reverted).
+
+**2. Back.** Back inside a bubble called `finish()`, which cancelled the
+bubble's notification in `onDestroy` and took the bubble with it.
+`bubbleBackAction()` + a "Close bubble with Back" setting (default off, as
+asked) decide: off means Back shows the chat list and the bubble stays —
+collapsed to its floating icon, which is the platform's own Back gesture and
+not something the app can keep expanded. Both settings UIs, 13 locales, and the
+legacy settings search index. `BubbleBackTest` (3);
+`test-notification-bubbles.sh` covers both directions (15/2 with the old
+`if (bubbleMode) finish()`).
+
+**3. Fingerprints.** The app-lock prompt lived in `setContent`, so it ran once
+per activity creation — cold start, share, rotation, and every bubble open.
+`LockSession` keeps the unlock for the process, and an `ACTION_SCREEN_OFF`
+receiver ends it, which is where the device lock re-arms anyway. No more
+"unlock once until screen lock" guessing: that is what it does now, and nothing
+is persisted. `LockSessionTest` (3) + `test-app-lock-session.sh` (4/0) drives
+the session through a debug-gated `--es lock_session_probe` because an emulator
+has no enrolled fingerprint; 3/1 with the screen-off receiver disabled.
+
+Traps met on the way, for the next person:
+
+- The bubbles script asserted `flags=[^ ]*BUBBLE`, which is what API 35 prints.
+  **API 31 prints the mask** (`flags=0x1010`), so the assertion had never held
+  on `emulator-5558`; it now reads the mask and tests `FLAG_BUBBLE`.
+- `NotificationBubbleWiringTest` anchored on the literal `if (bubbleMode)
+  finish()` and `LegacySettingsIndexTest` demanded the new row in
+  `SettingsSearch` — both are source-text tests, and both broke on a rename,
+  exactly as documented above.
+- The new `lock_session_probe` verbs tripped `NavTransitionDepthTest`, which
+  reads every `"key" ->` branch in `MainActivity`: they are intent extras, so
+  they belong in `NON_ROUTE_WHEN_KEYS`.
+- `emulator-5558` itself crashed mid-run (swiftshader, as the root AGENTS.md
+  warns). Nothing was lost: restart, reinstall, re-run.
+
 ## #339 follow-up 2: channels after the first import (2026-10-26)
 
 The reporter confirmed per-chat channels work, then added: "app creates message
