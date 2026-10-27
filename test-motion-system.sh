@@ -145,7 +145,7 @@ tap_exact() {
 open_settings() {
     local i
     for ((i = 0; i < 5; i++)); do
-        adb_ shell input tap 976 226 >/dev/null 2>&1
+        adb_ shell input tap 970 143 >/dev/null 2>&1
         sleep 3
         dump_ui || true
         has_text "General settings" && return 0

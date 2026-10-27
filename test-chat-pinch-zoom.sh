@@ -158,12 +158,26 @@ for m in re.finditer(r'text="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]
 PY
 }
 
+# Wait for the chat instead of assuming 6s is enough: on API 30 the zoomed
+# re-layout landed after the dump and every case below then read the list, or a
+# dump that failed outright, and reported "the chat did not open" — which is
+# exactly what a broken zoom does not look like. The composer's "Message"
+# placeholder only exists inside a chat, so it cannot be satisfied by the list.
+wait_for_chat() {
+    local addr="${1:-$NUM}" i
+    for i in $(seq 1 10); do
+        sleep 1.5
+        dump_ui >/dev/null 2>&1 || continue
+        grep -q 'text="Message"' "$TMP/ui.xml" && return 0
+    done
+    return 1
+}
+
 open_chat() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
     adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" --ef chat_zoom "$1" \
         >/dev/null 2>&1
-    sleep 6
-    dump_ui
+    wait_for_chat "$NUM"
 }
 
 # Same, without the script hook: what the app opens at on its own, i.e. the zoom
@@ -172,8 +186,7 @@ open_chat_plain() {
     local addr="${1:-$NUM}"
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
     adb_ shell am start -n "$ACT" --es open_conversation_address "$addr" >/dev/null 2>&1
-    sleep 6
-    dump_ui
+    wait_for_chat "$addr"
 }
 
 # Double-tap on an empty patch of the list: adb cannot inject multi-touch, and the
@@ -194,11 +207,16 @@ double_tap_empty() {
     for y in $(python3 - "$TMP/ui.xml" "$MARK" <<'PY'
 import re, sys
 xml, needle = open(sys.argv[1], encoding='utf-8', errors='replace').read(), sys.argv[2]
-bottom = 0
+top, bottom = None, 0
 for m in re.finditer(r'text="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml):
     if needle in m.group(1):
+        top = int(m.group(3)) if top is None else min(top, int(m.group(3)))
         bottom = max(bottom, int(m.group(5)))
-for y in (bottom + 300, bottom + 500, 1750, 1950):
+# Above the bubble is empty list background, which is where the double-tap has
+# to land: a tap that starts on a bubble belongs to that bubble. A 2340px-tall
+# screen puts the bubble over the fixed candidates the 2400px one used.
+cands = ([top - 450, top - 250] if top is not None else []) + [600, 900, 1200, 1600]
+for y in cands:
     if 320 <= y <= 2050:
         print(y)
 PY
@@ -243,8 +261,7 @@ fi
 # be asserted against stale pixels.
 pinch_case() {
     local desc="$1" mode="$2" start="$3" end="$4" lo="$5" hi="$6"
-    open_chat 1.0
-    if ! grep -q "$MARK" "$TMP/ui.xml"; then
+    if ! open_chat 1.0; then
         bad "$desc — the chat did not open, nothing was pinched"
         return
     fi

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# The "Start chat" pill must keep v1.0.30's colours: primary-coloured content
-# on the secondary container. A later change moved it to the Material FAB pair
-# (primaryContainer/onPrimaryContainer), which painted the pill a different blue
-# in the dark theme and swapped the blue text for near-black navy in light.
+# The "Start chat" pill must keep the accent pair (#347 feedback round): the
+# theme's primary fills the pill and onPrimary reads on it, in every seeded
+# theme and under the wallpaper scheme alike, matching Google Messages.
+# The old secondary-container surface read as a grey mismatch next to the
+# wallpaper's accent.
 #
 # Diagnostics reports the pair the FAB actually paints with, so this is checked
 # without a screenshot: light/dark/amoled each have a fixed seeded pair.
@@ -61,7 +62,7 @@ scroll_to_and_tap() {
 
 # The pill pair as Diagnostics reports it: "#RRGGBB on #RRGGBB".
 read_pill_pair() {
-    adb_ shell input tap 976 226 >/dev/null 2>&1; sleep 3
+    adb_ shell input tap 970 143 >/dev/null 2>&1; sleep 3
     scroll_to_and_tap "Advanced settings" || { back_out 2; echo ""; return; }
     sleep 4
     scroll_to_and_tap "Diagnostics" || { back_out 3; echo ""; return; }
@@ -92,16 +93,16 @@ check() {
     if [ -z "$got" ]; then
         bad "Diagnostics did not report the Start chat colours in $mode"
     elif [ "$got" = "$want" ]; then
-        ok "$mode paints the v1.0.30 pair: $got"
+        ok "$mode paints the accent pair: $got"
     else
-        bad "$mode paints '$got', want '$want' (v1.0.30)"
+        bad "$mode paints '$got', want '$want' (accent pair)"
     fi
 }
 
 # Seeded role values; these must change only together with the palette.
-check light   "#0B57D0 on #DBE2F9"
-check dark    "#A8C7FA on #3E4759"
-check amoled  "#A8C7FA on #333A49"
+check light   "#FFFFFF on #0B57D0"
+check dark    "#062E6F on #A8C7FA"
+check amoled  "#062E6F on #A8C7FA"
 
 echo
 echo "PASS=$PASS FAIL=$FAIL"

@@ -3069,3 +3069,50 @@ subscription, invalidated on resume so a SIM swap is picked up.
   dimensions. The assertion has to come from what the composer actually wrote,
   which is why `MmsComposer` logs the source -> encoded dimension transition.
 
+
+## #347 dynamic-colour feedback round (2026-10-28)
+
+Follow-ups from issue #347 after the first dynamic theme shipped in 1.0.31-rc1.
+
+### What changed
+
+- The Start chat pill is now the accent pair (primary/onPrimary) in every theme —
+  seeded and wallpaper — matching Google Messages; the previous
+  secondary-container surface read as a grey mismatch under Material You.
+- The send button now follows GM behavior: it shrinks and fades to nothing while
+  the composer is empty (keeping its layout footprint so the field does not
+  jump), and comes back with text or attachments. It stays unclickable while
+  empty.
+- Selected-message bubbles use the scheme's own primary/onPrimary pair instead
+  of two hard-coded blues that never followed the wallpaper.
+- Under Dynamic, avatars now take the contact's own palette hue harmonized
+  ~25% toward the wallpaper accent, so contacts stay distinguishable while all
+  belonging to the wallpaper's palette (the old build painted every avatar the
+  same primaryContainer). Glyph ink is picked per contrast (>= 3:1).
+- Legacy conversations screen shares the same pill pair via the theme
+  extensions; Diagnostics' avatar-rule line reads "Avatar fill: harmonized
+  per-contact colour under Dynamic, palette otherwise".
+
+### Tests
+
+- Unit: StartChatPillColorTest (accent pair), DynamicAvatarHarmonizeTest (new:
+  distinctness, tone/hue stability, greyscale guard, readability), updated
+  AmoledThemeTest, AppearanceOptionsTest, ConversationListWiringTest,
+  AvatarThemeResolutionTest anchors. testDebugUnitTest green (1034).
+- `scripts/test-347-dynamic-colors.sh` (15): dynamic resolves a non-seeded
+  palette in both night modes, both Start chat pairs readable, seeded pairs
+  exact, avatar rule text, send button absent empty / back after typing.
+  Verified failing on the pre-fix send-button build (revert to always-on
+  circle produced 3 failures).
+- Freshen-ups: the settings gear coordinate was stale on the 2340px AVD
+  (tap 970,143) across test-amoled-theme/test-dynamic-theme/test-motion-system/
+  test-start-chat-colours — several were failing to navigate at all.
+- `test-start-chat-colours.sh` and `test-avatar-theme-dynamic.sh` re-pinned to
+  the accent pair / harmonized rule. 4/5 passing again.
+- `test-motion-system.sh` fails 3 (undo, emoji panel, Advanced settings walk) —
+  reproduced identically on a stashed baseline; pre-existing on
+  fix/354-fullchat-bubble, not from this work.
+- The emulator died mid-run once (swiftshader); restart recipe from AGENTS.md
+  and carry on. Branch note: another session moved the app repo to
+  fix/354-fullchat-bubble mid-run; this work rebases to
+  fix/347-dynamic-followups on top of it.

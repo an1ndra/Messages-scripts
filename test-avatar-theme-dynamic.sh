@@ -144,7 +144,7 @@ print(found[0] if found else "")
 PY
 }
 
-RULE="Avatar fill: theme colour under Dynamic, per-contact palette otherwise"
+RULE="Avatar fill: harmonized per-contact colour under Dynamic, palette otherwise"
 
 check_rule() {
     local theme="$1"
