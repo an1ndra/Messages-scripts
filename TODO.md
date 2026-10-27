@@ -5,7 +5,40 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Opening a chat full-screen retires its floating bubble (#354 round 3, 2026-10-28)
+
+The reporter's third follow-up: with a conversation bubbled and then hosted
+collapsed (open the bubble once → Home collapses it to a floating icon while
+its activity task keeps hosting), opening that conversation full-screen left
+the bubble floating over the chat it duplicated. Root cause: the chat's
+mark-read dismissal (`clearConversationNotification`) is *deferred* for any
+conversation a live bubble host owns, and the ordinary launch-path clears —
+by conversation id in the list, by address hash on `open_conversation_address`
+launch — never touch the hosted bubble either.
+
+New `NotificationHelper.retireBubbleForFullChat(context, conversationId)`
+(SmsSupport.kt): releases the held conversation from `BubbleHost`, then
+cancels the notification (plain id + `"failed"` tag) — cancelling a
+notification is what collapses its bubble. Wired into both in-app open paths
+in MainActivity: the list row's `onOpenConversation` (both UIs) and the
+`open_conversation_address` launch, each called only after the conversation id
+is resolved and only on non-bubble launches.
+
+Tests: `NotificationBubbleFullChatRetireTest` (BubbleHost lifecycle + wiring
+anchors). Script `test-bubble-fullchat.sh`: bubbles on → message → bubble
+floats → hosted → Home-collapse → full-screen open by address → asserts the
+bubble surface AND its notification are gone; pre-fix it fails both
+(verifed via probe on the stashed build: `bubbles=3 notif=live`).
+
+Pre-existing on emulator-5558 this round (not touched by the change, present
+on the pre-fix build identical): `test-notification-bubbles.sh` FAILs on
+largeIcon/BubbleIcon (logcat `-s BubbleIcon:D` shows no record for a fresh
+sender) and on "Back leaves the bubble open" (Back collapses/resolves the
+bubble to gone instead of its floating icon). Both emulated flows worked 2
+days ago; treat as AVD drift and re-verify before debugging app code.
+
 ## Badge survives reboot and app update; card-mask digits; dialog punctuation (#345 round 2, 2026-10-26)
+
 
 Three fixes for the follow-up comments on #345 (Samsung A54, Persian locale,
 One UI 8.5):
