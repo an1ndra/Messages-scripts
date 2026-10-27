@@ -3115,4 +3115,7 @@ Follow-ups from issue #347 after the first dynamic theme shipped in 1.0.31-rc1.
 - The emulator died mid-run once (swiftshader); restart recipe from AGENTS.md
   and carry on. Branch note: another session moved the app repo to
   fix/354-fullchat-bubble mid-run; this work rebases to
-  fix/347-dynamic-followups on top of it.
+  fix/347-dynamic-followups on top of it. That session's uncommitted
+  test-chat-pinch-zoom.sh wait_for_chat rework rode along in the submodule
+  commit (it could not be committed selectively without unusable -p surgery);
+  its content is #354, not #347.
