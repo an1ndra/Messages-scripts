@@ -30,7 +30,8 @@ there is nothing else in the file â€” no MMS, no settings, no blocked numbers â€
 It is the third option inside **Import messages**, not a second row: one import
 entry, three formats.
 
-**Pinch to zoom** moved to Inbox settings as a switch. Off means the pointer
+**Pinch to zoom** moved to Inbox settings as a bare switch (no description), sitting
+directly above Forwarding. Off means the pointer
 handler is not installed at all, so a two-finger drag scrolls the list instead of
 being captured by a gesture that would then do nothing.
 
