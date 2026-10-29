@@ -5,6 +5,47 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Cleared notifications stayed cleared; per-conversation bubbles (2026-10-30)
+
+Reported after installing a build on a real device: cleared notifications came
+back, and "Mark all as read" left the shade untouched. Two independent causes,
+both real:
+
+1. **The re-post had no idea a notification had been dismissed.** `BootReceiver`
+   fires on `ACTION_MY_PACKAGE_REPLACED` as well as boot, and `repostUnread`
+   re-posted every unread conversation — including ones the user had swiped away.
+   It now records the dismissal: every conversation notification carries a
+   delete intent (`NotificationDismissReceiver`) that stores "dealt with up to
+   now" (`SettingsStore.notifClearedUpTo` / `markNotifCleared`), and the re-post
+   skips a conversation whose marker is at or past its newest message. A newer
+   message still posts.
+2. **Mark all as read never cancelled anything.** `markAllReadSuspend` zeroed
+   `unread_count` in the database only, so the notifications for the messages it
+   had just read stayed on screen. The ViewModel now calls
+   `NotificationHelper.cancelAll` after the update.
+
+**Per-conversation bubbles** are back, as a switch in the chat's details screen
+("Show in a bubble", on by default). Android's per-app Bubbles page remains the
+app-wide switch; this is the per-thread one, which is what GM offers. It is a
+plain `bubble_off_<id>` preference read by
+`SmsSupport.show` before attaching bubble metadata.
+
+**Mark all as read vs a live bubble — measured in GM, not assumed.** GM's
+notification has a MARK AS READ action, and while a bubble was floating for that
+chat: tapping it cleared the row's unread badge, and the notification stayed
+posted (`flags=0x1010`, `shortcut=73`) with the bubble still on screen. GM has no
+"mark all as read" command in this build (the list has no overflow; the profile
+avatar is account-gated), so the per-conversation action is the closest analogue,
+and it keeps the bubble. Our sweep therefore skips notifications a live bubble
+host owns — a blanket cancel would collapse the bubble, because cancelling a
+notification is what closes it.
+
+Tests: `NotificationDismissTest` (5) and `PerConversationBubblesTest` (4);
+`BadgeRepostWiringTest` re-pinned to the new `show(context, row.address, …)` call.
+Script `test-notification-repost.sh`: message → notification → swipe it away →
+`install -r` → still gone → a newer message still posts → Mark all as read
+clears the shade.
+
 ## QUIK import, pinch-zoom option, list animations (2026-10-30)
 
 **QUIK (QKSMS) backup import.** QUIK 4.3.7 was installed on emulator-5558 and a
