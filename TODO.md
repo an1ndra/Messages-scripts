@@ -5,6 +5,22 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Composer pill and the attach badge (2026-10-30)
+
+Two visual matches to Google Messages, both measured off the running app rather
+than eyeballed.
+
+**Pill.** GM's composer field is 154px (56dp) tall and rounds to 28dp — half its
+height, i.e. a true pill. Ours was already the same height but rounded to 24dp,
+which reads as a rounded rectangle next to it. `ComposerShapeTest` pins the pair.
+
+**Attach badge.** The "+" in GM carries a dot on the ring's top-right: `#76D1FF`,
+~10dp, overlapping the ring so the ring reads as broken at that point. Ours draws
+the same dot with a ring of `inputPill` around it (that ring is what cuts the
+icon). The colour is the one composer colour that is not a scheme role, so it
+lives in `Theme.kt` as `ComposerAttachDot`; `ComposerAttachDotTest` pins the hex,
+the top-right placement, the cut-out ring, and that the badge stays decorative.
+
 ## Scheduling is discoverable again (#386, 2026-10-29)
 
 The report: "the app claims you can schedule messages … but I don't see any UI
