@@ -5,6 +5,191 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Bubbles is Android's page again (2026-10-29)
+
+The in-app Bubbles page is gone. Android's per-app Bubbles screen
+(`ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS`) already offers the same All /
+Selected / Nothing choice for this app, and its answer is what the platform
+actually enforces, so keeping ours meant two places deciding the same thing —
+exactly the kind of drift that put `#000000` in Diagnostics while the theme
+painted `#131314`.
+
+Removed: `ui/BubblesSettingsScreen.kt`, its previews, `sms/BubblePolicy.kt`,
+`SettingsStore.bubblesMode` / `bubbleSelectedConversations` (+ their keys),
+`SmsSupport`'s gate (back to `NotificationBubble.shouldAttach`), the
+per-conversation "Show in a bubble" row in `ContactDetailsScreen`, the
+`bubbles` route and its strings. The General settings row keeps GM's label-only
+look and now calls `openSystemBubbleSettings(context)`.
+
+Tests: `BubblePolicyTest` and `SettingsBubblesTest` deleted with the feature;
+`MotionPolishTest` and `PreviewCoverageTest` no longer reference the page.
+Script `test-settings-bubbles.sh` rewritten around the system hand-off: the row
+must land in `com.android.settings/*Bubble*`, and flipping the platform switch
+off must remove the BUBBLE flag from a real notification.
+
+## Bubbles page polish; one sheet colour for every settings screen (2026-10-29)
+
+Three fixes after looking at the page on the emulator next to GM.
+
+**The icon is the app's own.** It was `ic_launcher_foreground` tinted with
+`primary`, which is a monochrome glyph, not the launcher icon. The page now asks
+`PackageManager.getApplicationIcon` for the real adaptive icon and draws those
+bitmap pixels, keeping the bundled foreground only as a fallback for previews
+where there is no launcher icon.
+
+**The cards are GM's size.** Measured off the running GM page: 52dp tall with a
+16dp gap. Ours were 68dp with a 12dp gap — the row padding drops 22dp → 14dp
+(24dp icon + 14 above and below = 52dp), the gap becomes 16dp, and the title
+moves up to `displayMedium` to match GM's oversized heading.
+
+**Every settings screen is the same sheet.** General settings had been
+re-skinned to GM's colours while Advanced/Accessibility/Inbox and the
+`SettingsScaffold` sub-screens still used the default roles, so the page colour
+changed as soon as you navigated. A settings row is now *always* the page
+background and a settings page *always* paints `surfaceContainer` behind itself
+and its app bar; `LocalSettingsRowColor` (the per-screen override) is gone, so no
+screen can drift from another. Verified: Advanced settings measures `#1E1F20`
+sheet / `#131314` rows, identical to General settings.
+
+The three choices are real, not decorative — measured from `dumpsys notification`
+on emulator-5558 with the platform bubbles permission ON: under "All
+conversations", `flags=0x1010` (BUBBLE|AUTO_CANCEL) and `shortcut=conversation_61`;
+under "Selected conversations" with 61 picked in its details screen, the same
+`0x1010`, while an unpicked conversation gets `flags=0x10` and `shortcut=null`;
+under "Nothing", no bubble at all. The details switch also wrote
+`<set name="bubble_selected_conversations"><string>61</string></set>` when
+toggled, which is the value the policy read.
+
+## Bubbles page, settings colours, GM-per-conversation bubbles (2026-10-29)
+
+Three rounds of feedback, each checked against Google Messages on emulator-5558
+rather than guessed.
+
+**The settings sheet was too black.** GM paints its General settings as a raised
+sheet (`#1E1F20` — verified pixel-for-pixel) with the rows *inset darker*
+(`#131314`) and a 2dp gap between them. The page and row roles were already
+right; the black band was the **top app bar**, which Material 3 defaults to the
+page background (`#131314`). It now takes `surfaceContainer` too, so the title
+band, the gaps and the status bar are all `#1E1F20` and only the rows are
+`#131314`. Both colours are logged as `SettingsColors page=#… row=#…`.
+
+**"Bubbles" is a page, not a dialog or a subtitle.** GM's row is the bare label
+and opens a full sub-screen: back arrow, oversized title, the app's own icon and
+name, then three outlined choice cards with no descriptions — the selected one
+filled `#2E3133`, outlined in the accent and tinted. Ours mirrors that
+(`ui/BubblesSettingsScreen.kt`), on a `bubbles` route at depth 3, and the row
+carries no subtitle.
+
+**All three choices work**, not just on/off:
+`SettingsStore.bubblesMode` is `all` / `selected` / `none`, and the set is read
+through one function — `sms/BubblePolicy.allows(mode, selected, conversationId)`
+— which `SmsSupport.show` consults before attaching bubble metadata. Under
+`selected`, the conversation's own details screen grows a "Show in a bubble"
+switch (`ContactDetailsScreen`), shown only in that mode so it is never a dead
+control. The platform's bubbles permission remains a separate gate.
+
+Tests: `BubblePolicyTest` (6) pins the three modes, the empty pick, a null
+conversation and an unknown future mode; `SettingsBubblesTest` (9) covers the
+label-only row, the route and depth, the three choices, the per-conversation
+switch and string parity across all 13 locales; `BubblesSettingsPage` is
+state-hoisted so `BubblesPreviews.kt` can render it without a ViewModel and
+`PreviewCoverageTest` stays green. 1053 tests, 0 failures. Scripts:
+`test-settings-bubbles.sh` drives the page (three options, `Nothing` stored,
+bubble flag gone with the platform permission still ON) and
+`test-fresh-defaults.sh` covers the new-user defaults.
+
+## New-user defaults, a Bubbles row, and Google Messages' settings colours (2026-10-29)
+
+Four things, all from comparing against Google Messages on emulator-5558.
+
+**Defaults for a fresh install.** A first-time install now starts on the
+redesigned UI and **DM Sans**. The UI switch already defaulted to the new
+screens (`prefs.getBoolean(KEY_USE_NEW_UI, true)`) — only its doc comment
+claimed legacy was the default, so that was corrected rather than the code. The
+font needed a seed: `SettingsStore` is now told apart a *new* install from an
+*updated* one by `firstInstallTime == lastUpdateTime`, and writes
+`font_family=dm_sans` once when the package is new and nothing is stored. An
+update therefore never restyles the app under someone who never touched the
+setting, and an explicit choice always wins. The getter's fallback stays
+`FONT_SYSTEM` so only the seed moves a new user.
+
+**"Bubbles" in General settings**, as GM lists it under the notification rows.
+`SettingsStore.bubblesMode` (`all` | `none`, default `all`) gates the bubble
+metadata in `SmsSupport.show`: `convoId?.takeIf { bubblesWanted &&
+NotificationBubble.shouldAttach(…) }`. The platform's own bubbles permission is
+a separate gate and still applies. GM's third choice ("only selected
+conversations") is not implemented — it needs a per-conversation opt-in that has
+no UI yet.
+
+**Settings colours.** Measured off GM's General settings: the sheet is a raised
+page `#1E1F20` with rows inset at `#131314` (dark), the inverse of our previous
+look (page `#131314`, rows `#1B1B1D`). The screen now paints
+`surfaceContainer` behind rows and publishes `background` to `SettingsRow`
+through `LocalSettingsRowColor`, so the legacy settings screen keeps its old
+role. Both colours are logged as `SettingsColors page=#… row=#…` — pixels have
+no text equivalent, so the script asserts the pattern from logcat instead of a
+screenshot.
+
+Tests: `FreshInstallDefaultsTest` (7), `SettingsBubblesTest` (7) covering the
+pref default, the notification gate, the row + chooser, the colour roles, the
+log line, and string parity across all 13 locales. Scripts
+`test-fresh-defaults.sh` (fresh install seeds dm_sans + new settings UI; a
+reinstall over the package does NOT) and `test-settings-bubbles.sh` (row and
+subtitle, `#1E1F20`/`#131314`, bubble flag with the choice `all`, no bubble
+flag after `none`, choice survives a restart).
+
+Answering a side question while doing this: Google Messages' own settings could
+not be opened from its UI because (a) another app held the default-SMS role, so
+GM showed "To use Messages, make it your default SMS app" and disabled its
+menus, and (b) even with the role, the profile avatar that now hosts Settings is
+an account gate and this AVD has **0 accounts**. `am start -n
+com.google.android.apps.messaging/.ui.appsettings.ApplicationSettingsActivity`
+opens it regardless, which is how the colours above were measured.
+
+## Pill and avatars re-based on Google Messages' measured colours (#347 round 3, 2026-10-29)
+
+The round-2 palette read as ugly on a muted wallpaper: the Start chat pill went
+`primary` — a solid accent slab that turns dead grey when the wallpaper's
+primary is dim — and Dynamic harmonized every avatar 25% toward that accent,
+which desaturated the bright GM chips into near-black mud on a slate wallpaper.
+
+Both were re-measured off Google Messages running on emulator-5558, sampled
+from screenshots rather than eyeballed:
+
+| Element | GM light | GM dark |
+|---|---|---|
+| Page background | `#FFFFFF` | `#131314` |
+| Top bar | `#F0F4F9` | `#1E1F20` |
+| Start chat pill fill | `#D3E3FD` | `#0842A0` |
+| Start chat pill ink | `#0842A0` | `#D3E3FD` |
+| Avatar fills | `#AF5CF7` `#FA903E` `#4ECDE6` `#FF63B8` | identical |
+| Avatar glyph | `#FFFFFF` | `#202124` |
+
+So the pill is the scheme's **primaryContainer** (GM's pill is exactly our light
+`primaryContainer` and our dark `primaryContainer`/`onPrimaryContainer` pair),
+with `primary` as the ink on a light container and `onPrimaryContainer` on a
+dark one. Confirmed pixel-exact after the change: the app paints
+`#0842A0` + `#D3E3FD` in dark and `#D3E3FD` + blue ink in light.
+
+Avatars are back to the fixed GM palette in every mode — the theme only flips
+the silhouette ink, white on a light scheme and `#202124` on a dark one, through
+one function (`ui/Components.kt: avatarGlyphInk`). `avatarsFollowTheme`,
+`LocalThemedAvatars`, the HSL harmonizer and `avatarFill`/`avatarOnFill` are gone;
+Diagnostics now reports `Avatar ink: #RRGGBB on the fixed GM palette`, resolved
+through that same function, so the report cannot disagree with the paint.
+
+Tests: `StartChatPillColorTest` (9, pins the GM hex values per theme),
+`AvatarThemeResolutionTest` (6, rewritten: fills fixed, ink flips, one rule),
+`ConversationListWiringTest` anchor updated, `DynamicAvatarHarmonizeTest`
+deleted with the feature. Scripts re-pinned: `test-start-chat-colours.sh`,
+`test-avatar-theme-dynamic.sh`, `test-347-dynamic-colors.sh` (its three seeded
+pairs and its avatar line).
+
+Still open for a decision: the palette list still carries 11 Material-500 fillers
+(`#FF9800`, `#2196F3`, `#4CAF50`, `#607D8B`, …) that GM never shows. GM appears
+to use only the first five entries, so trimming to those would match GM exactly
+at the cost of more contacts sharing a colour.
+
 ## Opening a chat full-screen retires its floating bubble (#354 round 3, 2026-10-28)
 
 The reporter's third follow-up: with a conversation bubbled and then hosted

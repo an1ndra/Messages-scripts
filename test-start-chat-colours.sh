@@ -93,16 +93,16 @@ check() {
     if [ -z "$got" ]; then
         bad "Diagnostics did not report the Start chat colours in $mode"
     elif [ "$got" = "$want" ]; then
-        ok "$mode paints the accent pair: $got"
+        ok "$mode paints GM's pill pair: $got"
     else
-        bad "$mode paints '$got', want '$want' (accent pair)"
+        bad "$mode paints '$got', want '$want' (GM pill pair)"
     fi
 }
 
 # Seeded role values; these must change only together with the palette.
-check light   "#FFFFFF on #0B57D0"
-check dark    "#062E6F on #A8C7FA"
-check amoled  "#062E6F on #A8C7FA"
+check light   "#0B57D0 on #D3E3FD"
+check dark    "#D3E3FD on #0842A0"
+check amoled  "#D3E3FD on #0A3D8F"
 
 echo
 echo "PASS=$PASS FAIL=$FAIL"

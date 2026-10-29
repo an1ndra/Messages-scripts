@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Avatar colour: the per-contact palette everywhere, the theme's container colour
-# under the dynamic (wallpaper) theme, and no switch to configure either.
+# Avatar colour: the fixed Google-Messages palette everywhere, with only the
+# silhouette ink flipping between schemes (measured #FFFFFF light / #202124
+# dark), and no switch to configure any of it. #347 round 2 tinted the fills
+# toward the wallpaper accent, which turned them to mud on a muted palette.
 #
 # The switch ("Theme colours for avatars") was removed once dynamic handled the
 # one case that mattered: it would either be dead there or marginal elsewhere.
@@ -133,7 +135,7 @@ def walk(node):
         for key in ("text", "content-desc", "contentDesc"):
             value = node.get(key)
             if isinstance(value, str):
-                m = re.search(r"Avatar fill: [^\n]+", value)
+                m = re.search(r"Avatar ink: [^\n]+", value)
                 if m:
                     found.append(m.group(0).strip())
         for key in ("content", "children"):
@@ -144,19 +146,23 @@ print(found[0] if found else "")
 PY
 }
 
-RULE="Avatar fill: harmonized per-contact colour under Dynamic, palette otherwise"
+INK_PATTERN="^Avatar ink: #(202124|FFFFFF) on the fixed GM palette$"
 
 check_rule() {
-    local theme="$1"
-    info "theme '$theme' states the same avatar rule"
+    local theme="$1" want="${2:-}"
+    info "theme '$theme' reports the ink its avatars paint with"
     set_theme "$theme"
     local got
     got=$(avatar_fill_reading | tail -1)
-    if [ "$got" = "$RULE" ]; then
-        pass "under '$theme' Diagnostics states the rule unchanged"
-    else
-        fail "under '$theme' Diagnostics said '${got:-nothing}', expected '$RULE'"
+    if ! echo "$got" | grep -qE "$INK_PATTERN"; then
+        fail "under '$theme' Diagnostics said '${got:-nothing}', expected an 'Avatar ink: #RRGGBB on the fixed GM palette' line"
+        return
     fi
+    if [ -n "$want" ] && [ "$got" != "Avatar ink: $want on the fixed GM palette" ]; then
+        fail "under '$theme' the ink is '${got}', want $want"
+        return
+    fi
+    pass "under '$theme' Diagnostics reports '${got}'"
 }
 
 pin_new_ui on
@@ -166,9 +172,11 @@ pin_new_ui off
 check_no_switch "legacy settings UI"
 
 pin_new_ui on
+# AMOLED is dark whatever the system says, so its ink is fixed; the two
+# wallpaper-following modes take the device's night state.
+check_rule amoled "#202124"
 check_rule dynamic
 check_rule system
-check_rule amoled
 
 printf '\n[RESULT] %d passed, %d failed\n' "$PASS" "$FAIL"
 exit $((FAIL > 0))

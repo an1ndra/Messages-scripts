@@ -5,7 +5,8 @@
 #    seeded palettes (light F8F9FC, dark 131314, amoled 000000), in both night
 #    modes.
 # 2. The Start chat pill must be readable under every resolved scheme; in the
-#    seeded themes it must be the exact accent pair (primary on onPrimary),
+#    seeded themes it must be the exact pair Google Messages paints (the tinted
+#    accent container: #D3E3FD/blue in light, #0842A0/light-blue in dark),
 #    which Diagnostics reports through the same helpers the FAB paints with.
 # 3. Under Dynamic, a fresh install must report the harmonized per-contact
 #    avatar rule from Diagnostics.
@@ -194,24 +195,23 @@ esac
 
 info "Seeded themes keep their exact accent pairs"
 set_theme light
-assert_side "light" light "0B57D0:FFFFFF" "$(read_report)"
+assert_side "light" light "D3E3FD:0B57D0" "$(read_report)"
 set_theme dark
-assert_side "dark" dark "A8C7FA:062E6F" "$(read_report)"
+assert_side "dark" dark "0842A0:D3E3FD" "$(read_report)"
 set_theme amoled
-assert_side "amoled" amoled "A8C7FA:062E6F" "$(read_report)"
+assert_side "amoled" amoled "0A3D8F:D3E3FD" "$(read_report)"
 
-info "Diagnostics states the harmonized avatar rule"
+info "Diagnostics states the avatar ink rule"
 set_theme system
 adb_ shell input tap 970 143 >/dev/null 2>&1; sleep 3
 if scroll_to_and_tap "Advanced settings"; then
     sleep 3
     scroll_to_and_tap "Diagnostics" >/dev/null; sleep 5
     dump_ui
-    if grep -q "Avatar fill: harmonized per-contact colour under Dynamic, palette otherwise" \
-        "$TMP/ui.xml"; then
-        ok "Diagnostics states the harmonized avatar rule"
+    if grep -qE "Avatar ink: #(202124|FFFFFF) on the fixed GM palette" "$TMP/ui.xml"; then
+        ok "Diagnostics states the avatar ink the avatars paint with"
     else
-        bad "Diagnostics avatar-fill line not found"
+        bad "Diagnostics avatar-ink line not found"
     fi
     back_out 3
 else
