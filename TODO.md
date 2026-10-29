@@ -5,6 +5,40 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## QUIK import, pinch-zoom option, list animations (2026-10-30)
+
+**QUIK (QKSMS) backup import.** QUIK 4.3.7 was installed on emulator-5558 and a
+real backup taken through its own *Backup and restore* screen — 101 messages,
+23 KB, at `/sdcard/Download/quikbackup/backup-20261030003332.json`. The format is
+a single object, not an array:
+
+`{"messageCount":N,"messages":[{"type":1,"address":"…","date":…,"dateSent":0,
+"read":true,"status":0,"body":"…","protocol":0,"locked":false,"subId":-1}]}`
+
+Three things differ from the sms-ie records the importer already reads: the
+messages sit under a wrapper object, `read` is a boolean rather than 0/1, and
+`serviceCenter` is omitted when null. `QuikBackup` converts each message to the
+sms-ie shape (read → 0/1, type kept as `Telephony.Sms.TYPE`, `date_sent` kept
+when non-zero) and `Repository.importQuikFrom` hands the converted records to
+`importStaged`, so dedupe, merge/replace, the provider mirror and the transfer
+log are shared with the existing importer rather than reimplemented.
+
+QUIK's own screen says "Currently, only SMS is supported by Backup and Restore":
+there is nothing else in the file — no MMS, no settings, no blocked numbers — so
+"import everything" means every field it does write, which the conversion keeps.
+
+It is the third option inside **Import messages**, not a second row: one import
+entry, three formats.
+
+**Pinch to zoom** moved to Inbox settings as a switch. Off means the pointer
+handler is not installed at all, so a two-finger drag scrolls the list instead of
+being captured by a gesture that would then do nothing.
+
+**Animation** added to the lists that still jumped: Add people, New chat,
+Scheduled messages, Spam & Blocked (conversations and messages), Trash
+(conversations and messages) and the transfer log. Every list that shows rows
+now animates placement.
+
 ## Composer pill and the attach badge (2026-10-30)
 
 Two visual matches to Google Messages, both measured off the running app rather
