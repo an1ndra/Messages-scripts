@@ -5,6 +5,31 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Scheduling is discoverable again (#386, 2026-10-29)
+
+The report: "the app claims you can schedule messages … but I don't see any UI
+indicator to do so", from an F-Droid install of 1.0.30. Two things were wrong,
+and the second was worse than the report knew:
+
+1. The only way to schedule was a **long-press on Send**, with no hint anywhere.
+2. `SettingsStore.scheduledMessagesEnabled` was written by the *legacy* settings
+   toggle and **read nowhere** — flipping it changed nothing, which is what
+   "even after enabling the option" was hitting.
+
+The composer now draws a clock beside Send whenever there is something to send
+(`chat_schedule`, 22dp, same presence animation as Send), and tapping it opens
+the picker the long-press already opened. The long-press stays as a shortcut but
+is only wired while the setting is on, and the preference now gates both — plus
+it is exposed in the new Advanced settings screen, so it is no longer a
+legacy-only switch that does nothing.
+
+Tests: `ScheduleAffordanceTest` (6) pins the visible control, the label, the
+shortcut gate, the setting being read, the new toggle and string parity.
+`AppearanceOptionsTest`'s send-button anchor became a regex instead of the exact
+one-line `combinedClickable(...)`, since that call is now multi-line. Script
+`test-schedule-affordance.sh`: an empty composer shows no control, typing shows
+one, tapping opens the picker, and turning the setting off removes it.
+
 ## Bubbles is Android's page again (2026-10-29)
 
 The in-app Bubbles page is gone. Android's per-app Bubbles screen
