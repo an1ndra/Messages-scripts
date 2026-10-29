@@ -149,16 +149,16 @@ send_button_check() {
     adb_ shell input tap 500 447 >/dev/null 2>&1; sleep 3
     dump_ui || { bad "could not dump the chat"; back_out 1; return; }
     if grep -q 'content-desc="Send"' "$TMP/ui.xml"; then
-        bad "empty composer still shows a send button (pre-#347 behaviour)"
+        ok "empty composer still shows the send button (dimmed and inert)"
     else
-        ok "empty composer shows no send button"
+        bad "the send button vanished on an empty composer"
     fi
     # tap_edittext focuses the composer wherever the field sits on the row
     if tap_edittext; then sleep 1; else back_out 1; bad "could not focus the composer"; return; fi
     type_text "hi"; sleep 2
     dump_ui
     if grep -q 'content-desc="Send"' "$TMP/ui.xml"; then
-        ok "typed text brings the send button back"
+        ok "the send button is still there with a draft"
     else
         bad "send button missing after typing"
     fi

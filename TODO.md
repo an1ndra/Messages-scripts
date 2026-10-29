@@ -16,15 +16,19 @@ and the second was worse than the report knew:
    toggle and **read nowhere** — flipping it changed nothing, which is what
    "even after enabling the option" was hitting.
 
-The composer now draws a clock beside Send whenever there is something to send
-(`chat_schedule`, 22dp, same presence animation as Send), and tapping it opens
-the picker the long-press already opened. The long-press stays as a shortcut but
-is only wired while the setting is on, and the preference now gates both — plus
-it is exposed in the new Advanced settings screen, so it is no longer a
-legacy-only switch that does nothing.
+Hold-Send stays the only way in, as before #386: the answer to the report is
+that the gesture exists, not another button in the row. What was actually broken
+is still fixed — the preference now gates the gesture instead of being written
+and never read, and it is exposed in the new Advanced settings screen rather
+than only the legacy one.
 
-Tests: `ScheduleAffordanceTest` (6) pins the visible control, the label, the
-shortcut gate, the setting being read, the new toggle and string parity.
+The composer's Send circle is **always** on screen, dimmed (alpha 0.38) and
+inert while there is nothing to send, rather than shrinking away: round 2 of
+#347 hid it and the empty chat row read as unfinished.
+
+Tests: `ScheduleLongPressTest` (3) pins hold-Send, the absence of a clock
+button, and the setting that gates it. `AppearanceOptionsTest` now pins the
+always-visible dimmed Send.
 `AppearanceOptionsTest`'s send-button anchor became a regex instead of the exact
 one-line `combinedClickable(...)`, since that call is now multi-line. Script
 `test-schedule-affordance.sh`: an empty composer shows no control, typing shows
