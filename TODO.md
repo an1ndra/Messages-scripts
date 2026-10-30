@@ -17,7 +17,14 @@ The first attempt at this — a "Schedule" label bubble above the button — was
 wrong and was reverted without being pushed; the built behaviour is the shrink,
 as described.
 
-Tests: `ScheduleHoldAnimationTest` (4); `ScheduleLongPressTest` re-pinned to the
+Refinements after looking at it: the shrink went from 0.45 (the button nearly
+vanished) to 0.8, and the picker now animates itself — `ScheduleDialog` scales
+and fades from `TransformOrigin(1f, 1f)`, the corner the send button sits in,
+instead of a centred `DatePickerDialog` that just appeared. Making it a plain
+`Dialog` needed `usePlatformDefaultWidth = false`: the platform cap is below the
+DatePicker's 360dp minimum, which cut the Saturday column off the calendar.
+
+Tests: `ScheduleHoldAnimationTest` (6); `ScheduleLongPressTest` re-pinned to the
 hold state. Script `test-schedule-hold.sh` (5) replaces
 `test-schedule-affordance.sh`, which pinned the clock button that no longer
 exists.
