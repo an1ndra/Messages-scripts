@@ -5,6 +5,61 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Regional calendars in every date (#363, 2026-10-30)
+
+Dates can now render in Jalali (Persian), Umm al-Qura Hijri, Hebrew, Buddhist,
+Japanese, Indian (Saka) or Coptic, chosen in **Advanced settings → Calendar**,
+with "Automatic" as the default: `fa` phones get Jalali, `ar` phones Hijri,
+everyone else Gregorian. The picker keeps Automatic first (it is the default,
+not a calendar) and sorts the rest by the label on screen, so each language gets
+its own alphabet.
+
+No dependency was added. Android ships `android.icu.util` with no
+`PersianCalendar` *class*, but `Calendar.getInstance(TimeZone, ULocale)` still
+builds one from the `@calendar=persian` keyword: `getType()` returns "persian",
+the CLDR month names come out per language, and the digits localize on their own
+(۱۴۰۵ for `fa`, ١٤٤٨ for `ar`). Verified on both AVDs, so API 30 (ICU 66) and
+API 31 (ICU 69) agree.
+
+Four decisions worth keeping:
+
+- **Gregorian stays on `java.time`.** It is the only path whose CLDR behaviour
+  the JVM tests can reach; ICU takes every other calendar. `CalendarSystem`
+  encodes this as `icuKeyword == null`.
+- **The era is stripped.** CLDR appends one to every non-Gregorian date ("Aban 4,
+  1405 AP", "Jum. I 15, 1448 AH"), which is a suffix on every timestamp for
+  information the chosen calendar already carries. Japanese is the exception
+  (`keepsEra`): its year *is* an era year, so "Oct 26, 8" without "Reiwa" reads
+  like a bug.
+- **"Same year?" is asked in the displayed calendar** (`displayYear`), not the
+  Gregorian one. Around Nowruz the two disagree, and a group label that dropped
+  the year on a message from another Jalali year reads as if it belonged to the
+  neighbouring label.
+- **The picker is its own composable** (`CalendarPickerDialog`). It scrolls, and
+  a route screen must never create its own scroll state — `SettingsScrollStateTest`
+  catches exactly that.
+
+Deliberately not shipped: the issue also asked for a secondary calendar beside
+the primary one on every date. That doubles the width of every timestamp in a
+list built for one; defer until someone asks again.
+
+Also not wired: **Legacy settings** (`use_new_ui = false`) has no Calendar row.
+The choice still applies — rendering is shared — but a legacy-UI user cannot
+change it. Add the row there if the legacy surface is ever revived.
+
+Tested by `test-calendar.sh` (14 assertions, green on `emulator-5557` and
+`emulator-5558`): seeds a pinned conversation at a fixed instant (2026-10-26,
+1405-08-04 Jalali / 1448-05-15 Umm al-Qura), asserts Gregorian by default, then
+Jalali in the chat label, the list date and the Diagnostics sample, then Hijri,
+then back to Gregorian. `CalendarDatesTest` pins the pure decisions
+(storage values, language mapping, era stripping) because ICU cannot run
+off-device.
+
+Limitation: `cmd locale` does not exist on either AVD, so per-app language
+switching cannot be exercised on-device — the `fa → Jalali` and `ar → Hijri`
+mappings are covered by the unit test only, and the script can only walk
+Automatic → Gregorian.
+
 ## Chat opens from the bottom, like GM (2026-10-30)
 
 Recorded GM opening a chat (`screenrecord` + frame diff): the chat panel rises
