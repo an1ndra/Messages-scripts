@@ -5,6 +5,40 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Opening a long chat no longer flashes (2026-10-30)
+
+Reported twice: "in one chat screen I have so many messages ... when I open chat I
+see chat flickering every time I open chat". Not reproducible on the emulator —
+swiftshader at 60 Hz swallows a one-frame flash — so this was fixed from
+measurement, not from watching it. Confirm the visual result on a real phone.
+
+Instrumented cold open of a 300-message thread:
+
+```
+7 chunk loads, 8 bottom snaps, 0 anchor restores, in 2.5s
+```
+
+Each preload inserted 40 rows above the viewport while the list was parked at the
+bottom: the visible rows shift for a frame, then the follow-bottom snap pulls them
+back. One flash per chunk, seven per open.
+
+Two changes:
+
+- **Older history loads when the reader reaches the top** of the loaded window
+  (`shouldLoadEarlier`, three rows of slack), not while parked at the bottom. A
+  reach at the top loads one chunk, capped as before; the "load earlier" button
+  still covers the cap.
+- **The follow-bottom effect stopped being a 4-second wall clock.** It re-snaps
+  only while the newest row's bottom is below the viewport, then stops (10s
+  safety cap). That removes the twitch after a picture decodes, and fixes a race
+  the old window masked: a slow first query outlived the 4s window, so the chat
+  opened at the *top* of the loaded rows.
+
+Script: `test-chat-open-stability.sh` seeds 300 messages and asserts the open
+prepends nothing (`ChatPreload` stays silent), lands on the newest message, and
+that scrolling to the top does load. Mutation — back to "load whenever parked" —
+restores the 7 preloads and the script fails.
+
 ## Legacy settings share one sheet colour (2026-10-30)
 
 Reported: "in old UI General settings and Advanced setting background colour is
