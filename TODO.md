@@ -5,6 +5,36 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## A saved draft comes back in the composer (2026-10-30)
+
+Reported: "one Draft message I open in chat Text field I cant see them it
+disappere". The repo already knew: the #362 note recorded the restore as "a
+lambda literal that is never invoked — `if (convo != null && !draftLoaded) { { … } }`
+— so a saved draft is never put back in the composer on re-open", and the bidi
+script worked around it by seeding the composer through a share intent.
+
+The block runs now, and the decision is a function (`restoredDraft`) so it is
+testable off-device: an empty draft or an already-loaded one restores nothing.
+`test-draft-restore.sh` seeds the draft straight into the database — the path that
+used to fail — and checks it appears on open, survives a round trip, and is still
+in the database. Mutation (the restore returning null again) fails it.
+
+## The chat close animation does run (2026-10-30, measured)
+
+Reported: "There is not chat close animation". Measured instead of guessed, by
+logging the transition spec and the chat's teardown:
+
+```
+from=chat to=list reduce=false scale=1.0
+... 358 ms later: chat torn down
+```
+
+So the branch is taken, the platform animation scale is 1.0, and the chat survives
+the full 300 ms slide before it is disposed — the exit animation is playing. If a
+device shows none, the causes to check are the app's Accessibility "Reduce motion"
+(which sets both transitions to None by design) and the system animation scale
+(Developer options / "Remove animations"), not the transition spec.
+
 ## The composer's attach dot follows the theme (2026-10-30)
 
 Reported: "in light mode in + icon one dot color not looks good?"
