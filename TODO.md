@@ -5,6 +5,23 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Hold-Send shrinks the circle, then the calendar (2026-10-30)
+
+Scheduling is reached by holding Send, and the press used to give no feedback:
+the calendar simply appeared under the finger. Now the send circle shrinks to
+45% over `DURATION_MEDIUM1`, sits small for a beat (the picker opens at
+`DURATION_MEDIUM1 + 220ms`), and then the date picker animates in. With the
+`Scheduled messages` setting off, holding does nothing at all.
+
+The first attempt at this — a "Schedule" label bubble above the button — was
+wrong and was reverted without being pushed; the built behaviour is the shrink,
+as described.
+
+Tests: `ScheduleHoldAnimationTest` (4); `ScheduleLongPressTest` re-pinned to the
+hold state. Script `test-schedule-hold.sh` (5) replaces
+`test-schedule-affordance.sh`, which pinned the clock button that no longer
+exists.
+
 ## Owner avatar, and two settings rows without descriptions (2026-10-30)
 
 **The app's own avatar reads the device profile.** The header avatar and the
