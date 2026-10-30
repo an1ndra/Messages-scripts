@@ -29,9 +29,19 @@ MARK="calprobe$(date +%s)$$"
 adb_ root >/dev/null 2>&1; adb_ wait-for-device; sleep 1
 sql() { adb_ shell "sqlite3 /data/data/$PKG/databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r'; }
 
+PREFS="shared_prefs/messages_settings.xml"
+
+# Which settings surface the app renders: true = redesigned, false = legacy.
+set_new_ui() {
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1
+    adb_ shell "run-as $PKG sh -c 'if grep -q name=\"use_new_ui\" $PREFS; then sed -i \"s#name=\\\"use_new_ui\\\" value=\\\"[^\\\"]*\\\"#name=\\\"use_new_ui\\\" value=\\\"$1\\\"#\" $PREFS; else sed -i \"s#</map>#    <boolean name=\\\"use_new_ui\\\" value=\\\"$1\\\" />\\n</map>#\" $PREFS; fi'" >/dev/null 2>&1
+    sleep 1
+}
+
 cleanup() {
     sql "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$NUM');" >/dev/null 2>&1
     sql "DELETE FROM conversations WHERE address='$NUM';" >/dev/null 2>&1
+    set_new_ui true
 }
 trap cleanup EXIT
 
@@ -205,8 +215,32 @@ pick_calendar() {
     return 0
 }
 
-open_diagnostics() {
-    local i
+# The platform date grid only speaks Gregorian; holding Send opens it, and the
+# app adds a line naming the picked day in the reader's calendar.
+hold_send() {
+    local send
+    dump_ui >/dev/null 2>&1 || return 1
+    send=$(python3 - "$TMP/ui.decoded.xml" <<'PY'
+import re, sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+for node in root.iter("node"):
+    if node.get("content-desc") == "Send":
+        m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
+        if m:
+            print((int(m.group(1)) + int(m.group(3))) // 2,
+                  (int(m.group(2)) + int(m.group(4))) // 2)
+            break
+PY
+    ) || return 1
+    [ -z "$send" ] && return 1
+    set -- $send
+    adb_ shell input swipe "$1" "$2" "$1" "$2" 900 >/dev/null 2>&1
+    return 0
+}
+
+open_diagnostics() {    local i
     open_advanced || return 1
     for i in 1 2 3 4 5 6 7 8; do
         dump_ui >/dev/null 2>&1 || continue
@@ -252,6 +286,42 @@ open_list
 grep -qF -- "Aban 4" "$TMP/ui.xml" && ok "conversation list date renders Jalali" \
     || bad "conversation list date is not Jalali"
 
+# The schedule grid is Gregorian, so the picked day is named alongside it.
+draft_and_hold() {
+    local i
+    # A space-free draft: "input text" turns spaces into %s and some builds drop
+    # them. The typed text is asserted before holding, so a composer that never
+    # took focus cannot look like a picker failure.
+    for i in 1 2 3; do
+        open_chat || return 1
+        tap_edittext >/dev/null 2>&1 || continue
+        sleep 1
+        type_text "calendardraft" >/dev/null 2>&1
+        sleep 2
+        dump_ui >/dev/null 2>&1 || continue
+        grep -q 'text="calendardraft"' "$TMP/ui.xml" || continue
+        grep -q 'content-desc="Send"' "$TMP/ui.xml" || continue
+        hold_send && return 0
+    done
+    return 1
+}
+
+if draft_and_hold; then
+    sleep 3
+    dump_ui >/dev/null 2>&1 || true
+    if grep -q "In your calendar:" "$TMP/ui.xml"; then
+        ok "schedule picker names the picked day in the reader's calendar"
+    else
+        bad "schedule picker shows no converted date"
+    fi
+    grep -qE "In your calendar: (Farvardin|Ordibehesht|Khordad|Tir|Mordad|Shahrivar|Mehr|Aban|Azar|Dey|Bahman|Esfand)" "$TMP/ui.xml" \
+        && ok "the picker's converted day is a Jalali one" \
+        || bad "the picker's converted day is not Jalali"
+    adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
+else
+    bad "holding Send did not reach the picker"
+fi
+
 info "Diagnostics reports the resolved calendar"
 open_diagnostics || true
 dump_ui >/dev/null 2>&1 || true
@@ -275,6 +345,28 @@ dump_ui >/dev/null 2>&1 || true
 grep -q "Gregorian" "$TMP/ui.xml" && ok "automatic resolves to Gregorian on en" \
     || bad "automatic did not resolve to Gregorian"
 expect_in_chat "October 26" "the Gregorian date is back" || true
+
+info "Legacy settings offer the same Calendar row"
+set_new_ui false
+if open_settings; then
+    dump_ui >/dev/null 2>&1 || true
+    grep -q 'text="Calendar"' "$TMP/ui.xml" \
+        && ok "legacy settings render the Calendar row" \
+        || bad "legacy settings have no Calendar row"
+    if tap_row "Calendar"; then
+        sleep 1.5
+        dump_ui >/dev/null 2>&1 || true
+        grep -q 'text="Choose calendar"' "$TMP/ui.xml" \
+            && ok "legacy settings open the same picker" \
+            || bad "legacy Calendar row did not open the picker"
+    else
+        bad "legacy Calendar row is not tappable"
+    fi
+    adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
+else
+    bad "legacy settings did not open"
+fi
+set_new_ui true
 
 info "Result: $PASS passed, $FAIL failed"
 exit $((FAIL > 0))

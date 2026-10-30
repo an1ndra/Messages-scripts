@@ -43,6 +43,12 @@ Deliberately not shipped: the issue also asked for a secondary calendar beside
 the primary one on every date. That doubles the width of every timestamp in a
 list built for one; defer until someone asks again.
 
+The schedule dialog keeps Material3's month grid, which is Gregorian by
+construction — it has no calendar parameter at all. Instead of rebuilding a grid
+per calendar, the dialog names the picked day underneath it: "In your calendar:
+Kartika 8, 1948" (`chat_schedule_calendar_hint`, hidden for Gregorian, formatted
+in UTC because the picker hands back UTC midnight).
+
 Also not wired: **Legacy settings** (`use_new_ui = false`) has no Calendar row.
 The choice still applies — rendering is shared — but a legacy-UI user cannot
 change it. Add the row there if the legacy surface is ever revived.
@@ -125,21 +131,35 @@ So: the palette, the hash-based choice and the night-mode ink stay as they are.
 surface-dependent selection may reappear), and the contrast work is reverted in
 `6f4f3b7` / `1804388`.
 
-## Themed app icon keeps its lines (2026-10-30)
+## Themed app icon: filled bubble, lines cut out (2026-10-30)
 
-Reported: "in system dynamic the app icon lines are not showing".
+Two rounds of feedback. First: "in system dynamic the app icon lines are not
+showing". The `<monochrome>` layer pointed at the **coloured** foreground, which
+draws a filled white bubble with blue strokes for the message lines; a themed
+icon tints the whole drawable one colour, so the strokes merged into the fill and
+the icon rendered as a blank shape. It was changed to line art — which then read
+as the wrong way round: "outside of line be fill with color it was before, lines
+should be light color".
 
-The adaptive icon's `<monochrome>` layer pointed at the **coloured** foreground,
-which draws a filled white bubble with blue strokes for the message lines. A
-themed icon tints the whole drawable one colour, so the strokes merged into the
-fill and the icon rendered as a blank shape. `ic_launcher_monochrome.xml` is now
-line art — an outlined bubble plus the three lines, all one colour — and both
-`ic_launcher.xml` and `ic_launcher_round.xml` point at it. The coloured icon is
-untouched.
+Reviewed decision (option A of three rendered): a **filled** bubble with the
+three lines **cut out** of it. A monochrome layer is a mask, so "light lines on a
+filled plate" can only be expressed as holes — one `evenOdd` path whose line
+capsules (the 2.5dp strokes expanded to their outer edge) subtract from the
+bubble. Nothing is stroked in that layer; an opaque stroke is exactly how the
+blank-shape bug happened.
+
+Limits that are not fixable in the app: the launcher picks both colours (plate
+and tint), so in a dark-theme launcher the pair inverts — light bubble, dark
+lines. The rendered comparison lives at
+`/tmp/opencode/icons/icon-option-a-final.png` (light and dark faces). Verified by
+rendering the real `pathData` with `fill-rule=evenodd`, not by mock-up art.
 
 Not reproducible on emulator-5558: themed icons arrived in Android 13 and this
 AVD is API 31, so the layer is only exercised on a 13+ device. `ThemedIconTest`
-pins the wiring and that the monochrome layer fills nothing.
+pins the wiring, the `evenOdd` fill, the three capsules at the coloured icon's
+line positions, and the absence of strokes. The coloured icon is untouched.
+
+## Chat-details switches match settings (#347 review, 2026-10-30)
 
 ## Chat-details switches match settings (#347 review, 2026-10-30)
 
