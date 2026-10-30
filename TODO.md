@@ -87,6 +87,18 @@ Two changes:
 edge, opens About, comes back, and fails if the label moved by more than 8px.
 Before the fix it moved 55px.
 
+### The issue prefill was 4 KB of notification channels (2026-10-30)
+
+Measured on the reporting device: `issue body=4053 limit=4096`. Almost all of it
+was one line per conversation channel — `messages_convo_NN_default=4 (high)`, 64
+of them — so the app, theme, SIM and accessibility sections, which are the parts
+that answer a report, were cut off by the cap entirely.
+
+`diagnosticsForIssue` now drops the per-channel lines and states the count in
+their place ("64 per-conversation channels omitted (see Diagnostics)"). The same
+run then carries `--- App ---`, the theme, accessibility and SIM, at 3,645
+characters. The full list is still in Diagnostics for anyone who needs it.
+
 ### Follow-up: the licences dialog reads as a list, not a table (2026-10-30)
 
 "make it looks good" on a screenshot of four rows that each said
