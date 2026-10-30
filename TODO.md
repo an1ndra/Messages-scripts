@@ -63,6 +63,37 @@ Also installed **Brave** (`BraveMonox64.apk`, x86_64) on `emulator-5558`: the
 AOSP image ships only "WebView Browser Tester", which fails on many real sites,
 so link intents had nothing credible to open.
 
+### Follow-up: coming back from About lost the reader's place (2026-10-30)
+
+Reported with two screenshots: after About -> Back, the list sat a row above
+the bottom, so the About card was clipped and the padding under it was hidden.
+
+The hoisted `settingsScroll` *was* restored. The problem was the content: the
+SIM row's subtitle arrives a beat after the screen does, the list grows by
+20dp, and a growing list clamps a restored offset without putting it back — the
+list then sits one row short of the end forever.
+
+Two changes:
+
+- `sims` is seeded from `SimCards.load(context)` at composition instead of
+  starting empty, so that row no longer renders title-only for a frame and then
+  grows (which also made the whole list jump on entry).
+- The restore effect now re-applies the offset until the height holds still for
+  ~200ms, and — the part that actually fixes it — a reader who was parked at the
+  end stays at the end while the rest of the list loads. Content that arrives
+  later than any fixed window (`scheduled` count) can no longer strand them.
+
+`test-about.sh` asserts the round trip directly: it records the About label's top
+edge, opens About, comes back, and fails if the label moved by more than 8px.
+Before the fix it moved 55px.
+
+### Follow-up: the share message carries both download links (2026-10-30)
+
+"in share add Fdroid and Github release both URL": `about_share_text` takes the
+release APK and the F-Droid listing as `%1$s` / `%2$s` in all 13 locales, and the
+screen logs `share len=… release=true fdroid=true`, which the script asserts —
+so a missing link fails the build rather than the reader's share.
+
 ## A saved draft comes back in the composer (2026-10-30)
 
 Reported: "one Draft message I open in chat Text field I cant see them it

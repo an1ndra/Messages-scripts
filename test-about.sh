@@ -146,6 +146,24 @@ open_settings_row() {
     tap_row "$label"
 }
 
+# Top edge of a label, for comparing where the list was before and after.
+label_y() {
+    local label="$1"
+    python3 - "$TMP/ui.decoded.xml" "$label" <<'PTY'
+import re, sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+label = sys.argv[2]
+for node in root.iter("node"):
+    if (node.get("text") or "") == label:
+        m = re.match(r"\[(\d+),(\d+)\]", node.get("bounds", ""))
+        if m:
+            print(m.group(2))
+            break
+PTY
+}
+
 info "Settings ends with a rounded About row, not a version footer"
 set_new_ui true
 open_settings || exit 1
@@ -221,7 +239,33 @@ else
     bad "the About row did not open the About screen"
 fi
 
+info "Coming back from About leaves the list where it was"
+open_settings || true
+scroll_to_row "About" || true
+before_y=$(label_y "About")
+if tap_row "About"; then
+    sleep 2
+    adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 4
+    dump_ui >/dev/null 2>&1 || true
+    after_y=$(label_y "About")
+    if [ -z "$before_y" ] || [ -z "$after_y" ]; then
+        bad "could not measure the list position (before=$before_y after=$after_y)"
+    else
+        delta=$((before_y - after_y))
+        [ "$delta" -lt 0 ] && delta=$((-delta))
+        if [ "$delta" -le 8 ]; then
+            ok "the list stayed put ($before_y -> $after_y)"
+        else
+            bad "the list moved when coming back ($before_y -> $after_y)"
+        fi
+    fi
+else
+    bad "could not reopen About for the scroll check"
+fi
+
 info "Report an issue asks before attaching anything"
+# The scroll round trip above ends on the settings list, so come back first.
+open_settings_row "About" || true
 if tap_row "Report an issue"; then
     sleep 1.5
     dump_ui >/dev/null 2>&1 || true
@@ -246,6 +290,11 @@ if tap_row "Share Messages"; then
     else
         bad "no share sheet after tapping Share Messages"
     fi
+    SHARE=$(adb_ shell logcat -d -s AboutAction 2>/dev/null | tr -d '\r' | grep -o 'share .*' | tail -1)
+    case "$SHARE" in
+        *release=true*fdroid=true*) ok "the share text carries both the release and F-Droid links" ;;
+        *) bad "the share text is missing a download link ($SHARE)" ;;
+    esac
     adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
 else
     bad "could not tap Share Messages"
