@@ -5,6 +5,33 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Avatars keep a contrast floor on the fill (2026-10-30)
+
+Measured first: GM ships the palette as-is and never adapts the fill — #FF63B8 in
+both light and dark, no ring, and its own white glyph on pink is 2.58:1. It leans
+on chromatic contrast plus the silhouette. That holds until the palette is muted,
+where brown/indigo/blue-grey match the page in hue *and* lightness (2.09–2.83:1
+on the dynamic dark surfaces here), and on light the pastels sit at 1.78–2.98:1.
+
+`avatarColorOn(key, surface)` keeps the contact's own palette entry when it clears
+3:1 against the surface and otherwise walks deterministically to the nearest one
+that does; `avatarInkOn(fill)` picks the silhouette ink from the fill rather than
+the night mode. `PersonAvatar` grew an `onSurface` parameter, and the chat's
+sender avatar now passes the incoming bubble colour it actually sits on.
+
+Diagnostics reports the resolved pair — `Avatar: #RRGGBB on #RRGGBB (x.x:1)` —
+resolved through the same function the avatar paints with, so the floor is
+assertable without a screenshot.
+
+Cost, visible in the light screenshot: only 8 of the 16 entries clear 3:1 on a
+light page, so the pastels (cyan, green, amber, teal, pink, coral, orange, blue)
+are replaced by their nearest passing neighbour, and every chip on light is a
+saturated mid tone. Dark is almost unchanged (brown/indigo swap).
+
+Tests: `AvatarContrastTest` (7) over a surface × key matrix; `AvatarThemeResolutionTest`
+re-pinned to the fill-based ink. Script `test-avatar-contrast.sh`: light 6.0:1,
+dark 5.9:1, amoled 6.7:1, all from Diagnostics.
+
 ## Themed app icon keeps its lines (2026-10-30)
 
 Reported: "in system dynamic the app icon lines are not showing".
