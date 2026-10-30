@@ -5,6 +5,32 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Legacy settings share one sheet colour (2026-10-30)
+
+Reported: "in old UI General settings and Advanced setting background colour is
+different".
+
+Only `LegacySettingsScreen` set the Scaffold's `containerColor` to the settings
+sheet; `LegacyAdvancedSettingsScreen` and `LegacyAccessibilityScreen` fell back
+to the theme background, so opening either changed the page colour under the rows
+— the mismatch was one tap deeper than the screen that looked right.
+
+The colour now lives in `LegacySettingsScaffold`, which paints the page for all
+three screens, and the app bars keep the same role.
+
+**A per-screen report was tried first and was useless.** Each screen logged
+`MaterialTheme.colorScheme.surfaceContainer` itself, so removing the Scaffold's
+colour left the report saying the right thing — the same duplication that once
+had Diagnostics agree with a broken theme. Now the shared scaffold is the only
+place that colour exists: a screen that goes back to its own `Scaffold` reports
+nothing at all, and `test-legacy-settings-colours.sh` fails on the missing line.
+
+Testing a pixel value without a screenshot: the scaffold logs
+`SettingsColors screen=<name> page=#RRGGBB row=#RRGGBB`, and
+`test-legacy-settings-colours.sh` opens both screens and compares the two page
+colours (green: `page=#1E1F20` twice; mutation, Advanced back on a plain
+`Scaffold`: "no colour reported by advanced settings").
+
 ## Regional calendars in every date (#363, 2026-10-30)
 
 Dates can now render in Jalali (Persian), Umm al-Qura Hijri, Hebrew, Buddhist,
