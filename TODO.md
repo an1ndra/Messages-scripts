@@ -5,6 +5,18 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Owner avatar, and two settings rows without descriptions (2026-10-30)
+
+**The app's own avatar reads the device profile.** The header avatar and the
+empty-state avatar were a fixed silhouette with `"sms-launcher"` as a contact
+key, so a profile picture set on the phone was never shown. `OwnerAvatar` reads
+`ContactsContract.Profile.CONTENT_URI` (`CommonDataKinds.Photo.PHOTO_URI`) and
+draws the photo; with no profile photo, or without READ_CONTACTS, it falls back
+to the silhouette in the colours each site already used.
+
+**Backup messages and Import messages lost their descriptions**, as asked: both
+are bare labels now, like the Bubbles row.
+
 ## The conversation list blinked; the cross-fade is gone (2026-10-30)
 
 Reported after installing the build: "sometimes I open chat screen and all chats
