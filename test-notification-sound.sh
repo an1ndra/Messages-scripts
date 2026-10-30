@@ -89,22 +89,69 @@ launch_settings() {
     adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 3
 }
 
-open_sound_picker() {
-    tap_text "Notification sound" || { fail "could not tap Notification sound row"; return 1; }
-    sleep 1.2
+# Sound and action settings moved to Settings -> Advanced settings ->
+# Notifications. Navigation uses the `android layout` CLI rather than
+# uiautomator, which is killed intermittently on this AVD, and the settings list
+# remembers its scroll position, so it is normalized to the top first. The
+# top-level "Notifications" row opens Android's own page, so landing there is
+# detected and retried instead of trusted.
+scroll_settings_top() {
+    local i
+    for i in 1 2 3; do
+        adb_ shell input swipe 540 700 540 2000 300 >/dev/null 2>&1
+        sleep 0.3
+    done
 }
 
-# "Receive sound" moved to Settings -> Advanced; scroll to the row and open it.
 open_advanced() {
     local i
-    for i in 1 2 3 4 5; do
-        dump_ui || true
-        if grep -q 'text="Advanced settings"' "$TMP/ui.xml"; then
-            tap_text "Advanced settings" >/dev/null 2>&1 && { sleep 1.5; return 0; }
+    wait_layout_has "Link behaviour" 1 && return 0
+    scroll_settings_top
+    for i in 1 2 3 4 5 6; do
+        if layout_center "Advanced settings" >/dev/null 2>&1; then
+            tap_layout "Advanced settings" >/dev/null 2>&1
+            sleep 1.5
+            wait_layout_has "Link behaviour" 3 && return 0
         fi
-        adb_ shell input swipe 540 1700 540 900 250 >/dev/null 2>&1; sleep 0.6
+        adb_ shell input swipe 540 1700 540 900 300 >/dev/null 2>&1
+        sleep 0.8
     done
     return 1
+}
+
+open_notifications() {
+    local i
+    wait_layout_has "Notification sound" 1 && return 0
+    for i in 1 2 3; do
+        if open_advanced; then
+            tap_layout "Notifications" >/dev/null 2>&1
+            sleep 1.5
+            wait_layout_has "Notification sound" 3 && return 0
+            adb_ shell input keyevent 4 >/dev/null 2>&1
+            sleep 1
+        fi
+        sleep 1
+    done
+    fail "could not open Notifications settings"
+    return 1
+}
+
+open_sound_picker() {
+    open_notifications || return 1
+    tap_layout "Notification sound" >/dev/null 2>&1 || {
+        fail "could not tap Notification sound row"; return 1;
+    }
+    # "Classic" only exists inside the picker: the row's subtitle can be
+    # "Default (system)", so that is not a dialog signal.
+    wait_layout_has "Classic" 4
+}
+
+# Tap the toggle on the right of a settings row, identified by its label.
+tap_switch_for() {
+    local c
+    c=$(layout_center "$1") || { echo "[tap] '$1' not found"; return 1; }
+    adb_ shell input tap 937 "${c#* }"
+    echo "[tap] switch near '$1' at (937 ${c#* })"
 }
 
 # Channel the incoming-message notification for [body] was posted on.
@@ -121,12 +168,14 @@ notif_channel() {
         }'
 }
 
-# Sound carried by the app's currently-active "Messages" channel. This is what
-# Android actually plays; it must follow the setting (channels are immutable).
+# Sound carried by one channel. A channel's sound is immutable, so this is what
+# Android plays for a notification posted on it. Pass the channel the record
+# actually used: every conversation owns its own channel now.
 channel_sound() {
-    adb_ shell dumpsys notification --noredact 2>/dev/null \
-        | grep -oE "NotificationChannel\{mId='messages[^']*'[^}]*mDeleted=false" \
-        | sed -E "s/.*mSound=([^,]*),.*/\1/" | head -1
+    adb_ shell dumpsys notification --noredact 2>/dev/null | tr -d '\r' \
+        | grep -F "NotificationChannel{mId='$1'" \
+        | grep -v "mDeleted=true" | head -1 \
+        | grep -oE "mSound=[^,]*" | head -1 | cut -d= -f2-
 }
 
 adb_ shell cmd role add-role-holder android.app.role.SMS com.anindra.messages >/dev/null 2>&1 || true
@@ -136,32 +185,31 @@ info "Setting a known baseline (Receive sound ON, Default)"
 set_prefs receive_sound_enabled true
 set_prefs notification_sound default
 launch_settings
-dump_ui
-grep -q 'text="Notification sound"' "$TMP/ui.xml" &&
-    pass "'Notification sound' row present in General settings" ||
+open_notifications || fail "could not open Notifications settings"
+layout_has "Notification sound" &&
+    pass "'Notification sound' row present in notification settings" ||
     fail "'Notification sound' row missing"
-grep -q 'text="Default (system)"' "$TMP/ui.xml" &&
+layout_has "Default (system)" &&
     pass "subtitle defaults to 'Default (system)'" ||
     fail "subtitle does not default to 'Default (system)'"
 
 info "Opening the picker dialog"
 open_sound_picker
-dump_ui
-grep -q 'text="Notification sound"' "$TMP/ui.xml" &&
+layout_has "Notification sound" &&
     pass "picker dialog shown" || fail "picker dialog not shown"
 for label in "Default (system)" "Classic" "Dragon Studio" \
              "Chime" "Bubble"; do
-    grep -q "text=\"$label\"" "$TMP/ui.xml" &&
+    layout_has "$label" &&
         pass "option '$label' listed" || fail "option '$label' missing"
 done
 
 info "Selecting Dragon Studio -> incoming SMS plays the custom tone"
 pid=$(adb_ shell pidof "$PKG" | tr -d '\r')
-tap_text "Dragon Studio"
+tap_layout "Dragon Studio"
 sleep 0.3
 adb_ shell dumpsys audio 2>/dev/null | grep -E "u/pid:[0-9]+/$pid " | grep -qE "state:(started|paused|stopped)" &&
     pass "preview tone plays on selection" || fail "preview tone did not start"
-tap_text "OK"; sleep 1.5
+tap_layout_exact "OK"; sleep 1.5
 pref=$(pref_get notification_sound)
 [ "$pref" = "dragon_studio" ] &&
     pass "pref notification_sound=dragon_studio" ||
@@ -169,10 +217,11 @@ pref=$(pref_get notification_sound)
 adb_ emu sms send +15559990099 "dragon check" >/dev/null 2>&1; sleep 2
 s=$(notif_channel "dragon check")
 echo "  notification channel: $s"
-[ "$s" = "messages_dragon" ] &&
-    pass "notification posted on the dragon channel" ||
-    fail "notification posted on the wrong channel ($s)"
-cs=$(channel_sound)
+case "$s" in
+    messages_convo_*) pass "notification posted on the conversation's own channel" ;;
+    *) fail "notification posted on the wrong channel ($s)" ;;
+esac
+cs=$(channel_sound "$s")
 echo "  active channel: $cs"
 case "$cs" in
     android.resource://*) pass "active channel plays the bundled custom tone" ;;
@@ -182,8 +231,8 @@ esac
 info "Reverting to Default -> system notification sound"
 launch_settings
 open_sound_picker
-tap_text "Default (system)"; sleep 0.6
-tap_text "OK"; sleep 1.5
+tap_layout "Default (system)"; sleep 0.6
+tap_layout_exact "OK"; sleep 1.5
 pref=$(pref_get notification_sound)
 [ "$pref" = "default" ] &&
     pass "pref notification_sound=default" ||
@@ -191,10 +240,11 @@ pref=$(pref_get notification_sound)
 adb_ emu sms send +15559990099 "default check" >/dev/null 2>&1; sleep 2
 s=$(notif_channel "default check")
 echo "  notification channel: $s"
-[ "$s" = "messages_default" ] &&
-    pass "notification posted on the default channel" ||
-    fail "notification posted on the wrong channel ($s)"
-cs=$(channel_sound)
+case "$s" in
+    messages_convo_*) pass "notification posted on the conversation's own channel" ;;
+    *) fail "notification posted on the wrong channel ($s)" ;;
+esac
+cs=$(channel_sound "$s")
 echo "  active channel: $cs"
 [ "$cs" = "content://settings/system/notification_sound" ] &&
     pass "active channel plays the system default tone" ||
@@ -202,16 +252,17 @@ echo "  active channel: $cs"
 
 info "Receive sound OFF -> silent notification"
 launch_settings
-open_advanced || fail "could not open Advanced settings"
-tap_switch_near "Receive sound" || fail "could not toggle Receive sound"
+open_notifications || fail "could not open Notifications settings"
+tap_switch_for "Receive sound" || fail "could not toggle Receive sound"
 wait_pref receive_sound_enabled false && pass "receive sound turned off" || fail "receive sound not turned off"
 adb_ emu sms send +15559990099 "silent check" >/dev/null 2>&1; sleep 2
 s=$(notif_channel "silent check")
 echo "  notification channel: $s"
-[ "$s" = "messages_silent" ] &&
-    pass "notification posted on the silent channel" ||
-    fail "notification posted on the wrong channel ($s)"
-cs=$(channel_sound)
+case "$s" in
+    messages_convo_*) pass "notification posted on the conversation's own channel" ;;
+    *) fail "notification posted on the wrong channel ($s)" ;;
+esac
+cs=$(channel_sound "$s")
 echo "  active channel: $cs"
 case "$cs" in
     android.resource://*)
@@ -238,7 +289,7 @@ stats=$(adb_ shell dumpsys notification --noredact 2>/dev/null | awk '
 echo "  record: $rec"
 echo "  airtimeCount=$stats"
 case "$rec" in
-    *channel=messages_silent*) pass "silent-channel record found" ;;
+    *channel=messages_convo_*) pass "silent record found on the conversation channel" ;;
     *) fail "record not on the silent channel ($rec)" ;;
 esac
 case "$rec" in
@@ -251,21 +302,23 @@ else
     fail "heads-up popup was NOT displayed (airtimeCount=$stats)"
 fi
 
-info "Restoring defaults (through the UI, like a user would)"
-launch_settings
-open_sound_picker
-tap_text "Default (system)"; sleep 0.6
-tap_text "OK"; sleep 1.5
+info "Restoring defaults"
+# Cleanup runs with the app stopped: the screen state left by the silent step
+# makes a UI-driven restore flaky, and a stale baseline poisons the next run.
 if pref_on receive_sound_enabled; then
     pass "receive sound already on"
 else
-    open_advanced || fail "could not open Advanced settings"
-    tap_switch_near "Receive sound" || fail "could not re-enable Receive sound"
-    wait_pref receive_sound_enabled true &&
+    set_prefs receive_sound_enabled true
+    pref_on receive_sound_enabled &&
         pass "receive sound restored to on" || fail "receive sound not restored"
 fi
-[ "$(pref_get notification_sound)" = "default" ] &&
-    pass "notification_sound back to default" || fail "notification_sound not restored"
+if [ "$(pref_get notification_sound)" = "default" ]; then
+    pass "notification_sound back to default"
+else
+    set_prefs notification_sound default
+    [ "$(pref_get notification_sound)" = "default" ] &&
+        pass "notification_sound back to default" || fail "notification_sound not restored"
+fi
 
 echo
 echo "Results: $PASS passed, $FAIL failed"

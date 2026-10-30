@@ -53,7 +53,7 @@ PY
 }
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
-    db_sql "DELETE FROM messages WHERE body LIKE '%$MARK%'; DELETE FROM conversations WHERE address IN ('$A','$B'); DELETE FROM participants WHERE normalized_destination IN ('$A','$B');" >/dev/null 2>&1 || true
+    db_sql "DELETE FROM messages WHERE body LIKE '%$MARK%'; DELETE FROM conversations WHERE address IN ('$A','$B','$C'); DELETE FROM participants WHERE normalized_destination IN ('$A','$B','$C');" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -215,6 +215,34 @@ else
 fi
 adb_ shell input keyevent 4 >/dev/null 2>&1
 sleep 2
+
+info "Six messages from one sender all land in that sender's number"
+# The reporter received six messages from one number and watched the launcher
+# badge stay at 0 while the in-app row showed 6. The app-side half of that is
+# the notification's number: every arrival must REPLACE the conversation's
+# notification with the cumulative unread count, never a flat 1 (and never
+# leave nothing behind). What a launcher then does with the aggregate is the
+# launcher's own rendering, but a missing 6 here is the app's bug.
+C="+1555995${MARK: -3}"
+adb_ shell input keyevent KEYCODE_HOME >/dev/null 2>&1
+sleep 2
+for n in one two three four five six; do
+    adb_ emu sms send "$C" "badge probe $n $MARK" >/dev/null 2>&1
+    sleep 4
+done
+IDC=$(db_sql "SELECT id FROM conversations WHERE address='$C';" | tr -d '\r\n')
+for _ in $(seq 1 20); do
+    [ "$(db_sql "SELECT unread_count FROM conversations WHERE id=$IDC;" | tr -d '\r\n')" = "6" ] && break
+    sleep 1
+done
+UC=$(db_sql "SELECT unread_count FROM conversations WHERE id=$IDC;" | tr -d '\r\n')
+NC=$(number_for_id "$IDC")
+if [ "$UC" = "6" ] && [ "$NC" = "6" ]; then
+    pass 'six arrivals leave number=6 on the sender notification'
+else
+    fail "six arrivals left unread=$UC and notification number='${NC:-none}' (expected 6 and 6)"
+fi
+db_sql "DELETE FROM messages WHERE conversation_id=$IDC; DELETE FROM conversations WHERE id=$IDC; DELETE FROM participants WHERE normalized_destination='$C';" >/dev/null 2>&1
 
 if adb_ shell "logcat -d -b crash" 2>/dev/null | grep -q "$PKG"; then
     fail 'app crashed during the badge regression'

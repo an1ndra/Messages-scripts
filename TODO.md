@@ -5,6 +5,1087 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The composer's attach dot follows the theme (2026-10-30)
+
+Reported: "in light mode in + icon one dot color not looks good?"
+
+The attach button's badge dot was the one fixed colour in the composer:
+`#76D1FF`, sampled from Google Messages' **dark** composer and pinned by
+`ComposerAttachDotTest`. On a light pill that pale cyan is nearly the colour of
+the field it sits on, so the badge read as a smudge.
+
+It is now a scheme role (`ColorScheme.composerAttachDot = primary`), which also
+retires the last hardcoded hex outside the seeds and the avatar palette. Light
+gives #0B57D0, dark #A8C7FA, and under Dynamic it follows the wallpaper accent.
+
+A dot colour has no text equivalent, so the composer logs `ComposerDot
+color=#RRGGBB` and `test-composer-dot.sh` opens a chat in both themes and compares
+them: green reports #0B57D0 and #A8C7FA; the mutation (dot back to the cyan) fails
+with "the dot is still the dark-composer cyan in light mode".
+
+## Opening a long chat no longer flashes (2026-10-30)
+
+Reported twice: "in one chat screen I have so many messages ... when I open chat I
+see chat flickering every time I open chat". Not reproducible on the emulator —
+swiftshader at 60 Hz swallows a one-frame flash — so this was fixed from
+measurement, not from watching it. Confirm the visual result on a real phone.
+
+Instrumented cold open of a 300-message thread:
+
+```
+7 chunk loads, 8 bottom snaps, 0 anchor restores, in 2.5s
+```
+
+Each preload inserted 40 rows above the viewport while the list was parked at the
+bottom: the visible rows shift for a frame, then the follow-bottom snap pulls them
+back. One flash per chunk, seven per open.
+
+Two changes:
+
+- **Older history loads when the reader reaches the top** of the loaded window
+  (`shouldLoadEarlier`, three rows of slack), not while parked at the bottom. A
+  reach at the top loads one chunk, capped as before; the "load earlier" button
+  still covers the cap.
+- **The follow-bottom effect stopped being a 4-second wall clock.** It re-snaps
+  only while the newest row's bottom is below the viewport, then stops (10s
+  safety cap). That removes the twitch after a picture decodes, and fixes a race
+  the old window masked: a slow first query outlived the 4s window, so the chat
+  opened at the *top* of the loaded rows.
+
+Script: `test-chat-open-stability.sh` seeds 300 messages and asserts the open
+prepends nothing (`ChatPreload` stays silent), lands on the newest message, and
+that scrolling to the top does load. Mutation — back to "load whenever parked" —
+restores the 7 preloads and the script fails.
+
+## Legacy settings share one sheet colour (2026-10-30)
+
+Reported: "in old UI General settings and Advanced setting background colour is
+different".
+
+Only `LegacySettingsScreen` set the Scaffold's `containerColor` to the settings
+sheet; `LegacyAdvancedSettingsScreen` and `LegacyAccessibilityScreen` fell back
+to the theme background, so opening either changed the page colour under the rows
+— the mismatch was one tap deeper than the screen that looked right.
+
+The colour now lives in `LegacySettingsScaffold`, which paints the page for all
+three screens, and the app bars keep the same role.
+
+**A per-screen report was tried first and was useless.** Each screen logged
+`MaterialTheme.colorScheme.surfaceContainer` itself, so removing the Scaffold's
+colour left the report saying the right thing — the same duplication that once
+had Diagnostics agree with a broken theme. Now the shared scaffold is the only
+place that colour exists: a screen that goes back to its own `Scaffold` reports
+nothing at all, and `test-legacy-settings-colours.sh` fails on the missing line.
+
+Testing a pixel value without a screenshot: the scaffold logs
+`SettingsColors screen=<name> page=#RRGGBB row=#RRGGBB`, and
+`test-legacy-settings-colours.sh` opens both screens and compares the two page
+colours (green: `page=#1E1F20` twice; mutation, Advanced back on a plain
+`Scaffold`: "no colour reported by advanced settings").
+
+## Regional calendars in every date (#363, 2026-10-30)
+
+Dates can now render in Jalali (Persian), Umm al-Qura Hijri, Hebrew, Buddhist,
+Japanese, Indian (Saka) or Coptic, chosen in **Advanced settings → Calendar**,
+with "Automatic" as the default: `fa` phones get Jalali, `ar` phones Hijri,
+everyone else Gregorian. The picker keeps Automatic first (it is the default,
+not a calendar) and sorts the rest by the label on screen, so each language gets
+its own alphabet.
+
+No dependency was added. Android ships `android.icu.util` with no
+`PersianCalendar` *class*, but `Calendar.getInstance(TimeZone, ULocale)` still
+builds one from the `@calendar=persian` keyword: `getType()` returns "persian",
+the CLDR month names come out per language, and the digits localize on their own
+(۱۴۰۵ for `fa`, ١٤٤٨ for `ar`). Verified on both AVDs, so API 30 (ICU 66) and
+API 31 (ICU 69) agree.
+
+Four decisions worth keeping:
+
+- **Gregorian stays on `java.time`.** It is the only path whose CLDR behaviour
+  the JVM tests can reach; ICU takes every other calendar. `CalendarSystem`
+  encodes this as `icuKeyword == null`.
+- **The era is stripped.** CLDR appends one to every non-Gregorian date ("Aban 4,
+  1405 AP", "Jum. I 15, 1448 AH"), which is a suffix on every timestamp for
+  information the chosen calendar already carries. Japanese is the exception
+  (`keepsEra`): its year *is* an era year, so "Oct 26, 8" without "Reiwa" reads
+  like a bug.
+- **"Same year?" is asked in the displayed calendar** (`displayYear`), not the
+  Gregorian one. Around Nowruz the two disagree, and a group label that dropped
+  the year on a message from another Jalali year reads as if it belonged to the
+  neighbouring label.
+- **The picker is its own composable** (`CalendarPickerDialog`). It scrolls, and
+  a route screen must never create its own scroll state — `SettingsScrollStateTest`
+  catches exactly that.
+
+Deliberately not shipped: the issue also asked for a secondary calendar beside
+the primary one on every date. That doubles the width of every timestamp in a
+list built for one; defer until someone asks again.
+
+The schedule dialog keeps Material3's month grid, which is Gregorian by
+construction — it has no calendar parameter at all. Instead of rebuilding a grid
+per calendar, the dialog names the picked day underneath it: "In your calendar:
+Kartika 8, 1948" (`chat_schedule_calendar_hint`, hidden for Gregorian, formatted
+in UTC because the picker hands back UTC midnight).
+
+Also not wired: **Legacy settings** (`use_new_ui = false`) has no Calendar row.
+The choice still applies — rendering is shared — but a legacy-UI user cannot
+change it. Add the row there if the legacy surface is ever revived.
+
+Tested by `test-calendar.sh` (14 assertions, green on `emulator-5557` and
+`emulator-5558`): seeds a pinned conversation at a fixed instant (2026-10-26,
+1405-08-04 Jalali / 1448-05-15 Umm al-Qura), asserts Gregorian by default, then
+Jalali in the chat label, the list date and the Diagnostics sample, then Hijri,
+then back to Gregorian. `CalendarDatesTest` pins the pure decisions
+(storage values, language mapping, era stripping) because ICU cannot run
+off-device.
+
+Limitation: `cmd locale` does not exist on either AVD, so per-app language
+switching cannot be exercised on-device — the `fa → Jalali` and `ar → Hijri`
+mappings are covered by the unit test only, and the script can only walk
+Automatic → Gregorian.
+
+## Chat opens from the bottom, like GM (2026-10-30)
+
+Recorded GM opening a chat (`screenrecord` + frame diff): the chat panel rises
+**vertically** over the still-visible list with rounded corners — it does not
+slide sideways. Ours pushed horizontally like a page change, which is what the
+"different from GM" note was about.
+
+`MainActivity`'s `AnimatedContent` now special-cases `list -> chat` as
+`slideInVertically` from the bottom, and `chat -> list` as the reverse slide-out.
+The incoming chat does not fade while it rises: with `fadeIn` the list showed
+through the chat's own bubbles, because the fade applies to the whole layer,
+background included.
+
+Still different from GM: GM rounds the chat's top corners for the duration of the
+transform; ours is square. That needs an animated clip shape, so it is left out
+of this change.
+
+## TODO: bubble sides collapse into one hue under a monochrome wallpaper (open)
+
+Sampled from the reviewer's screenshot (#347, 2026-10-30):
+
+```
+bubble fill #FD8D94  (48,993 px)   one side
+bubble fill #ED8087  (30,330 px)   the other side
+text        #4C0312 / #5D101C
+```
+
+Two fills, ~6% lightness apart, **identical hue** — under a salmon/red wallpaper
+palette both sides read as "the pink bubble".
+
+Cause: both sides come from wallpaper-tinted roles.
+
+```kotlin
+val ColorScheme.outgoingBubble: Color get() = primaryContainer        // accent
+val ColorScheme.incomingBubble: Color get() = surfaceContainerHighest // also tinted
+```
+
+GM never hits this: outgoing is its accent, incoming is a **neutral grey**, so the
+pair is always colour-vs-grey. Fix is to strip the chroma from the incoming fill
+(keep its lightness and its `onSurface` ink) so the distinction survives any
+palette; outgoing keeps following the accent.
+
+Not done yet — it changes bubble colours under Dynamic, so it needs a decision.
+Test when it is done: incoming chroma ≤0.08 and outgoing ≥0.12 across a matrix of
+monochrome seeds (salmon, blue, green), plus a readability check on the pair.
+
+## Avatars match Google Messages exactly (2026-10-30, decision)
+
+Raised by the #347 review ("contacts colors not adaptive"). A contrast floor on
+the fill was implemented, measured and **removed**: keeping a contact's palette
+colour only when it clears 3:1 against the page turned every light-mode chip into
+a saturated mid tone (cyan, green, amber, teal, pink, coral, orange and blue are
+all below 3:1 on white), and it stopped looking like Messages.
+
+Measured on GM instead: the fills are identical in light and dark
+(`#FF63B8` in both), there is no ring, and its own white glyph on pink is
+2.58:1. GM leans on chromatic contrast and the silhouette rather than luminance,
+and the low-chroma entries (brown, indigo, blue-grey) that genuinely blend on
+dark are the price of that look.
+
+So: the palette, the hash-based choice and the night-mode ink stay as they are.
+`Components.kt` carries that reasoning, `AvatarThemeResolutionTest` pins it (no
+surface-dependent selection may reappear), and the contrast work is reverted in
+`6f4f3b7` / `1804388`.
+
+## Themed app icon: filled bubble, lines cut out (2026-10-30)
+
+Two rounds of feedback. First: "in system dynamic the app icon lines are not
+showing". The `<monochrome>` layer pointed at the **coloured** foreground, which
+draws a filled white bubble with blue strokes for the message lines; a themed
+icon tints the whole drawable one colour, so the strokes merged into the fill and
+the icon rendered as a blank shape. It was changed to line art — which then read
+as the wrong way round: "outside of line be fill with color it was before, lines
+should be light color".
+
+Reviewed decision (option A of three rendered): a **filled** bubble with the
+three lines **cut out** of it. A monochrome layer is a mask, so "light lines on a
+filled plate" can only be expressed as holes — one `evenOdd` path whose line
+capsules (the 2.5dp strokes expanded to their outer edge) subtract from the
+bubble. Nothing is stroked in that layer; an opaque stroke is exactly how the
+blank-shape bug happened.
+
+Limits that are not fixable in the app: the launcher picks both colours (plate
+and tint), so in a dark-theme launcher the pair inverts — light bubble, dark
+lines. The rendered comparison lives at
+`/tmp/opencode/icons/icon-option-a-final.png` (light and dark faces). Verified by
+rendering the real `pathData` with `fill-rule=evenodd`, not by mock-up art.
+
+Not reproducible on emulator-5558: themed icons arrived in Android 13 and this
+AVD is API 31, so the layer is only exercised on a 13+ device. `ThemedIconTest`
+pins the wiring, the `evenOdd` fill, the three capsules at the coloured icon's
+line positions, and the absence of strokes. The coloured icon is untouched.
+
+## Chat-details switches match settings (#347 review, 2026-10-30)
+
+## Chat-details switches match settings (#347 review, 2026-10-30)
+
+The reviewer's second point: "switch in chat details is not follows style of other
+switches in settings (badly maintained colors)".
+
+They were right about the inconsistency, but the settings rows were the correct
+side. Material's default pair in this scheme resolves to a light track with a
+dark thumb — which is exactly how Google Messages draws a switch — while the
+details screen overrode it with the *inverse* (thumb = primary, track =
+primaryContainer). The overrides are gone, so both screens now draw the same
+control.
+
+## Hold-Send shrinks the circle, then the calendar (2026-10-30)
+
+Scheduling is reached by holding Send, and the press used to give no feedback:
+the calendar simply appeared under the finger. Now the send circle shrinks to
+45% over `DURATION_MEDIUM1`, sits small for a beat (the picker opens at
+`DURATION_MEDIUM1 + 220ms`), and then the date picker animates in. With the
+`Scheduled messages` setting off, holding does nothing at all.
+
+The first attempt at this — a "Schedule" label bubble above the button — was
+wrong and was reverted without being pushed; the built behaviour is the shrink,
+as described.
+
+Refinements after looking at it: the shrink went from 0.45 (the button nearly
+vanished) to 0.8, and the picker now animates itself — `ScheduleDialog` scales
+and fades from `TransformOrigin(1f, 1f)`, the corner the send button sits in,
+instead of a centred `DatePickerDialog` that just appeared. Making it a plain
+`Dialog` needed `usePlatformDefaultWidth = false`: the platform cap is below the
+DatePicker's 360dp minimum, which cut the Saturday column off the calendar.
+
+Tests: `ScheduleHoldAnimationTest` (6); `ScheduleLongPressTest` re-pinned to the
+hold state. Script `test-schedule-hold.sh` (5) replaces
+`test-schedule-affordance.sh`, which pinned the clock button that no longer
+exists.
+
+## Owner avatar, and two settings rows without descriptions (2026-10-30)
+
+**The app's own avatar reads the device profile.** The header avatar and the
+empty-state avatar were a fixed silhouette with `"sms-launcher"` as a contact
+key, so a profile picture set on the phone was never shown. `OwnerAvatar` reads
+`ContactsContract.Profile.CONTENT_URI` (`CommonDataKinds.Photo.PHOTO_URI`) and
+draws the photo; with no profile photo, or without READ_CONTACTS, it falls back
+to the silhouette in the colours each site already used.
+
+**Backup messages lost its description; Import messages keeps its own**
+("Restore a backup"), as asked — only the backup row is a bare label.
+
+**Owner avatar testing, honestly:** the fallback was verified on the device (no
+profile photo → the same silhouette in the same colours). The photo path could
+not be exercised on this AVD: `content query content://com.android.contacts/profile`
+returns a *virtual* profile row and `raw_contacts` is empty, and the AOSP Contacts
+editor offers "Saving to My Google profile" but never writes a raw contact
+without an account. So the positive path rests on the query plus
+`OwnerAvatarTest`; set a profile photo on a real phone to see it.
+
+## The conversation list blinked; the cross-fade is gone (2026-10-30)
+
+Reported after installing the build: "sometimes I open chat screen and all chats
+become blinking".
+
+The cause was mine: the motion pass wrapped the whole conversation surface —
+skeleton, list and empty panel — in a `Crossfade`. A cross-fade keeps both
+states composed and draws them at partial alpha, so every row is painted twice
+while it runs. Replacing the skeleton with the list, or closing a chat back into
+it, therefore looked like the list blinking rather than a transition.
+
+The surface swaps instantly again. Row-level motion stays: `animateItem` on the
+conversations, chat rows and the other lists is per-row and does not double-draw
+the screen. `MotionPolishTest` now asserts the whole-list surface is *not*
+cross-faded, so it cannot come back.
+
+## Cleared notifications stayed cleared; per-conversation bubbles (2026-10-30)
+
+Reported after installing a build on a real device: cleared notifications came
+back, and "Mark all as read" left the shade untouched. Two independent causes,
+both real:
+
+1. **The re-post had no idea a notification had been dismissed.** `BootReceiver`
+   fires on `ACTION_MY_PACKAGE_REPLACED` as well as boot, and `repostUnread`
+   re-posted every unread conversation — including ones the user had swiped away.
+   It now records the dismissal: every conversation notification carries a
+   delete intent (`NotificationDismissReceiver`) that stores "dealt with up to
+   now" (`SettingsStore.notifClearedUpTo` / `markNotifCleared`), and the re-post
+   skips a conversation whose marker is at or past its newest message. A newer
+   message still posts.
+2. **Mark all as read never cancelled anything.** `markAllReadSuspend` zeroed
+   `unread_count` in the database only, so the notifications for the messages it
+   had just read stayed on screen. The ViewModel now calls
+   `NotificationHelper.cancelAll` after the update.
+
+**Per-conversation bubbles** are back, as a switch in the chat's details screen
+("Show in a bubble", on by default). Android's per-app Bubbles page remains the
+app-wide switch; this is the per-thread one, which is what GM offers. It is a
+plain `bubble_off_<id>` preference read by
+`SmsSupport.show` before attaching bubble metadata.
+
+**Mark all as read vs a live bubble — measured in GM, not assumed.** GM's
+notification has a MARK AS READ action, and while a bubble was floating for that
+chat: tapping it cleared the row's unread badge, and the notification stayed
+posted (`flags=0x1010`, `shortcut=73`) with the bubble still on screen. GM has no
+"mark all as read" command in this build (the list has no overflow; the profile
+avatar is account-gated), so the per-conversation action is the closest analogue,
+and it keeps the bubble. Our sweep therefore skips notifications a live bubble
+host owns — a blanket cancel would collapse the bubble, because cancelling a
+notification is what closes it.
+
+Tests: `NotificationDismissTest` (5) and `PerConversationBubblesTest` (4);
+`BadgeRepostWiringTest` re-pinned to the new `show(context, row.address, …)` call.
+Script `test-notification-repost.sh`: message → notification → swipe it away →
+`install -r` → still gone → a newer message still posts → Mark all as read
+clears the shade.
+
+## QUIK import, pinch-zoom option, list animations (2026-10-30)
+
+**QUIK (QKSMS) backup import.** QUIK 4.3.7 was installed on emulator-5558 and a
+real backup taken through its own *Backup and restore* screen — 101 messages,
+23 KB, at `/sdcard/Download/quikbackup/backup-20261030003332.json`. The format is
+a single object, not an array:
+
+`{"messageCount":N,"messages":[{"type":1,"address":"…","date":…,"dateSent":0,
+"read":true,"status":0,"body":"…","protocol":0,"locked":false,"subId":-1}]}`
+
+Three things differ from the sms-ie records the importer already reads: the
+messages sit under a wrapper object, `read` is a boolean rather than 0/1, and
+`serviceCenter` is omitted when null. `QuikBackup` converts each message to the
+sms-ie shape (read → 0/1, type kept as `Telephony.Sms.TYPE`, `date_sent` kept
+when non-zero) and `Repository.importQuikFrom` hands the converted records to
+`importStaged`, so dedupe, merge/replace, the provider mirror and the transfer
+log are shared with the existing importer rather than reimplemented.
+
+QUIK's own screen says "Currently, only SMS is supported by Backup and Restore":
+there is nothing else in the file — no MMS, no settings, no blocked numbers — so
+"import everything" means every field it does write, which the conversion keeps.
+
+It is the third option inside **Import messages**, not a second row: one import
+entry, three formats.
+
+**Pinch to zoom** moved to Inbox settings as a bare switch (no description), sitting
+directly above Forwarding. Off means the pointer
+handler is not installed at all, so a two-finger drag scrolls the list instead of
+being captured by a gesture that would then do nothing.
+
+**Animation** added to the lists that still jumped: Add people, New chat,
+Scheduled messages, Spam & Blocked (conversations and messages), Trash
+(conversations and messages) and the transfer log. Every list that shows rows
+now animates placement.
+
+## Composer pill and the attach badge (2026-10-30)
+
+Two visual matches to Google Messages, both measured off the running app rather
+than eyeballed.
+
+**Pill.** GM's composer field is 154px (56dp) tall and rounds to 28dp — half its
+height, i.e. a true pill. Ours was already the same height but rounded to 24dp,
+which reads as a rounded rectangle next to it. `ComposerShapeTest` pins the pair.
+
+**Attach badge.** The "+" in GM carries a dot on the ring's top-right: `#76D1FF`,
+~10dp, overlapping the ring so the ring reads as broken at that point. Ours draws
+the same dot with a ring of `inputPill` around it (that ring is what cuts the
+icon). The colour is the one composer colour that is not a scheme role, so it
+lives in `Theme.kt` as `ComposerAttachDot`; `ComposerAttachDotTest` pins the hex,
+the top-right placement, the cut-out ring, and that the badge stays decorative.
+
+## Scheduling is discoverable again (#386, 2026-10-29)
+
+The report: "the app claims you can schedule messages … but I don't see any UI
+indicator to do so", from an F-Droid install of 1.0.30. Two things were wrong,
+and the second was worse than the report knew:
+
+1. The only way to schedule was a **long-press on Send**, with no hint anywhere.
+2. `SettingsStore.scheduledMessagesEnabled` was written by the *legacy* settings
+   toggle and **read nowhere** — flipping it changed nothing, which is what
+   "even after enabling the option" was hitting.
+
+Hold-Send stays the only way in, as before #386: the answer to the report is
+that the gesture exists, not another button in the row. What was actually broken
+is still fixed — the preference now gates the gesture instead of being written
+and never read, and it is exposed in the new Advanced settings screen rather
+than only the legacy one.
+
+The composer's Send circle is **always** on screen, dimmed (alpha 0.38) and
+inert while there is nothing to send, rather than shrinking away: round 2 of
+#347 hid it and the empty chat row read as unfinished.
+
+Tests: `ScheduleLongPressTest` (3) pins hold-Send, the absence of a clock
+button, and the setting that gates it. `AppearanceOptionsTest` now pins the
+always-visible dimmed Send.
+`AppearanceOptionsTest`'s send-button anchor became a regex instead of the exact
+one-line `combinedClickable(...)`, since that call is now multi-line. Script
+`test-schedule-affordance.sh`: an empty composer shows no control, typing shows
+one, tapping opens the picker, and turning the setting off removes it.
+
+## Bubbles is Android's page again (2026-10-29)
+
+The in-app Bubbles page is gone. Android's per-app Bubbles screen
+(`ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS`) already offers the same All /
+Selected / Nothing choice for this app, and its answer is what the platform
+actually enforces, so keeping ours meant two places deciding the same thing —
+exactly the kind of drift that put `#000000` in Diagnostics while the theme
+painted `#131314`.
+
+Removed: `ui/BubblesSettingsScreen.kt`, its previews, `sms/BubblePolicy.kt`,
+`SettingsStore.bubblesMode` / `bubbleSelectedConversations` (+ their keys),
+`SmsSupport`'s gate (back to `NotificationBubble.shouldAttach`), the
+per-conversation "Show in a bubble" row in `ContactDetailsScreen`, the
+`bubbles` route and its strings. The General settings row keeps GM's label-only
+look and now calls `openSystemBubbleSettings(context)`.
+
+Tests: `BubblePolicyTest` and `SettingsBubblesTest` deleted with the feature;
+`MotionPolishTest` and `PreviewCoverageTest` no longer reference the page.
+Script `test-settings-bubbles.sh` rewritten around the system hand-off: the row
+must land in `com.android.settings/*Bubble*`, and flipping the platform switch
+off must remove the BUBBLE flag from a real notification.
+
+## Bubbles page polish; one sheet colour for every settings screen (2026-10-29)
+
+Three fixes after looking at the page on the emulator next to GM.
+
+**The icon is the app's own.** It was `ic_launcher_foreground` tinted with
+`primary`, which is a monochrome glyph, not the launcher icon. The page now asks
+`PackageManager.getApplicationIcon` for the real adaptive icon and draws those
+bitmap pixels, keeping the bundled foreground only as a fallback for previews
+where there is no launcher icon.
+
+**The cards are GM's size.** Measured off the running GM page: 52dp tall with a
+16dp gap. Ours were 68dp with a 12dp gap — the row padding drops 22dp → 14dp
+(24dp icon + 14 above and below = 52dp), the gap becomes 16dp, and the title
+moves up to `displayMedium` to match GM's oversized heading.
+
+**Every settings screen is the same sheet.** General settings had been
+re-skinned to GM's colours while Advanced/Accessibility/Inbox and the
+`SettingsScaffold` sub-screens still used the default roles, so the page colour
+changed as soon as you navigated. A settings row is now *always* the page
+background and a settings page *always* paints `surfaceContainer` behind itself
+and its app bar; `LocalSettingsRowColor` (the per-screen override) is gone, so no
+screen can drift from another. Verified: Advanced settings measures `#1E1F20`
+sheet / `#131314` rows, identical to General settings.
+
+The three choices are real, not decorative — measured from `dumpsys notification`
+on emulator-5558 with the platform bubbles permission ON: under "All
+conversations", `flags=0x1010` (BUBBLE|AUTO_CANCEL) and `shortcut=conversation_61`;
+under "Selected conversations" with 61 picked in its details screen, the same
+`0x1010`, while an unpicked conversation gets `flags=0x10` and `shortcut=null`;
+under "Nothing", no bubble at all. The details switch also wrote
+`<set name="bubble_selected_conversations"><string>61</string></set>` when
+toggled, which is the value the policy read.
+
+## Bubbles page, settings colours, GM-per-conversation bubbles (2026-10-29)
+
+Three rounds of feedback, each checked against Google Messages on emulator-5558
+rather than guessed.
+
+**The settings sheet was too black.** GM paints its General settings as a raised
+sheet (`#1E1F20` — verified pixel-for-pixel) with the rows *inset darker*
+(`#131314`) and a 2dp gap between them. The page and row roles were already
+right; the black band was the **top app bar**, which Material 3 defaults to the
+page background (`#131314`). It now takes `surfaceContainer` too, so the title
+band, the gaps and the status bar are all `#1E1F20` and only the rows are
+`#131314`. Both colours are logged as `SettingsColors page=#… row=#…`.
+
+**"Bubbles" is a page, not a dialog or a subtitle.** GM's row is the bare label
+and opens a full sub-screen: back arrow, oversized title, the app's own icon and
+name, then three outlined choice cards with no descriptions — the selected one
+filled `#2E3133`, outlined in the accent and tinted. Ours mirrors that
+(`ui/BubblesSettingsScreen.kt`), on a `bubbles` route at depth 3, and the row
+carries no subtitle.
+
+**All three choices work**, not just on/off:
+`SettingsStore.bubblesMode` is `all` / `selected` / `none`, and the set is read
+through one function — `sms/BubblePolicy.allows(mode, selected, conversationId)`
+— which `SmsSupport.show` consults before attaching bubble metadata. Under
+`selected`, the conversation's own details screen grows a "Show in a bubble"
+switch (`ContactDetailsScreen`), shown only in that mode so it is never a dead
+control. The platform's bubbles permission remains a separate gate.
+
+Tests: `BubblePolicyTest` (6) pins the three modes, the empty pick, a null
+conversation and an unknown future mode; `SettingsBubblesTest` (9) covers the
+label-only row, the route and depth, the three choices, the per-conversation
+switch and string parity across all 13 locales; `BubblesSettingsPage` is
+state-hoisted so `BubblesPreviews.kt` can render it without a ViewModel and
+`PreviewCoverageTest` stays green. 1053 tests, 0 failures. Scripts:
+`test-settings-bubbles.sh` drives the page (three options, `Nothing` stored,
+bubble flag gone with the platform permission still ON) and
+`test-fresh-defaults.sh` covers the new-user defaults.
+
+## New-user defaults, a Bubbles row, and Google Messages' settings colours (2026-10-29)
+
+Four things, all from comparing against Google Messages on emulator-5558.
+
+**Defaults for a fresh install.** A first-time install now starts on the
+redesigned UI and **DM Sans**. The UI switch already defaulted to the new
+screens (`prefs.getBoolean(KEY_USE_NEW_UI, true)`) — only its doc comment
+claimed legacy was the default, so that was corrected rather than the code. The
+font needed a seed: `SettingsStore` is now told apart a *new* install from an
+*updated* one by `firstInstallTime == lastUpdateTime`, and writes
+`font_family=dm_sans` once when the package is new and nothing is stored. An
+update therefore never restyles the app under someone who never touched the
+setting, and an explicit choice always wins. The getter's fallback stays
+`FONT_SYSTEM` so only the seed moves a new user.
+
+**"Bubbles" in General settings**, as GM lists it under the notification rows.
+`SettingsStore.bubblesMode` (`all` | `none`, default `all`) gates the bubble
+metadata in `SmsSupport.show`: `convoId?.takeIf { bubblesWanted &&
+NotificationBubble.shouldAttach(…) }`. The platform's own bubbles permission is
+a separate gate and still applies. GM's third choice ("only selected
+conversations") is not implemented — it needs a per-conversation opt-in that has
+no UI yet.
+
+**Settings colours.** Measured off GM's General settings: the sheet is a raised
+page `#1E1F20` with rows inset at `#131314` (dark), the inverse of our previous
+look (page `#131314`, rows `#1B1B1D`). The screen now paints
+`surfaceContainer` behind rows and publishes `background` to `SettingsRow`
+through `LocalSettingsRowColor`, so the legacy settings screen keeps its old
+role. Both colours are logged as `SettingsColors page=#… row=#…` — pixels have
+no text equivalent, so the script asserts the pattern from logcat instead of a
+screenshot.
+
+Tests: `FreshInstallDefaultsTest` (7), `SettingsBubblesTest` (7) covering the
+pref default, the notification gate, the row + chooser, the colour roles, the
+log line, and string parity across all 13 locales. Scripts
+`test-fresh-defaults.sh` (fresh install seeds dm_sans + new settings UI; a
+reinstall over the package does NOT) and `test-settings-bubbles.sh` (row and
+subtitle, `#1E1F20`/`#131314`, bubble flag with the choice `all`, no bubble
+flag after `none`, choice survives a restart).
+
+Answering a side question while doing this: Google Messages' own settings could
+not be opened from its UI because (a) another app held the default-SMS role, so
+GM showed "To use Messages, make it your default SMS app" and disabled its
+menus, and (b) even with the role, the profile avatar that now hosts Settings is
+an account gate and this AVD has **0 accounts**. `am start -n
+com.google.android.apps.messaging/.ui.appsettings.ApplicationSettingsActivity`
+opens it regardless, which is how the colours above were measured.
+
+## Pill and avatars re-based on Google Messages' measured colours (#347 round 3, 2026-10-29)
+
+The round-2 palette read as ugly on a muted wallpaper: the Start chat pill went
+`primary` — a solid accent slab that turns dead grey when the wallpaper's
+primary is dim — and Dynamic harmonized every avatar 25% toward that accent,
+which desaturated the bright GM chips into near-black mud on a slate wallpaper.
+
+Both were re-measured off Google Messages running on emulator-5558, sampled
+from screenshots rather than eyeballed:
+
+| Element | GM light | GM dark |
+|---|---|---|
+| Page background | `#FFFFFF` | `#131314` |
+| Top bar | `#F0F4F9` | `#1E1F20` |
+| Start chat pill fill | `#D3E3FD` | `#0842A0` |
+| Start chat pill ink | `#0842A0` | `#D3E3FD` |
+| Avatar fills | `#AF5CF7` `#FA903E` `#4ECDE6` `#FF63B8` | identical |
+| Avatar glyph | `#FFFFFF` | `#202124` |
+
+So the pill is the scheme's **primaryContainer** (GM's pill is exactly our light
+`primaryContainer` and our dark `primaryContainer`/`onPrimaryContainer` pair),
+with `primary` as the ink on a light container and `onPrimaryContainer` on a
+dark one. Confirmed pixel-exact after the change: the app paints
+`#0842A0` + `#D3E3FD` in dark and `#D3E3FD` + blue ink in light.
+
+Avatars are back to the fixed GM palette in every mode — the theme only flips
+the silhouette ink, white on a light scheme and `#202124` on a dark one, through
+one function (`ui/Components.kt: avatarGlyphInk`). `avatarsFollowTheme`,
+`LocalThemedAvatars`, the HSL harmonizer and `avatarFill`/`avatarOnFill` are gone;
+Diagnostics now reports `Avatar ink: #RRGGBB on the fixed GM palette`, resolved
+through that same function, so the report cannot disagree with the paint.
+
+Tests: `StartChatPillColorTest` (9, pins the GM hex values per theme),
+`AvatarThemeResolutionTest` (6, rewritten: fills fixed, ink flips, one rule),
+`ConversationListWiringTest` anchor updated, `DynamicAvatarHarmonizeTest`
+deleted with the feature. Scripts re-pinned: `test-start-chat-colours.sh`,
+`test-avatar-theme-dynamic.sh`, `test-347-dynamic-colors.sh` (its three seeded
+pairs and its avatar line).
+
+Still open for a decision: the palette list still carries 11 Material-500 fillers
+(`#FF9800`, `#2196F3`, `#4CAF50`, `#607D8B`, …) that GM never shows. GM appears
+to use only the first five entries, so trimming to those would match GM exactly
+at the cost of more contacts sharing a colour.
+
+## Opening a chat full-screen retires its floating bubble (#354 round 3, 2026-10-28)
+
+The reporter's third follow-up: with a conversation bubbled and then hosted
+collapsed (open the bubble once → Home collapses it to a floating icon while
+its activity task keeps hosting), opening that conversation full-screen left
+the bubble floating over the chat it duplicated. Root cause: the chat's
+mark-read dismissal (`clearConversationNotification`) is *deferred* for any
+conversation a live bubble host owns, and the ordinary launch-path clears —
+by conversation id in the list, by address hash on `open_conversation_address`
+launch — never touch the hosted bubble either.
+
+New `NotificationHelper.retireBubbleForFullChat(context, conversationId)`
+(SmsSupport.kt): releases the held conversation from `BubbleHost`, then
+cancels the notification (plain id + `"failed"` tag) — cancelling a
+notification is what collapses its bubble. Wired into both in-app open paths
+in MainActivity: the list row's `onOpenConversation` (both UIs) and the
+`open_conversation_address` launch, each called only after the conversation id
+is resolved and only on non-bubble launches.
+
+Tests: `NotificationBubbleFullChatRetireTest` (BubbleHost lifecycle + wiring
+anchors). Script `test-bubble-fullchat.sh`: bubbles on → message → bubble
+floats → hosted → Home-collapse → full-screen open by address → asserts the
+bubble surface AND its notification are gone; pre-fix it fails both
+(verifed via probe on the stashed build: `bubbles=3 notif=live`).
+
+Pre-existing on emulator-5558 this round (not touched by the change, present
+on the pre-fix build identical): `test-notification-bubbles.sh` FAILs on
+largeIcon/BubbleIcon (logcat `-s BubbleIcon:D` shows no record for a fresh
+sender) and on "Back leaves the bubble open" (Back collapses/resolves the
+bubble to gone instead of its floating icon). Both emulated flows worked 2
+days ago; treat as AVD drift and re-verify before debugging app code.
+
+## Badge survives reboot and app update; card-mask digits; dialog punctuation (#345 round 2, 2026-10-26)
+
+
+Three fixes for the follow-up comments on #345 (Samsung A54, Persian locale,
+One UI 8.5):
+
+1. **Badge dies after reboot / app update.** A boot and an app update wipe the
+   notification shade, and the launcher badge sums the numbers of the app's
+   live notifications — unread messages survived in the database but lost
+   their badge ("the phone turned off and on again; the counter no longer
+   shows any number"). New `sms/BootReceiver` (non-exported,
+   `BOOT_COMPLETED` + `MY_PACKAGE_REPLACED`, `RECEIVE_BOOT_COMPLETED`
+   permission) calls `NotificationHelper.repostUnread`: one **silent**
+   re-post per unread conversation, via `show(silentRepost = true)` (no
+   sound, no full-screen wake). It is deliberately NOT wired to onResume —
+   a re-post there would resurrect notifications the user dismissed.
+   `Repository.unreadForRepostBlocking` selects the same rows the receive
+   path posts for (not deleted, not blocked, unread, non-empty snippet).
+2. **Card-mask digits reorder inside Persian text.** `5022-29xx-xxxx-9227`
+   broke into fragments around the strong-LTR `x` masks and only read
+   correctly once selected. `BidiText.NUMBER_RUN` now swallows `xX*` so a
+   masked card stays one LTR isolate (verified against the reporter's
+   verbatim Pasargad body).
+3. **Dialog punctuation parked at the visual start.** On a Persian-locale
+   device every window is RTL while this app's strings are English (no
+   values-fa yet), so the mark-all-read dialog's trailing "?" painted at the
+   visual start. New `directionalStyle()` in `Components.kt` paints dialog
+   copy in the string's own strong direction (both settings UIs) and logs
+   `DialogBidi dir=Ltr|Rtl` — the paint order itself is invisible to a
+   dump, so the direction is reported like BubbleDirection/ComposerDirection.
+
+Tests: `BadgeRepostWiringTest`, `DialogDirectionTest`, and two new
+`BidiTextTest` cases (masked cards, the verbatim Pasargad body). Scripts:
+`test-badge-reboot.sh` (real arrivals → `adb reboot` → shade re-posted with
+the same per-conversation numbers → `adb install -r` → re-posted again),
+`test-bidi-card-numbers.sh`, `test-dialog-rtl-punctuation.sh`;
+`test-notification-badge.sh` gained the reporter's "6 messages from one
+number" case (six arrivals leave `number=6` on the sender notification, so
+a launcher-side 0 with the in-app row at 6 is the launcher's rendering, not
+the app's count). Pre-fix build: bidi script 4 FAIL, dialog script 2 FAIL,
+reboot script FAIL on both re-post assertions (after reboot AND after a
+same-version reinstall, verified by updating the device with the pre-fix
+APK). Post-fix: all green on emulator-5558, plus 11 PASS
+(test-notification-badge), 16 PASS (test-mark-all-read-confirm), and
+test-blocked-badge / test-bidi-persian-amount / test-bidi-bank-time /
+test-rtl-direction / test-no-network-permission all pass.
+
+Not fixed in this round (reporter follow-up needed): the missing-SMS +
+~7h timestamp skew (needs the reporter's logs and a default-handler
+confirmation — suspect a non-default-handler import gap or SMSC skew;
+`requeryFromSystem` only runs when `needsInitialImport`), and
+"6 messages → badge 0" on the launcher side (the app-side number is now
+proven correct). values-fa translation would fix the whole English-in-RTL
+window class at the root.
+
+## Blocked senders no longer leak into the icon badge (#345, 2026-10-25)
+
+A launcher badge sums the numbers the app's live notifications carry, and the
+count a thread publishes is its own unread total. Blocking a sender left its
+notification alive: the messages it counted stay unread in Spam & blocked, and
+the messages that follow a block are never posted (the receiver files them
+silently), so nothing ever replaced or cancelled the number. The icon kept
+counting a sender the user had explicitly silenced.
+
+`Repository.blockNumber` now cancels every notification the sender owns —
+one per matching conversation row (both address spellings, the same rows
+`setConversationBlockedForAddress` flags, via `blockedConversationIds`) plus the
+address-hash id `NotificationHelper.show` falls back to when no conversation row
+existed — through the new `NotificationHelper.clearBlockedConversationNotifications`.
+Both the plain id and the `"failed"` tag are cancelled, and an id a live bubble
+host owns is skipped, exactly like `clearConversationNotification`.
+
+Tests: `BadgePolicyTest` pins `idsToDismissOnBlock` (every conversation id, the
+hash fallback, dedupe of Long→Int collisions, empty input) and
+`BlockedBadgeDismissTest` anchors the wiring (blockNumber calls the helper,
+the helper cancels both tags, skips held bubbles, and queries the same address
+rows the flag uses). Script `test-blocked-badge.sh` receives two SMS, blocks the
+sender from the conversation row sheet (not the chat — opening the chat would
+mark it read and dismiss the notification, masking the bug), then asserts the
+live notification id is gone, a later SMS from the blocked sender posts no
+number, all messages survive in the folder, and the flag is set. Pre-fix build:
+2 of 6 FAIL (`notification for id N still live`, `posted number=2`). Post-fix:
+6/6 PASS on emulator-5558.
+
+AVD note from this session: `Pixel_AOSP12_AOSP31`'s ramdisk.img had been
+re-patched as a **gzip** cpio; this kernel accepts only the legacy-LZ4 framing,
+so first-stage `init` aborted with `Failed to mount required partitions early`
+and the guest reboot-looped forever (gray window, adb permanently `offline`).
+The pristine `x86_64/ramdisk.img` from `x86_64-31_r05.zip` boots fine, and this
+image's adbd works without the `persist.sys.usb.config=adb` rewrite — so leave
+the stock LZ4 ramdisk in place. `adb root` gives uid 0 (userdebug) which covers
+the `su -c` paths, and `run-as` covers the rest.
+
+### The other half of #345 — Saman's split balance — verified against the report
+
+The screenshots on the issue (which only became readable late, from the
+`user-attachments` URLs in the issue body) show two distinct problems on
+**v1.0.30**: a launcher badge of 4 while the inbox sums 30 unread messages
+(the per-conversation count), and a Saman balance painted as
+`78,556 مانده ,010`. The badge half is the `BadgePolicy.badgeCount` change
+already on `Develop` (v1.0.31); the balance half is `BidiText.isolateNumberRuns`,
+which already permits ASCII **and** Persian digits with ASCII, Arabic and
+Arabic-Indic separators — but the issue's own string was only covered in the
+Persian-digit form. `BidiTextTest.isolatesAPersianLineBalanceWrittenInAsciiDigits`
+and the new section of `test-bidi-persian-amount.sh` (seeded with the
+photographed body verbatim, 7/7 PASS) pin the ASCII form, so the label cannot
+land inside the amount again. What is left for #345 is a release: `9e63840`,
+the v1.0.31 badge change and this block fix are all unreleased.
+
+
+## Start chat pill back to the v1.0.30 colours (2026-10-25)
+
+Feedback: the "Start chat" pill's background and text no longer matched the
+v1.0.30 design. That was true — #347 had moved it from `secondaryContainer` +
+`primary` to Material's FAB pair `primaryContainer`/`onPrimaryContainer` to fix a
+wallpaper palette that made it dark-on-dark. In the seeded themes that swap is
+plainly visible: light went from blue-on-pale-blue to near-black navy on a
+slightly different blue, dark from light-blue-on-grey-blue to near-white on a
+vivid blue.
+
+The pill is back on the v1.0.30 pair: container `secondaryContainer`, content
+`primary`. The legibility fix moved into the content rule instead of the pair —
+`startChatContent` falls back to `onSecondaryContainer` only when `primary` on
+`secondaryContainer` drops below 3:1 (the AVD wallpaper palette: 2.14:1 before).
+Seeded light/dark/AMOLED/high-contrast themes all keep `primary`, and
+Diagnostics still reports the pair the FAB paints with.
+
+Tests: `StartChatPillColorTest` (5: seeded themes keep the v1.0.30 pair, high
+contrast too, a dim wallpaper primary falls back, every resolved pair >= 3:1,
+contrast helper sanity). `ConversationListWiringTest` now pins the new
+definition. Script `test-start-chat-colours.sh` reads Diagnostics for
+light/dark/amoled and compares against the exact seeded pairs — 3/3 FAIL on the
+pre-fix build, 3/3 PASS after. `test-dynamic-theme.sh` still passes 5/0, so the
+wallpaper fallback is covered too.
+
+## Undo follows LIFO after consecutive swipes (#374, 2026-10-25)
+
+Issue #374: archive six chats in a row and the one Undo snackbar you can see
+restores the *first* one. Root cause was Material's `SnackbarHostState`: every
+swipe launched its own `showSnackbar` call and those queue **FIFO**, so the
+visible snackbar described the oldest action (and the remaining five appeared
+one after another, oldest first). The screen now owns the order:
+
+- `UndoStack<T>` (`ui/UndoStack.kt`) is the LIFO stack of pending actions.
+- One presenter coroutine shows only the newest entry, cancelling the snackbar
+  it replaces (`cancelAndJoin`), so a new swipe never queues behind the old one.
+- Undo pops the newest action; the next entry is then offered, so repeated
+  Undo keeps walking back. Closing the snackbar (timeout or swipe-away) clears
+  the whole window, so stale actions cannot resurface later.
+- Every swipe action (archive, delete, mark read/unread, pin, block) and both
+  bulk actions go through the same stack.
+
+Tests: `UndoStackTest` (LIFO order, peek does not consume, clear) and
+`UndoSnackbarWiringTest` (one snackbar call, replacement cancel, all five swipe
+handlers record through `showUndo`). Script `test-undo-lifo.sh` archives two
+seeded chats back to back and asserts the *newer* one returns from a single
+Undo — it fails 2 assertions on the pre-fix build and passes 8/8 after.
+
+The script reads archive state from sqlite instead of negative uiautomator
+dumps: a "row is gone" check costs three dumps (~10s) and outlives the snackbar,
+which is what made the first draft report "no Undo snackbar" on a working app.
+
+## Pinch-to-zoom that feels like Google Messages (#348, 2026-10-24)
+
+The report: "not working like GM — I am not able to zoom pinch easily". Two
+separate faults, both reproduced with a real two-finger gesture on the emulator:
+
+- **The list ate the pinch.** `Modifier.transformable` on the LazyColumn lost the
+  gesture to the list's own scroll: as soon as one finger moved, the scrollable
+  consumed the pointers, and `detectTransformGestures` cancels when its changes
+  are consumed — for the entire touch sequence. A real pinch starts with one
+  finger landing a few milliseconds before the other, so that was the *normal*
+  case: the chat only zoomed when both fingers landed on the same frame. The
+  handler now watches in `PointerEventPass.Initial`, where it sees two-finger
+  events before the scrollable can take them, and consumes them while zooming.
+  Two-finger events that keep the finger distance unchanged are not consumed, so
+  a two-finger drag still scrolls.
+- **The magnitude was thrown away twice.** `transformable` only counts from the
+  frame that beats the touch slop, and the start spread lived inside the
+  `pointerInput` block, which Compose restarts whenever its lambda changes — and
+  this chat recomposes on every zoom step. A 3.3x finger spread therefore moved
+  the text 1.19x. `ChatZoom.pinch` measures the ratio from the spread at the
+  moment the second finger landed, and `ChatZoom.Pinch` keeps that baseline
+  outside the restartable block.
+
+Measured against Google Messages (messages 2023.05.29 on a `google_apis` AVD,
+same 1080x2400@420 screen, same injected gestures):
+
+| gesture | Google Messages | Messages before | Messages now |
+|---|---|---|---|
+| both fingers land together, spread 3.3x | text 112px -> 346px (≈3.1x) | 119% | 250% (the ceiling) |
+| one finger drags first, then pinch 3.3x | text 112px -> 346px | no zoom at all | 250% |
+| 1.5x spread | — | 105% | 150% |
+| pinch in | no change observed | 100% | 70% (the floor) |
+
+So the gesture now matches GM on the two cases that were broken. The remaining
+difference is the ceiling: GM reaches at least 3.1x where this app stops at
+2.5x, so the same pinch grows visibly less. GM also did not shrink on a
+pinch-in in that build; the 70% floor and the one-tap reset stay as they are.
+
+Tests: `ChatZoomTest` (+3: spread, pinch ratio, the baseline surviving a restart),
+`ZoomWiringTest` (the transformable assertions now assert the Initial-pass
+handler and the consumed two-finger events). Script
+`test-chat-pinch-zoom.sh` finally tests the *gesture*: `adb shell input` can only
+inject one pointer, so it writes a real two-finger pinch to the emulator's
+touchscreen node with `sendevent`. Fails 4/4 of the pinch cases on the old build
+(1.19x and no zoom at all).
+
+Emulator gotcha for the next person: the AVD exposes `virtio_input_multi_touch_1`
+… `_11`, and **only `_1` is the touchscreen**. Writing to any other node is
+silently ignored, which looks exactly like a broken pinch — half an hour went
+into that. The script picks `_1` explicitly.
+
+## Per-message RTL/LTR text direction (#362, 2026-10-24)
+Issue #362: Persian messages in an English-locale app were laid out as if they
+were English — lines hugged the left of the bubble and mixed Persian/English
+text did not match Google Messages. Two different rules, because the two places
+answer different questions:
+
+- **Message text** — `BidiText.direction(text)`: the first and last strong
+  characters decide. Weak characters never vote, so a trailing "!" or a phone
+  number at the end is ignored; when the two ends disagree the **last** one
+  wins, so "Order 48291 تکمیل شد" is laid out as Persian and "سلام OK" as
+  English. The bubble paints through that value (`TextStyle.textDirection`).
+- **Composer** — `BidiText.firstStrongDirection(text)`: Unicode P2, the first
+  strong character alone, so the caret and the lines flip as soon as a Persian
+  word is typed and do not flip back when an English word is appended.
+
+`isolateNumberRuns` now decides through `direction()` too, so the isolate
+transform and the painted base direction can never disagree (first strong was
+Latin but last strong Persian used to render RTL with no isolates). Also fixed:
+`BidiText`'s direction helpers are now unit-testable rather than a private
+boolean.
+
+Tests: `BidiTextDirectionTest` (9) — both rules, punctuation/digit immunity,
+mixed ends, no-strong-character fallback, and the isolation/direction
+agreement; `BidiTextTest.remapShiftsStyledRangeOverIsolates`'s fixture now ends
+in Persian (it was mixed, so the new rule lays it out LTR and correctly
+isolates nothing). Script `test-rtl-direction.sh` (10/0) drives the real UI and
+asserts the `BubbleDirection` / `ComposerDirection` logcat markers the app emits
+from the exact `TextStyle` it paints with. Fails 4/10 with the old
+first-strong-only rule and a pinned-LTR composer. The composer case enters
+Persian through the `sms:?body=` share path, since `adb shell input text` is
+ASCII-only — a DB-seeded draft does not work, see below.
+
+**Found, not fixed (separate bug):** `ChatScreen`'s draft restore is a lambda
+literal that is never invoked — `if (convo != null && !draftLoaded) { { … } }` —
+so a saved draft is never put back in the composer on re-open. It is why the
+script seeds the composer through a share intent instead of the database.
+
+### Follow-up from the issue thread (#362, 2026-10-26)
+The reporter came back with real Persian broadcasts where the rule above still
+picked the wrong direction:
+
+- **Links voted.** `📣ارسال تپسی‌شاپ رایگان شد … l.tpshp.co/3lDXoA` is Persian,
+  but the link's Latin letters are strong and sat last, so the *last*-strong
+  rule laid the whole bubble out LTR. `direction()` now ignores link ranges:
+  `BidiText.linkRanges` recognises both shapes an SMS carries — with a scheme
+  or `www.`, and bare like `11r.eu/t` / `l.tpshp.co/3lDXoA`. A bare host needs
+  a dot and a two-letter TLD, so "e.g" is not a link and still votes.
+  `Linkify.WEB_URLS` remains the authority on what is *tappable*; this is only
+  the direction side of the same question.
+- **A line of nothing but numbers or a link was still laid out in the
+  paragraph's direction.** `کد ورود …\n85904\n\n@tabdeal.org #85904\nلغو11`
+  pushed the OTP and the handle line to the wrong edge and reordered them
+  against their own reading order. `isolateNumberRuns` now pins any line with
+  no strong character outside a link as one LTR run, and skips the per-number
+  isolates inside it (the line isolate already covers them — nesting a second
+  one changed nothing).
+
+- **Emoji voted LTR.** A second comment on the same thread: "it also sees
+  emoji as LTR characters, so it gets whole of my 100% Persian message as an
+  LTR message". It does — `Character.getDirectionality(char)` reports a *lone
+  surrogate* as `DIRECTIONALITY_LEFT_TO_RIGHT`, and an emoji is a surrogate
+  pair, so `📣` at the end of a Persian line was the last strong character.
+  Flags are worse: two regional indicators, which Unicode really does class
+  `L`. Only letters vote now (`Character.isLetter(codePoint)`), and the scan
+  walks **code points**, so a whole emoji is neutral instead of two LTR
+  halves. Reproduced with a throwaway `java Dir.java` before changing anything:
+
+      D83C L  HIGH SURROGATES D83C
+      1F4E3 . CHEERING MEGAPHONE      (only via the int overload)
+
+`Isolated` now carries `direction` and `ltrLines`, so the count the script
+asserts is the one the transform actually produced instead of a second,
+re-derivable guess. `styledBody` logs it as
+`BubbleBidi: dir=Rtl|Ltr ltrLines=<n>` (the layout itself is unreadable from a
+dump, same reason `BubbleDirection` exists).
+
+Tests: `BidiTextDirectionTest` (+3: links don't vote, both link shapes, `e.g`
+still votes; emoji at either end; the composer's emoji trap) and `BidiTextTest`
+(+3: the issue's OTP/handle message, the bare-link broadcast with its
+`ltrLines` count, an emoji-only line). `test-rtl-direction.sh` grew from 10 to
+**20** cases — three "link does not vote" bubbles, three "emoji never vote"
+bubbles and four `bidi_case` assertions on `BubbleBidi`'s `ltrLines`, one of
+which must stay at 0 so the pinning cannot be over-applied. Reverting just the
+three rules gives **14 passed / 6 failed**, and exactly the new cases fail;
+with the rules back, 20/0.
+
+**Unrelated trap found while running it:** `scripts/env.sh` still defaulted
+`ANDROID_SERIAL` to `emulator-5554`, the retired 1080x2400 AVD, while both
+AGENTS.md files document `emulator-5558` as the standing default. Every script
+therefore sat silent on `adb wait-for-device` — no error, no output, forever.
+Default is now 5558 and `env.sh` fails loudly with the connected-device list if
+the serial is not attached.
+
+## "Mark all as read" asks first (#355, 2026-10-23)
+
+Issue #355: a user tapped the row while reaching for Notifications and every
+unread badge vanished with no way back. The row acted immediately and only
+toasted afterwards.
+
+- Both settings UIs (`ui/SettingsScreen.kt` and the legacy `SettingsScreen`)
+  now open a confirmation instead of marking read: title "Mark all as read?",
+  body "Unread badges will be cleared on every conversation. This can’t be
+  undone.", Cancel / Mark all as read. `vm.markAllRead()` and the success toast
+  moved into the confirm branch, so backing out changes nothing.
+- Two new strings in `strings_settings.xml` × 13 locales
+  (`settings_mark_read_confirm_title`, `..._message`).
+
+Tests: `MarkAllReadConfirmTest` (4) — the row only opens the dialog, the single
+`markAllRead()` call sits in the confirm branch, cancelling has no side effects,
+and the dialog carries its title + body. `test-mark-all-read-confirm.sh`
+(16/0) seeds an unread conversation and, in **both** settings UIs, asserts the
+dialog appears, the DB badge is still 1 while it waits and after Cancel, and 0
+after confirming. Fails on the pre-fix build ("tapping the row marked read
+without asking").
+
+## "Theme colours for avatars" switch removed (2026-10-23)
+
+Follow-up to #347. The dynamic (wallpaper) theme made the fixed per-contact
+palette the only thing on screen not derived from the wallpaper, so dynamic now
+always themes avatars: `avatarsFollowTheme(mode)` in `ui/theme/Theme.kt` is the
+one rule, `MessagesTheme` publishes it through `LocalThemedAvatars`, and every
+fixed mode (light/dark/amoled/system) keeps the Google-Messages palette.
+
+Since that left the switch dead under dynamic and marginal elsewhere, the row,
+the `avatarThemeColors` preference, its `SettingsSearch` entry and its two
+strings (× 13 locales) are gone. Diagnostics gained `Avatar fill: theme
+(dynamic)` / `Avatar fill: palette (per contact)`, read through the same
+function the theme paints through, so the rule stays assertable without a
+screenshot.
+
+Tests: `AvatarThemeResolutionTest` (5) — dynamic only, fixed modes keep the
+palette, the theme and Diagnostics both go through the shared function, and the
+switch is gone from both UIs, search and `SettingsStore`. `AppearanceOptionsTest`
+dropped its three avatar-toggle assertions. `test-avatar-theme-dynamic.sh`
+asserts no avatar row in either UI and reads the Diagnostics line under dynamic,
+system and amoled.
+
+## Send circle is permanent again (2026-10-23)
+
+Feedback after the rc2 build: "how send button was showing in v1.0.30 build,
+change it to that — currently when I am typing then only send button showing but
+I want to show it everytime". So the #347 decision to drop the button from an
+empty composer is reversed:
+
+- `InputBar` always draws the 48.dp circle in `primary`/`onPrimary`, exactly the
+  1.0.30 look; nothing shifts when the first character is typed.
+- It is only *live* when there is something to send
+  (`canSend(draft, hasAttachments)` in `ui/ComposerSend.kt`), so an empty tap
+  cannot fire a send and long-press-to-schedule stays text-only. The dump
+  reports the difference as `enabled="false"` on the node carrying `content-desc="Send"`.
+
+Tests: `ComposerSendTest` (6) — empty/whitespace false, text or a staged picture
+true, cleared false again; `AppearanceOptionsTest` and `PendingMediaWiringTest`
+keep watch on the wiring. `test-composer-and-appearance.sh` — 6/0, and it fails
+on the pre-change build ("Send is missing from an empty composer").
+
+## Native conversation bubbles (#354, 2026-10-23)
+
+A user asked for Google Messages-style chat bubbles: open a conversation in a
+floating bubble from its notification, read and reply there, one bubble per
+conversation, on/off through Android's own notification settings.
+
+What the platform actually requires, checked against the AVD (`dumpsys
+notification`, `dumpsys shortcut`) rather than assumed:
+
+- The launched activity must be `allowEmbedded` **and** resizable. `MainActivity`
+  now declares both; it hosts the chat already, so there is no second chat
+  activity to keep in step with the theme/lock/nav decisions.
+- A notification only bubbles when it references a **published long-lived
+  shortcut**. `NotificationBubble` publishes `conversation_<id>` (short label =
+  sender, `Person`, `setLongLived`) and the poster sets `setShortcutId` +
+  `addPerson` + `setBubbleMetadata`.
+- **The app cannot set `NotificationChannel.setAllowBubbles`**: the platform
+  overrides it with `DEFAULT_ALLOW_BUBBLE` for every channel an app creates
+  (`PreferencesHelper.createNotificationChannel`), which is why an initial
+  attempt to force it produced `mAllowBubbles=-1`. Bubbles are enabled by the
+  user (notification's "bubble" chip, or Settings → Notifications → Bubbles),
+  which is exactly what the issue asked for. The notification stays a normal
+  one until then.
+- `BubbleMetadata`'s PendingIntent **must be mutable** — an immutable one makes
+  `notify()` throw `IllegalArgumentException: PendingIntents attached to
+  bubbles must be mutable`, and `SmsReceiver` swallows receiver exceptions, so
+  every message notification silently vanished. The launch intent is explicit
+  (component + package + per-conversation data URI) to keep the mutable flag
+  safe, and shortcut updates are rate limited (10/interval here), so a shortcut
+  is published at most once per conversation and a failure degrades to a plain
+  notification instead of losing it.
+- **Cancelling a notification cancels its bubble**, and the chat dismisses its
+  notification as soon as it is read. `BubbleHost` records the conversations a
+  live bubble is showing; `clearConversationNotification` defers the dismissal
+  until the bubble host finishes (its `onDestroy` with `isFinishing`).
+- In a bubble the chat is the root, so back finishes the activity (collapsing
+  the bubble) instead of navigating to the conversation list, and the route
+  starts at `"opening"` so the inbox never flashes inside the bubble window.
+
+Tests: `NotificationBubbleTest` (policy: id required, sender must be
+replyable) and `NotificationBubbleWiringTest` (manifest flags, shortcut +
+metadata wiring, the mutable PendingIntent trap, the deferred dismissal,
+Diagnostics reporting). Diagnostics now prints
+`Bubbles: allowed by <channels>` and `Bubble shortcuts: <ids>`, read from the
+platform instead of re-derived.
+
+Script `test-notification-bubbles.sh` — **12/0** on `emulator-5554` (SDK 35):
+notification carries `shortcut=conversation_<id>`, the shortcut is published
+and long-lived, bubbles-off leaves an ordinary notification, bubbles-on flags it
+`BUBBLE` and shows a bubble surface, the bubble intent opens the chat without
+cancelling its notification, and back dismisses both. **3 FAILs** with the
+metadata attach removed (rebuild + reinstall) and **1 FAIL** with the
+`BubbleHost` guard removed, so the assertions are not vacuous.
+`test-notification-actions.sh` 11/0, `test-notif-dismiss.sh` all pass,
+`test-grouped-notifications.sh` 18/1 (the pre-existing "number is not 1" badge
+assertion, identical on the pre-change APK).
+`test-notification-channels.sh` is 7/7 failing before and after: the script
+submodule already describes the not-yet-implemented "every conversation owns a
+channel" work, unrelated to bubbles.
+
+Not done, deliberately: the bubble's avatar is the app icon, not the contact's
+picture. Shortcut and bubble icons have to be bitmaps
+(`TYPE_URI`/adaptive-bitmap is what the platform asks for), so a per-contact
+avatar means drawing the existing letter avatar into one; the bubble's title
+already carries the contact name. Android 10 (API 29) also stays
+notification-only: bubbles there need `documentLaunchMode="always"`, and on the
+launcher activity that spawns a duplicate task on every launcher tap.
+
 ## Appearance feedback on the rc2 build (2026-10-21)
 
 From @Astrid-starr on #347, after trying the dynamic theme:
@@ -14,6 +1095,8 @@ From @Astrid-starr on #347, after trying the dynamic theme:
   now uses Material's FAB pair, `primaryContainer`/`onPrimaryContainer`
   (`startChatContainer`/`startChatContent` are still defined once and reported by
   Diagnostics). On the AVD's palette that is 13.29:1.
+  *(Reverted 2026-10-25: the settled design is v1.0.30's pair — see the top
+  entry. The wallpaper legibility fix is now the content fallback.)*
 - **A faded send button read as broken.** With nothing to send there is now no
   send button at all, like Google Messages; it appears the moment there is text
   or a staged picture.
@@ -110,6 +1193,20 @@ them were run on `emulator-5554` (SDK 35) against the fixed build.
   current zoom ("150%") with one tap back to 100% — before that the only way
   back was pinching the other way. Script now 9/0: 252px at 1.0x, 618px at 1.8x,
   the pill appears and resets, and 9x renders exactly like 2.5x.
+  **Second pass after the reporter's follow-up** ("takes too much work", with a
+  recording next to Google Messages): the pinch now anchors on the two-finger
+  centroid — `ChatZoom.anchorAt`/`anchorScroll` read the row under the finger
+  before the scale change and scroll it back under the finger afterwards, so the
+  message no longer slides away mid-gesture. A **double-tap** zooms in/out in one
+  gesture on an empty patch of the list, and the zoom is **persisted per
+  conversation** in `SettingsStore` (`chat_zoom_<id>`), so it survives leaving
+  the chat and a process kill instead of dying with the screen's saved state.
+  Tests: `ChatZoomTest` anchor maths + double-tap target, `ZoomWiringTest`
+  centroid/double-tap/persistence wiring, `ChatZoomPersistenceTest` key naming;
+  script `test-chat-pinch-zoom.sh` now 14/0 (adds reopen-at-180% after
+  `force-stop`, no leak into a second conversation, and a real adb double-tap),
+  and **fails 10/2 with the persistence restore and the double-tap handler
+  removed**, so those assertions are not vacuous.
 - **#346 — the "Issue TODO" workflow was failing on every run** (16/16 since it
   was added, always `HTTP Error 403: Forbidden` from the model endpoint, which
   also emailed a failure notice to whoever filed the issue). Removed rather than
@@ -130,6 +1227,160 @@ single "Messages" channel. Merging it also merged `scripts` (both sides had
 diverged: the channel tests existed only on the feature branch, the
 select-more/badge/bidi/zoom tests only on the batch branch). Schema 28 → 29;
 `test-notification-channels.sh` is 11/0 on the merged build.
+
+## #354 follow-up: bubbles show the person, not the app (2026-10-26)
+
+Three asks from the reporter on the bubble build, all three done.
+
+**1. The picture.** `NotificationBubble` drew `R.mipmap.ic_launcher` once into a
+process-wide cache and reused it for every conversation, and `groupedStyle`
+built each `Person` on `R.drawable.ic_stat_message` — so every bubble was the
+app's icon and the notification panel had no picture at all (it never set a
+large icon). `ConversationAvatar.forAddress()` now resolves, per chat, the
+contact photo or the same silhouette-on-palette-colour that `PersonAvatar`
+draws in the list, and hands it over as an *adaptive* bitmap so the platform
+applies its own icon shape. The poster uses the same icon for `setLargeIcon`,
+the MessagingStyle sender and the added `Person`; privacy mode skips it. The
+photo cache has a TTL, so a picture added later is picked up.
+`ConversationAvatarWiringTest` (3) + `test-notification-bubbles.sh` (17/0, and
+13/2 with the poster and bubble reverted).
+
+**2. Back.** Back inside a bubble called `finish()`, which cancelled the
+bubble's notification in `onDestroy` and took the bubble with it.
+`bubbleBackAction()` + a "Close bubble with Back" setting (default off, as
+asked) decide: off means Back shows the chat list and the bubble stays —
+collapsed to its floating icon, which is the platform's own Back gesture and
+not something the app can keep expanded. Both settings UIs, 13 locales, and the
+legacy settings search index. `BubbleBackTest` (3);
+`test-notification-bubbles.sh` covers both directions (15/2 with the old
+`if (bubbleMode) finish()`).
+
+**3. Fingerprints.** The app-lock prompt lived in `setContent`, so it ran once
+per activity creation — cold start, share, rotation, and every bubble open.
+`LockSession` keeps the unlock for the process, and an `ACTION_SCREEN_OFF`
+receiver ends it, which is where the device lock re-arms anyway. No more
+"unlock once until screen lock" guessing: that is what it does now, and nothing
+is persisted. `LockSessionTest` (3) + `test-app-lock-session.sh` (4/0) drives
+the session through a debug-gated `--es lock_session_probe` because an emulator
+has no enrolled fingerprint; 3/1 with the screen-off receiver disabled.
+
+Traps met on the way, for the next person:
+
+- The bubbles script asserted `flags=[^ ]*BUBBLE`, which is what API 35 prints.
+  **API 31 prints the mask** (`flags=0x1010`), so the assertion had never held
+  on `emulator-5558`; it now reads the mask and tests `FLAG_BUBBLE`.
+- `NotificationBubbleWiringTest` anchored on the literal `if (bubbleMode)
+  finish()` and `LegacySettingsIndexTest` demanded the new row in
+  `SettingsSearch` — both are source-text tests, and both broke on a rename,
+  exactly as documented above.
+- The new `lock_session_probe` verbs tripped `NavTransitionDepthTest`, which
+  reads every `"key" ->` branch in `MainActivity`: they are intent extras, so
+  they belong in `NON_ROUTE_WHEN_KEYS`.
+- `emulator-5558` itself crashed mid-run (swiftshader, as the root AGENTS.md
+  warns). Nothing was lost: restart, reinstall, re-run.
+
+## #339 follow-up 2: channels after the first import (2026-10-26)
+
+The reporter confirmed per-chat channels work, then added: "app creates message
+channels for each conversation I have *after* I receive a new SMS after
+installing. I think it should do it after installation."
+
+They were right, and it was an ordering bug, not a missing feature. A fresh
+install has an empty database, so `MessagesApplication.onCreate` ran
+`syncConversationChannels` against nothing; the whole history is imported
+afterwards — by `syncFromSystem` there, or by `requeryFromSystem` in
+`MainActivity.onResume` once the SMS role and permissions land — and nothing
+synced again. Each chat then got its channel only when its first new message
+arrived, which is exactly what they saw.
+
+- The launch sync now runs **after** the import, at the end of the same IO
+  coroutine.
+- `onResume`'s first-run import triggers `syncConversationChannelsAsync`, which
+  is new: the same work off the main thread.
+- Restore and sms-ie import (`importDatabase`, `importSmsIe`) call
+  `syncChannelsAfterBulkImport()` on success. Both land hundreds of rows at
+  once, so they had the same gap.
+
+Tests: `NotificationChannelWiringTest.channelsAreCreatedAfterTheImportThatFillsTheDatabase`
+pins the ordering by source index (launch sync after `syncFromSystem`, resume
+sync after `requeryFromSystem`, both import callbacks syncing). The device case
+in `test-notification-channels.sh` imports a chat through the real sms-ie probe
+and asserts `messages_convo_<id>_*` exists **without a single inbound SMS**:
+16/0 with the fix, and 15/1 with the three sync points reverted (the imported
+chat gets no channel), so it is not vacuous. Note what it does and does not
+cover — the device case proves the *import-after-launch* class through the
+ViewModel hook; the `MessagesApplication` ordering on the system-import path has
+only the JUnit source-order guard, because the emulator cannot seed
+`content://sms` (`content insert` exits 0 and stores nothing, same as AOSP-11).
+
+## #339 follow-up: every conversation owns a channel (2026-10-23)
+
+The reporter on Pixel 8 Pro / Android 17 still saw a single "Messages" channel
+and asked for one per chat. The shipped design only created
+`messages_convo_<id>` once a per-chat sound override was picked, so chats with
+no override stayed hidden behind the category channels.
+
+Checked how the apps the reporter named actually behave:
+
+- **Fossify Messages 1.10.1 (F-Droid, installed on `emulator-5554`)** exposes
+  exactly one channel: `fossify_messages` / "Received SMS". Its source
+  (`ConversationDetailsActivity.createNotificationChannel`) creates a
+  `<threadId>` channel only after the user turns on "Custom notifications" for
+  that conversation; posting then uses `threadId.toString()` as the channel id.
+  So it is opt-in there too, just surfaced on the conversation screen.
+- The reporter's expectation (a row per conversation in system settings) is
+  therefore a superset of both apps, not a regression fix.
+
+What changed:
+
+- **Every conversation gets its own channel**, created on the first message and
+  for the 100 most recent threads at launch (`syncConversationChannels`), titled
+  `ContactDetails.listLabel(...)` (group name, contact name, or formatted
+  number). Older threads get one the moment they receive a message.
+- **The sound is part of the conversation channel id**
+  (`messages_convo_<id>_<suffix>`), matching the category channels. Android
+  reserves a deleted channel id — recreating it restores the old sound and
+  importance — so a selection change must move to a new id; the previous
+  variant is deleted. This was caught by `test-notification-sound.sh`: a
+  delete-then-recreate on the same id silently kept the old tone.
+- **The poster always uses the conversation channel** when the sender has a
+  conversation row; the category channel is only the fallback for a sender with
+  no row yet.
+- **Changing a sound reconciles channels** (`syncNotificationChannels`, IO
+  thread) for conversations that already own one, so a long history does not
+  dump hundreds of rows into system settings at once. The old sound variant is
+  deleted, not edited.
+- **Deleting a conversation deletes its channels**; the launch sync also prunes
+  channels whose conversation row is gone.
+- `NotificationChannels.conversationIdOf` parses the id back for pruning.
+- Also fixed while here: the global sound dialog's option rows were not
+  clickable — only the radio dot responded, so tapping the label did nothing.
+- JUnit: `NotificationCategoryTest` (conversation id wins without an override,
+  id round-trip, sound-suffixed ids) and `NotificationChannelWiringTest`
+  (target query wiring, launch sync, settings-screen reconciliation, deletion).
+- One query decides everything a channel needs: `ConversationChannelTarget`
+  (`Repository.conversationChannelTargetBlocking` / `...TargetsBlocking`) carries
+  the label parts, member count and override tone, so the poster and both syncs
+  cannot label or tone the same chat differently. `categoryFor(target)` is the
+  single category decision; the poster no longer resolves it separately.
+- The launch sync reads the desired channel id first and returns on a match, so
+  a steady-state cold start is one binder read per conversation instead of six
+  writes; a tone change is what triggers the delete of the stale variant.
+- Scripts: `test-notification-channels.sh` rewritten for the new invariants
+  (14/0; **7 FAILs** against the pre-change APK after a rebuild+reinstall, so it
+  is not vacuous). `test-notification-sound.sh` updated for conversation
+  channels and the new Settings → Advanced settings → Notifications route
+  (23/0). Its navigation now uses the `android layout` CLI instead of
+  `dump_ui`/`tap_text`: on this AVD `uiautomator dump` started returning
+  `rc=137` and every navigation assertion failed while the app was fine. The
+  settings list also remembers its scroll position, so the helper scrolls it to
+  the top and retries instead of assuming "Advanced settings" is on the first
+  screen. `test-notification-wake.sh` channel grep now accepts digits.
+
+Verified on `emulator-5554` (SDK 35) against the rebuilt app: channels 14/0,
+sound 23/0, bubbles (#354) 12/0, actions 11/0, dismiss all pass, grouped 18/1
+(the pre-existing "number is not 1" badge assertion, identical on the pre-change
+APK), `testDebugUnitTest` green.
 
 ## Granular notification channels per category and conversation (2026-10-17)
 
@@ -2430,3 +3681,53 @@ subscription, invalidated on resume so a SIM swap is picked up.
   dimensions. The assertion has to come from what the composer actually wrote,
   which is why `MmsComposer` logs the source -> encoded dimension transition.
 
+
+## #347 dynamic-colour feedback round (2026-10-28)
+
+Follow-ups from issue #347 after the first dynamic theme shipped in 1.0.31-rc1.
+
+### What changed
+
+- The Start chat pill is now the accent pair (primary/onPrimary) in every theme —
+  seeded and wallpaper — matching Google Messages; the previous
+  secondary-container surface read as a grey mismatch under Material You.
+- The send button now follows GM behavior: it shrinks and fades to nothing while
+  the composer is empty (keeping its layout footprint so the field does not
+  jump), and comes back with text or attachments. It stays unclickable while
+  empty.
+- Selected-message bubbles use the scheme's own primary/onPrimary pair instead
+  of two hard-coded blues that never followed the wallpaper.
+- Under Dynamic, avatars now take the contact's own palette hue harmonized
+  ~25% toward the wallpaper accent, so contacts stay distinguishable while all
+  belonging to the wallpaper's palette (the old build painted every avatar the
+  same primaryContainer). Glyph ink is picked per contrast (>= 3:1).
+- Legacy conversations screen shares the same pill pair via the theme
+  extensions; Diagnostics' avatar-rule line reads "Avatar fill: harmonized
+  per-contact colour under Dynamic, palette otherwise".
+
+### Tests
+
+- Unit: StartChatPillColorTest (accent pair), DynamicAvatarHarmonizeTest (new:
+  distinctness, tone/hue stability, greyscale guard, readability), updated
+  AmoledThemeTest, AppearanceOptionsTest, ConversationListWiringTest,
+  AvatarThemeResolutionTest anchors. testDebugUnitTest green (1034).
+- `scripts/test-347-dynamic-colors.sh` (15): dynamic resolves a non-seeded
+  palette in both night modes, both Start chat pairs readable, seeded pairs
+  exact, avatar rule text, send button absent empty / back after typing.
+  Verified failing on the pre-fix send-button build (revert to always-on
+  circle produced 3 failures).
+- Freshen-ups: the settings gear coordinate was stale on the 2340px AVD
+  (tap 970,143) across test-amoled-theme/test-dynamic-theme/test-motion-system/
+  test-start-chat-colours — several were failing to navigate at all.
+- `test-start-chat-colours.sh` and `test-avatar-theme-dynamic.sh` re-pinned to
+  the accent pair / harmonized rule. 4/5 passing again.
+- `test-motion-system.sh` fails 3 (undo, emoji panel, Advanced settings walk) —
+  reproduced identically on a stashed baseline; pre-existing on
+  fix/354-fullchat-bubble, not from this work.
+- The emulator died mid-run once (swiftshader); restart recipe from AGENTS.md
+  and carry on. Branch note: another session moved the app repo to
+  fix/354-fullchat-bubble mid-run; this work rebases to
+  fix/347-dynamic-followups on top of it. That session's uncommitted
+  test-chat-pinch-zoom.sh wait_for_chat rework rode along in the submodule
+  commit (it could not be committed selectively without unusable -p surgery);
+  its content is #354, not #347.

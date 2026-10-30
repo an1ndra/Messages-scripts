@@ -69,7 +69,7 @@ scroll_to_and_tap() {
 
 # "<mode>|<resolved page colour>", read off the Diagnostics sheet.
 read_report() {
-    adb_ shell input tap 976 226 >/dev/null 2>&1; sleep 3
+    adb_ shell input tap 970 143 >/dev/null 2>&1; sleep 3
     scroll_to_and_tap "Advanced settings" || { back_out 2; echo "|"; return; }
     sleep 4
     scroll_to_and_tap "Diagnostics" || { back_out 3; echo "|"; return; }
@@ -160,7 +160,7 @@ fi
 
 info "The theme picker offers Dynamic"
 set_theme dynamic
-adb_ shell input tap 976 226 >/dev/null 2>&1; sleep 3
+adb_ shell input tap 970 143 >/dev/null 2>&1; sleep 3
 if scroll_to_and_tap "Choose theme"; then
     sleep 3
     dump_ui

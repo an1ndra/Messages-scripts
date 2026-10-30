@@ -2,7 +2,7 @@
 # Shared environment for Messages UI test scripts.
 # Source this file from other scripts: source "$(dirname "$0")/env.sh"
 
-export ANDROID_SERIAL=${ANDROID_SERIAL:-emulator-5554}
+export ANDROID_SERIAL=${ANDROID_SERIAL:-emulator-5558}
 ADB="${ADB:-$HOME/android/platform-tools/adb}"
 PKG="${PKG:-com.anindra.messages}"
 ACT="$PKG/.MainActivity"
@@ -12,6 +12,17 @@ TMP="/tmp/opencode/messages-tests"
 mkdir -p "$SHOTS_DIR" "$TMP"
 
 adb_() { "$ADB" -s "$ANDROID_SERIAL" "$@"; }
+
+# A wrong serial is indistinguishable from a hung test: every script's first
+# `adb wait-for-device` blocks forever on a device that was never booted, and
+# the run just sits there printing nothing (cost an hour with the stale
+# emulator-5554 default). Fail loudly instead.
+if ! "$ADB" devices | grep -q "^$ANDROID_SERIAL[[:space:]]*device"; then
+    echo "env.sh: no device '$ANDROID_SERIAL'. Connected:" >&2
+    "$ADB" devices | tail -n +2 >&2
+    echo "Set ANDROID_SERIAL=emulator-5558 (AOSP 12) or emulator-5557 (AOSP 11)." >&2
+    exit 1
+fi
 
 # Take a screenshot into screenshots/<name>.png
 shot() {
