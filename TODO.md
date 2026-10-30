@@ -5,6 +5,22 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The conversation list blinked; the cross-fade is gone (2026-10-30)
+
+Reported after installing the build: "sometimes I open chat screen and all chats
+become blinking".
+
+The cause was mine: the motion pass wrapped the whole conversation surface —
+skeleton, list and empty panel — in a `Crossfade`. A cross-fade keeps both
+states composed and draws them at partial alpha, so every row is painted twice
+while it runs. Replacing the skeleton with the list, or closing a chat back into
+it, therefore looked like the list blinking rather than a transition.
+
+The surface swaps instantly again. Row-level motion stays: `animateItem` on the
+conversations, chat rows and the other lists is per-row and does not double-draw
+the screen. `MotionPolishTest` now asserts the whole-list surface is *not*
+cross-faded, so it cannot come back.
+
 ## Cleared notifications stayed cleared; per-conversation bubbles (2026-10-30)
 
 Reported after installing a build on a real device: cleared notifications came
