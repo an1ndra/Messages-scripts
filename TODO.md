@@ -87,6 +87,23 @@ Two changes:
 edge, opens About, comes back, and fails if the label moved by more than 8px.
 Before the fix it moved 55px.
 
+### Follow-up: the licences dialog reads as a list, not a table (2026-10-30)
+
+"make it looks good" on a screenshot of four rows that each said
+`<library>` / `Apache License 2.0`. Repeating the licence under every library
+is a table without columns: nothing groups, and the one fact worth reading (all
+four are Apache 2.0) is buried.
+
+`AboutLinks.LICENCES` is now licence -> libraries, and the dialog draws it the
+way it is meant to be read: a short intro, one chip per licence, then its
+libraries as bullets. Same shape as the issue dialog (custom `Dialog`,
+`surfaceContainerHigh`, 28dp corners, full-width dismiss), so the two dialogs
+on this screen match. A second licence would appear as its own chip instead of
+needing a redesign.
+
+`AboutLinksTest.aLicenceIsNamedOnceNoMatterHowManyLibrariesUseIt` holds the
+grouping, so the flat pair list cannot come back.
+
 ### Follow-up: scrolling right after opening was pulled back (2026-10-30)
 
 Reported: "I open General settings, scroll to see about app, automatically /
