@@ -87,6 +87,28 @@ Two changes:
 edge, opens About, comes back, and fails if the label moved by more than 8px.
 Before the fix it moved 55px.
 
+### The credit line opens the profile (2026-10-30)
+
+"if user click here then open my github profile" on the "Developed by an1ndra"
+chip. It is a `clickable` Surface now (with the ripple that implies) and opens
+`AboutLinks.PROFILE_URL` = github.com/an1ndra. `Identity` takes the action as a
+parameter instead of reaching for the context, so the preview keeps working.
+
+### The issue link no longer breaks the page (2026-10-30)
+
+"Broken github screen open" when tapping Open with diagnostics. The prefill URL
+was ~4 KB; GitHub accepts that (measured: 302), but a link that size is at the
+mercy of whatever hands it to the browser, and one reader's device mangled it.
+`diagnosticsForIssue` now also caps the **percent-encoded** body at
+`ISSUE_URL_LIMIT` (2,000 characters) in addition to GitHub's 4,096-char decoded
+limit, keeping whole lines and ending with "(truncated - full report in
+Diagnostics)".
+
+Careful when measuring this yourself: `logcat` truncates a logged line at about
+4,000 characters, so a URL copied out of the `AboutAction` line is cut
+mid-parameter and GitHub answers 400 — which looks exactly like a broken link.
+That is an artifact of the capture, not the link.
+
 ### The issue prefill was 4 KB of notification channels (2026-10-30)
 
 Measured on the reporting device: `issue body=4053 limit=4096`. Almost all of it
