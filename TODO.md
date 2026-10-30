@@ -5,6 +5,64 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## About screen (2026-10-30)
+
+Asked for: an About option "so user can see about me and the app", plus star /
+report-issue / share actions and a diagnostics attachment on the issue.
+
+**Where it sits.** The last row of General settings, *after* Advanced. About
+therefore takes `RowPosition.LAST` (the rounded bottom edge) and Advanced drops
+to `MIDDLE` — an ordinary row that keeps the rounding while another sits under
+it shows a seam. The legacy sheet gets the same row in its last card, and it is
+indexed in `SettingsSearch` (`LegacySettingsIndexTest` fails otherwise).
+
+**The footer is gone.** `SettingsFooter(R.string.messages_footer)` printed
+"Messages 1.0 - offline SMS" under the list. The version now lives on About, so
+the line was removed from both surfaces instead of duplicated — and because the
+footer also supplied the space under the last card, that space became explicit:
+`SettingsLayout.BOTTOM_GAP` (20dp), added to both settings lists and to About.
+Without it the last card sat flush against the navigation inset.
+
+**The icon.** Reusing `ic_launcher_monochrome` looked like a small bubble
+floating in a big box: the launcher vector is drawn in a 108x108 viewport with
+the bubble occupying 12..60, so ~55% of it is transparent margin and
+`Modifier.size()` did not mean what it looked like. `ic_about_app.xml` is the
+same path translated into a 48x48 viewport, so the glyph fills its plate
+(96dp glyph in a 136dp plate). The size has no text equivalent, so the screen
+logs it (`AboutIcon plate=136.0dp glyph=96.0dp`) and the script asserts it —
+the first version of the marker printed a float and the script's integer regex
+missed it, which is exactly the class of thing that message exists to catch.
+
+**The issue dialog.** Three actions do not fit an `AlertDialog`'s two-button
+row: they wrapped into a ragged block with Cancel stranded underneath (reported
+with a screenshot). It is a `Dialog` with full-width stacked buttons now —
+primary "Open with diagnostics", then "Open without", then "Cancel".
+
+**Diagnostics prefill.** GitHub silently drops an issue form's `body` prefill
+over 4,096 characters, which would leave an empty form, so
+`diagnosticsForIssue()` keeps whole lines up to the cap and ends with
+"(truncated)". Section order puts app/theme/notifications/SIM first, so the
+tail that gets cut is the part least likely to answer a report. The dialog says
+what is attached and what never is (message history, contacts, phone number);
+the report contains none of those — it carries carrier, slot, MCC/MNC and
+country, which is why the dialog comes before the browser.
+
+**Back.** The root dispatcher's `else` sends unknown routes to the list, so
+About needed both `BackHandler(onBack = onBack)` and a `"about" -> "settings"`
+entry; without them Back left the app.
+
+**Share copy.** Heading plus where to get it: both the release APK and the
+F-Droid listing, in all 13 locales.
+
+Verification: `AboutLinksTest` (URLs, 4,096 cap, whole lines, share targets),
+`AboutRowPlacementTest` (row order and shapes, footer removal, bottom gap, back
+routing, source anchors), `test-about.sh` 21/21 on `emulator-5558` (both
+surfaces, icon size, dialog, share sheet, star URL, legacy row).
+
+Also installed **Brave** (`BraveMonox64.apk`, x86_64) on `emulator-5558`: the
+AOSP image ships only "WebView Browser Tester", which fails on many real sites,
+so link intents had nothing credible to open.
+
 ## A saved draft comes back in the composer (2026-10-30)
 
 Reported: "one Draft message I open in chat Text field I cant see them it
