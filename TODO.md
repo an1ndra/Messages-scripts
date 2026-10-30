@@ -14,8 +14,16 @@ key, so a profile picture set on the phone was never shown. `OwnerAvatar` reads
 draws the photo; with no profile photo, or without READ_CONTACTS, it falls back
 to the silhouette in the colours each site already used.
 
-**Backup messages and Import messages lost their descriptions**, as asked: both
-are bare labels now, like the Bubbles row.
+**Backup messages lost its description; Import messages keeps its own**
+("Restore a backup"), as asked — only the backup row is a bare label.
+
+**Owner avatar testing, honestly:** the fallback was verified on the device (no
+profile photo → the same silhouette in the same colours). The photo path could
+not be exercised on this AVD: `content query content://com.android.contacts/profile`
+returns a *virtual* profile row and `raw_contacts` is empty, and the AOSP Contacts
+editor offers "Saving to My Google profile" but never writes a raw contact
+without an account. So the positive path rests on the query plus
+`OwnerAvatarTest`; set a profile photo on a real phone to see it.
 
 ## The conversation list blinked; the cross-fade is gone (2026-10-30)
 
