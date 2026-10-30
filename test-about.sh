@@ -300,6 +300,21 @@ else
     bad "could not tap Share Messages"
 fi
 
+info "The developer credit opens the profile"
+if tap_row "Developed by an1ndra"; then
+    sleep 4
+    if adb_ shell logcat -d -s AboutAction 2>/dev/null | tr -d '\r' \
+        | grep -q "open https://github.com/an1ndra$"; then
+        ok "tapping the credit opens the profile"
+    else
+        bad "the credit did not open the profile"
+    fi
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1
+    open_settings_row "About" || true
+else
+    bad "could not tap the developer credit"
+fi
+
 info "Star on GitHub opens the project page"
 if tap_row "Star on GitHub"; then
     sleep 4
