@@ -5,6 +5,52 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Chat opens from the bottom, like GM (2026-10-30)
+
+Recorded GM opening a chat (`screenrecord` + frame diff): the chat panel rises
+**vertically** over the still-visible list with rounded corners — it does not
+slide sideways. Ours pushed horizontally like a page change, which is what the
+"different from GM" note was about.
+
+`MainActivity`'s `AnimatedContent` now special-cases `list -> chat` as
+`slideInVertically` from the bottom, and `chat -> list` as the reverse slide-out.
+The incoming chat does not fade while it rises: with `fadeIn` the list showed
+through the chat's own bubbles, because the fade applies to the whole layer,
+background included.
+
+Still different from GM: GM rounds the chat's top corners for the duration of the
+transform; ours is square. That needs an animated clip shape, so it is left out
+of this change.
+
+## TODO: bubble sides collapse into one hue under a monochrome wallpaper (open)
+
+Sampled from the reviewer's screenshot (#347, 2026-10-30):
+
+```
+bubble fill #FD8D94  (48,993 px)   one side
+bubble fill #ED8087  (30,330 px)   the other side
+text        #4C0312 / #5D101C
+```
+
+Two fills, ~6% lightness apart, **identical hue** — under a salmon/red wallpaper
+palette both sides read as "the pink bubble".
+
+Cause: both sides come from wallpaper-tinted roles.
+
+```kotlin
+val ColorScheme.outgoingBubble: Color get() = primaryContainer        // accent
+val ColorScheme.incomingBubble: Color get() = surfaceContainerHighest // also tinted
+```
+
+GM never hits this: outgoing is its accent, incoming is a **neutral grey**, so the
+pair is always colour-vs-grey. Fix is to strip the chroma from the incoming fill
+(keep its lightness and its `onSurface` ink) so the distinction survives any
+palette; outgoing keeps following the accent.
+
+Not done yet — it changes bubble colours under Dynamic, so it needs a decision.
+Test when it is done: incoming chroma ≤0.08 and outgoing ≥0.12 across a matrix of
+monochrome seeds (salmon, blue, green), plus a readability check on the pair.
+
 ## Avatars match Google Messages exactly (2026-10-30, decision)
 
 Raised by the #347 review ("contacts colors not adaptive"). A contrast floor on
