@@ -5,6 +5,24 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The composer's attach dot follows the theme (2026-10-30)
+
+Reported: "in light mode in + icon one dot color not looks good?"
+
+The attach button's badge dot was the one fixed colour in the composer:
+`#76D1FF`, sampled from Google Messages' **dark** composer and pinned by
+`ComposerAttachDotTest`. On a light pill that pale cyan is nearly the colour of
+the field it sits on, so the badge read as a smudge.
+
+It is now a scheme role (`ColorScheme.composerAttachDot = primary`), which also
+retires the last hardcoded hex outside the seeds and the avatar palette. Light
+gives #0B57D0, dark #A8C7FA, and under Dynamic it follows the wallpaper accent.
+
+A dot colour has no text equivalent, so the composer logs `ComposerDot
+color=#RRGGBB` and `test-composer-dot.sh` opens a chat in both themes and compares
+them: green reports #0B57D0 and #A8C7FA; the mutation (dot back to the cyan) fails
+with "the dot is still the dark-composer cyan in light mode".
+
 ## Opening a long chat no longer flashes (2026-10-30)
 
 Reported twice: "in one chat screen I have so many messages ... when I open chat I
