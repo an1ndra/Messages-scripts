@@ -87,6 +87,30 @@ Two changes:
 edge, opens About, comes back, and fails if the label moved by more than 8px.
 Before the fix it moved 55px.
 
+### Follow-up: scrolling right after opening was pulled back (2026-10-30)
+
+Reported: "I open General settings, scroll to see about app, automatically /
+forcefully scroll to Notifications, I happen first time."
+
+That was the restore effect from the entry above. It re-applied the remembered
+offset every frame until the height settled, and on a fresh entry that offset is
+**0** — so a reader who started scrolling within the settle window (about a
+second) had the list yanked back to the top row, "Notifications".
+
+Two guards now, in both settings surfaces:
+
+- `if (target > 0)` — nothing was remembered, so nothing is restored. A fresh
+  screen has no reason to touch the list at all.
+- `if (scrollState.isScrollInProgress) break` — once the reader touches the list
+  the restore is over. It exists to survive late data, not to overrule them.
+
+The device can't reliably reproduce this: the window is a race between the
+settle loop and the reader's first swipe, and a fast emulator finishes the loop
+first (mutating the guards back still showed the list scrolled). So
+`AboutRowPlacementTest.theScrollRestoreNeverFightsTheReader` pins both guards in
+the source, and `test-about.sh` still scrolls immediately after opening and
+asserts the top row is gone.
+
 ### Follow-up: the share message carries both download links (2026-10-30)
 
 "in share add Fdroid and Github release both URL": `about_share_text` takes the

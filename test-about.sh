@@ -336,6 +336,29 @@ grep -qF "Messages 1.0 - offline SMS" "$TMP/ui.xml" \
     && bad "the legacy sheet still prints the version footer" \
     || ok "the legacy footer is gone as well"
 
+info "Scrolling right after the list opens is not pulled back"
+# Reported: opening General settings and scrolling down to About snapped back to
+# Notifications. The restore effect was re-applying a remembered offset of 0
+# while the list was still settling; it now only runs when there is something to
+# restore, and stops the moment the reader touches the list.
+set_new_ui true
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1
+sleep 2
+for i in 1 2 3 4 5; do
+    adb_ shell input swipe 540 1700 540 800 200 >/dev/null 2>&1
+    sleep 0.15
+done
+sleep 3
+dump_ui >/dev/null 2>&1 || true
+# The top row must be gone: a pull-back would have put it under the app bar
+# again, with the first group filling the screen.
+if grep -q 'text="Notifications"' "$TMP/ui.xml"; then
+    bad "the list snapped back to the top while the reader was scrolling"
+else
+    ok "the list stayed where the reader scrolled it"
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 exit $((FAIL > 0))
