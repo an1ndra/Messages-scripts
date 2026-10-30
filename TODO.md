@@ -19,6 +19,33 @@ testable off-device: an empty draft or an already-loaded one restores nothing.
 used to fail — and checks it appears on open, survives a round trip, and is still
 in the database. Mutation (the restore returning null again) fails it.
 
+## Closing a chat moves instead of dissolving (2026-10-30)
+
+Reported twice: first "There is not chat close animation", then the sharper
+version — "opening chat screen showing animation" but not closing.
+
+The transition was asymmetric. Opening slid the chat in **solid**, because the
+fade was removed there (the list showed through the bubbles while it rose).
+Closing still ran `fadeOut(200ms) + slideOutVertically(300ms)`, so the chat
+dissolved into the list faster than it moved — read as a cut, not an animation.
+
+Closing is now the exact mirror: `EnterTransition.None` for the always-visible
+list plus a solid `slideOutVertically`. The chat is one opaque surface that
+carries the whole move.
+
+Measured, not eyeballed. The app marks both moments (`NavTransition "chat to
+list"` and `"chat closed"`); `test-chat-close-animation.sh` presses Back and
+compares them:
+
+```
+fixed:          chat lived 359ms through the exit animation
+mutation (None): chat was torn down after only 34ms
+```
+
+Both states stay marked in the app — the transition spec logs one line, and
+`ChatScreen`'s dispose logs one line per close — because that gap is the only
+pixel-free evidence the exit window exists.
+
 ## The chat close animation does run (2026-10-30, measured)
 
 Reported: "There is not chat close animation". Measured instead of guessed, by
