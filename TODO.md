@@ -5,6 +5,25 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Avatars match Google Messages exactly (2026-10-30, decision)
+
+Raised by the #347 review ("contacts colors not adaptive"). A contrast floor on
+the fill was implemented, measured and **removed**: keeping a contact's palette
+colour only when it clears 3:1 against the page turned every light-mode chip into
+a saturated mid tone (cyan, green, amber, teal, pink, coral, orange and blue are
+all below 3:1 on white), and it stopped looking like Messages.
+
+Measured on GM instead: the fills are identical in light and dark
+(`#FF63B8` in both), there is no ring, and its own white glyph on pink is
+2.58:1. GM leans on chromatic contrast and the silhouette rather than luminance,
+and the low-chroma entries (brown, indigo, blue-grey) that genuinely blend on
+dark are the price of that look.
+
+So: the palette, the hash-based choice and the night-mode ink stay as they are.
+`Components.kt` carries that reasoning, `AvatarThemeResolutionTest` pins it (no
+surface-dependent selection may reappear), and the contrast work is reverted in
+`6f4f3b7` / `1804388`.
+
 ## Themed app icon keeps its lines (2026-10-30)
 
 Reported: "in system dynamic the app icon lines are not showing".
