@@ -5,6 +5,34 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Themed app icon keeps its lines (2026-10-30)
+
+Reported: "in system dynamic the app icon lines are not showing".
+
+The adaptive icon's `<monochrome>` layer pointed at the **coloured** foreground,
+which draws a filled white bubble with blue strokes for the message lines. A
+themed icon tints the whole drawable one colour, so the strokes merged into the
+fill and the icon rendered as a blank shape. `ic_launcher_monochrome.xml` is now
+line art — an outlined bubble plus the three lines, all one colour — and both
+`ic_launcher.xml` and `ic_launcher_round.xml` point at it. The coloured icon is
+untouched.
+
+Not reproducible on emulator-5558: themed icons arrived in Android 13 and this
+AVD is API 31, so the layer is only exercised on a 13+ device. `ThemedIconTest`
+pins the wiring and that the monochrome layer fills nothing.
+
+## Chat-details switches match settings (#347 review, 2026-10-30)
+
+The reviewer's second point: "switch in chat details is not follows style of other
+switches in settings (badly maintained colors)".
+
+They were right about the inconsistency, but the settings rows were the correct
+side. Material's default pair in this scheme resolves to a light track with a
+dark thumb — which is exactly how Google Messages draws a switch — while the
+details screen overrode it with the *inverse* (thumb = primary, track =
+primaryContainer). The overrides are gone, so both screens now draw the same
+control.
+
 ## Hold-Send shrinks the circle, then the calendar (2026-10-30)
 
 Scheduling is reached by holding Send, and the press used to give no feedback:
