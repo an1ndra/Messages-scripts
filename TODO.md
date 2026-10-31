@@ -5,6 +5,62 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## F-Droid screenshots refreshed for the 1.0.31 UI (2026-10-30)
+
+Shot set re-cut against `Develop` @ `acd8b24` (the merge of #392) on
+`Pixel_7_AOSP_35` (1080x2400 @ 420dpi, `emulator-5554`), the size the existing
+files use. Requested set:
+
+| # | File | Screen | Theme |
+|---|---|---|---|
+| 01 | `01-home.png` | Conversation list | Dynamic, dark |
+| 02 | `02-settings.png` | General settings (new UI) | Dynamic, dark |
+| 03 | `03-advanced-settings.png` | Advanced settings | Dynamic, dark |
+| 04 | `04-contact.png` | Contact details | Dynamic, light |
+| 05 | `05-reaction.png` | Long-press reaction picker | Dynamic, light |
+| 06 | `06-typing.png` | Composer with a draft | Dynamic, light |
+| 07 | `07-import-messages.png` | Import messages → "Choose backup to import" | Dynamic, dark |
+| 08 | `08-new-chat.png` | New conversation / contact picker | Dynamic, light |
+
+- The **chat thread** and **SIM switcher** shots are gone (replaced by
+  Advanced settings and Import messages). `README.md` was updated to the new
+  filenames; the `03-chat`/`07-sim-switcher` files no longer exist.
+- **Theme is Dynamic for every shot**, with the device night setting deciding
+  dark vs light: `Theme.kt` resolves Dynamic + night → dynamic dark. `set_theme`
+  writes `theme_mode` into `shared_prefs/messages_settings.xml` through
+  `run-as` and restarts the process, because the picker's current value
+  ("Dynamic") also appears as the row subtitle and a text matcher cannot tell
+  the two apart.
+- 07 is the import source dialog (`settings_import_source_title`), opened from
+  General settings → Import messages, and is cancelled afterwards so the run
+  leaves no state behind.
+
+What broke the re-run, and the fixes:
+
+- **The first pass captured the lock screen.** A freshly booted headless AVD
+  comes up with the keyguard up; `am start` does not raise it, so every shot
+  was the clock. Clear it before shooting (`locksettings set-disabled true`,
+  plus wake + swipe); the script leaves it alone.
+- **The chat header lost its avatar.** The old step 4 tapped a clickable node
+  to the right of Back, which no longer exists; the new header is Back · avatar
+  · name · call · overflow. `tap_chat_avatar`/`chat_avatar_xy` became
+  `tap_chat_title <name>`, which taps the name in the header band (bounds
+  `y2 < 400`) and opens the same details page.
+- **A wiped app has no database to seed into.** `pm clear` removes
+  `databases/messages.db`, and `run-as … sqlite3` then writes nothing — the
+  seeder reports `conversations: 0` and the shot set is empty. Launch the app
+  once after a clear, then seed.
+- **A polluted system SMS store leaks into the list.** Threads left by earlier
+  test sessions are imported on launch and push the demo roster off-screen.
+  Clear `content://sms` and `content://mms` as root before seeding; the app's
+  own `sweep_stray_threads` then only has to remove the app-side leftovers.
+- **A night-mode switch recreates the activity**, so the tap that follows can
+  land while the window is rebuilding; `light` now waits and re-homes before
+  the next step. Step 8 relaunches rather than assuming the previous step left
+  the inbox in front — the run before it found the notification shade open.
+
+Result: 8/8 checks pass (`verify` matches on every shot), no `MISS` lines.
+
 ## The composer's attach dot follows the theme (2026-10-30)
 
 Reported: "in light mode in + icon one dot color not looks good?"

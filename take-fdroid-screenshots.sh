@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Refreshes the F-Droid screenshots against the current build.
 #
-# Curated set of 8 shots in the app's light theme, using dummy contacts and
+# Curated set of 8 shots with dummy contacts and
 # conversations. The output directory is emptied first so superseded shots do
 # not accumulate.
 #
@@ -160,30 +160,32 @@ if m: print(int(m.group(3)) + 95, (int(m.group(2)) + int(m.group(4))) // 2)
     tapxy ${c% *} ${c#* }
 }
 
-tap_chat_avatar() {
+tap_chat_title() {
     local i c
     for i in 1 2 3 4 5; do
-        c=$(chat_avatar_xy) && { tapxy ${c% *} ${c#* }; return 0; }
+        c=$(chat_title_xy "$1") && { tapxy ${c% *} ${c#* }; return 0; }
         sleep 1.5
     done
-    echo "  !! chat avatar not found"
+    echo "  !! chat title not found"
     FAILED=1
     return 1
 }
 
-chat_avatar_xy() {
+chat_title_xy() {
     dump_ui >/dev/null
-    python3 -c "
+    python3 - "$TMP/ui.xml" "$1" <<'PY'
 import re, sys
-xml = open('$TMP/ui.xml').read()
-b = re.search(r'<node[^>]*content-desc=\"Back\"[^>]*bounds=\"\[(\d+),(\d+)\]\[(\d+),(\d+)\]\"', xml)
-if not b: sys.exit(0)
-bx2, by2 = int(b.group(3)), int(b.group(4))
-for m in re.finditer(r'<node[^>]*clickable=\"true\"[^>]*bounds=\"\[(\d+),(\d+)\]\[(\d+),(\d+)\]\"', xml):
+xml = open(sys.argv[1]).read()
+name = sys.argv[2]
+for m in re.finditer(r'<node[^>]*text="' + re.escape(name)
+                     + r'"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml):
     x1, y1, x2, y2 = map(int, m.groups())
-    if bx2 < x1 < bx2 + 340 and y2 <= by2 + 120:
-        print((x1 + x2) // 2, (y1 + y2) // 2); break
-"
+    if y2 < 400:
+        print((x1 + x2) // 2, (y1 + y2) // 2)
+        break
+else:
+    sys.exit(1)
+PY
 }
 
 screencap_to() {
@@ -259,26 +261,83 @@ open_chat_menu() {
 }
 
 # ============ Setup ============
+dark()  { adb_ shell cmd uimode night yes >/dev/null; sleep 2; }
 light() { adb_ shell cmd uimode night no >/dev/null; sleep 2; }
-light
+
+# Theme is a SharedPreferences value the app caches at launch, so it is written
+# where the app reads it and the process is restarted. The picker lives behind
+# "Choose theme" → radio → OK, which needs three taps on a dialog that also
+# shows the current value ("Dynamic") as the row's subtitle — the text matcher
+# cannot tell the two apart.
+set_theme() {
+    local prefs=/data/local/tmp/messages_settings.xml
+    adb_ exec-out run-as "$PKG" cat shared_prefs/messages_settings.xml > "$TMP/settings.xml"
+    python3 - "$TMP/settings.xml" "$1" <<'PY'
+import re, sys
+path, mode = sys.argv[1], sys.argv[2]
+xml = open(path).read()
+if 'name="theme_mode"' in xml:
+    xml = re.sub(r'<string name="theme_mode">[^<]*</string>',
+                 f'<string name="theme_mode">{mode}</string>', xml)
+else:
+    xml = xml.replace('</map>', f'    <string name="theme_mode">{mode}</string>\n</map>')
+open(path, 'w').write(xml)
+PY
+    adb_ push "$TMP/settings.xml" "$prefs" >/dev/null
+    adb_ shell "run-as $PKG sh -c 'cat $prefs > shared_prefs/messages_settings.xml'"
+    adb_ shell am force-stop "$PKG"
+    sleep 1
+}
+
+tap_settings_row() {
+    local name="$1" i c
+    for i in 1 2 3 4 5 6; do
+        c=$(center_of_contains "$name") && { tapxy ${c% *} ${c#* }; return 0; }
+        adb_ shell input swipe 540 1900 540 900 300 >/dev/null
+        sleep 1
+    done
+    echo "  !! settings row '$name' not found"
+    FAILED=1
+    return 1
+}
+
+tap_contains_text() {
+    local c
+    c=$(center_of_contains "$1") || { echo "  !! '$1' not found"; FAILED=1; return 1; }
+    tapxy ${c% *} ${c#* }
+}
+
+set_theme dynamic
+dark
 sweep_stray_threads
 
-# ============ 1. Home conversation list (new UI) ============
+# ============ 1. Home conversation list (dark) ============
 launch; dismiss_onboarding; ensure_home
 screencap_to 01-home.png
 verify "Messages"
 
-# ============ 2. Settings screen ============
+# ============ 2. Settings screen (dark) ============
 tap_settings; screencap_to 02-settings.png
 verify_any "General settings" "Notifications"
+
+# ============ 3. Advanced settings ============
+tap_settings_row "Advanced settings"; screencap_to 03-advanced-settings.png
+verify "Advanced settings"
+back
+
+# ============ 7. Import messages: "Choose backup to import" ============
+tap_settings_row "Import messages"; screencap_to 07-import-messages.png
+verify "Choose backup to import"
+tap_contains_text "Cancel"
 back; ensure_home
 
-# ============ 3. Chat thread ============
-open_chat "Dad"; screencap_to 03-chat.png
-verify "Message"
+light
+sleep 2
+ensure_home
 
 # ============ 4. Contact details ============
-tap_chat_avatar; screencap_to 04-contact.png
+open_chat "Dad"
+tap_chat_title "Dad"; screencap_to 04-contact.png
 verify "Add people"
 back; back; ensure_home
 
@@ -300,18 +359,8 @@ verify "pick up milk"
 clear_draft "+1555771010"
 back; ensure_home
 
-# ============ 7. SIM switcher (fake dual-SIM) ============
-adb_ shell am force-stop "$PKG"; sleep 1
-adb_ shell am start -n "$ACT" --ez fake_dual_sim true >/dev/null; sleep 5
-dismiss_anr; dismiss_onboarding; ensure_home
-open_chat "Dad"
-open_chat_menu
-screencap_to 07-sim-switcher.png
-verify_any "SIM 1" "SIM 2"
-adb_ shell input keyevent KEYCODE_BACK; sleep 1
-back; ensure_home
-
 # ============ 8. New Chat / contact picker ============
+launch; dismiss_onboarding; ensure_home
 tap_desc "Start chat"; screencap_to 08-new-chat.png
 verify_any "Enter name or phone" "New conversation"
 back; ensure_home
