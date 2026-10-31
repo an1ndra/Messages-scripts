@@ -86,6 +86,69 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The default-SMS prompt is drawn by MainActivity, not by a settings screen, so
+# the two sweeps above never reached it. It is also the first thing a new
+# Persian-locale user sees, and the one that put "?" in front of "app" in the
+# field. Same assertion as the settings dialogs: the copy reports the direction
+# it painted with.
+sms_role_holder() {
+    adb_ shell dumpsys role 2>/dev/null \
+        | awk '/name=android.app.role.SMS/{f=1} f&&/holders=/{print; exit}' | tr -d '\r'
+}
+
+set_sms_role() {
+    local pkg="$1"
+    adb_ shell "su -c 'cmd role add-role-holder android.app.role.SMS $pkg'" >/dev/null 2>&1 || true
+    adb_ shell cmd role add-role-holder android.app.role.SMS "$pkg" >/dev/null 2>&1 || true
+    sleep 2
+    sms_role_holder | grep -q "$pkg"
+}
+
+check_default_sms_prompt() {
+    local other=com.google.android.apps.messaging seen ltr rtl
+
+    if ! adb_ shell pm list packages 2>/dev/null | grep -q "package:$other"; then
+        info "no second SMS app installed; skipping the default-SMS prompt case"
+        return
+    fi
+
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1
+    if ! set_sms_role "$other"; then
+        fail "default-SMS prompt: could not hand the SMS role to $other"
+        return
+    fi
+
+    adb_ shell logcat -c >/dev/null 2>&1
+    adb_ shell am start -n "$ACT" >/dev/null 2>&1
+    if ! wait_layout_has "Set as default SMS app?" 12; then
+        fail "default-SMS prompt: the prompt never appeared"
+        set_sms_role "$PKG" >/dev/null 2>&1 || true
+        return
+    fi
+
+    if await_dialog_marker Ltr; then
+        seen=$(adb_ logcat -d -s DialogBidi:D 2>/dev/null | grep -o 'dir=.*' | tr -d '\r')
+        ltr=$(printf '%s\n' "$seen" | grep -c 'dir=Ltr')
+        rtl=$(printf '%s\n' "$seen" | grep -c 'dir=Rtl')
+        if [ "$ltr" -ge 2 ] && [ "$rtl" -eq 0 ]; then
+            pass "default-SMS prompt: title and body painted in their own direction (Ltr, $ltr markers)"
+        else
+            fail "default-SMS prompt: expected >=2 dir=Ltr and no dir=Rtl, got: $(echo "$seen" | tr '\n' ' ')"
+        fi
+    else
+        fail "default-SMS prompt: copy painted without reporting a direction"
+    fi
+
+    if wait_layout_has "Not now" 4; then
+        tap_layout "Not now" >/dev/null 2>&1
+        pass "default-SMS prompt: dismissed with Not now"
+    else
+        fail "default-SMS prompt: no Not now to dismiss it with"
+    fi
+
+    set_sms_role "$PKG" >/dev/null 2>&1 || true
+}
+
 for p in READ_SMS READ_CONTACTS POST_NOTIFICATIONS; do
     adb_ shell pm grant "$PKG" "android.permission.$p" >/dev/null 2>&1
 done
@@ -96,6 +159,8 @@ check_ui "new settings UI"
 
 pin_new_ui off
 check_ui "legacy settings UI"
+
+check_default_sms_prompt
 
 printf '\n[RESULT] %d passed, %d failed\n' "$PASS" "$FAIL"
 exit $((FAIL > 0))
