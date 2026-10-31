@@ -123,14 +123,33 @@ What changed here:
 - No bulk creation: `syncConversationChannels` and its launch/import/requery
   call sites are gone. `syncNotificationChannels` now only re-titles channels
   that exist, prunes deleted chats, and **deletes** the old per-tone ids.
+- The three category channels are created **at launch**, so a fresh install's
+  notification settings are not empty. `ensureChannels(context, recoverDemoted)`
+  skips the demotion repair there: launching must not rebuild a channel the user
+  muted, only a post may.
 - Posting picks the per-chat channel only when it exists, so removing it falls
   back to the category channel instead of dropping the notification (the bug
   Fossify has).
 
+A clean install was then checked end to end: `pm clear` → launch → exactly
+`messages_direct_default`, `messages_group_default`, `messages_unknown_default`
+and no `messages_convo_*`, which is the summary the reporter signed off on.
+
+That check is also how a **fresh-install crash** surfaced, unrelated to this
+issue: `2ca1a8a` added `starred` to `CREATE TABLE messages` while `onCreate`
+still ran `ALTER TABLE messages ADD COLUMN starred`, so every clean install died
+with "duplicate column name: starred". Nothing caught it because every
+development device already had a database. The ALTER was removed in the same
+commit's follow-up; `SchemaCreationTest` (which exists for exactly this) was
+still green on the broken code because its SQL parser stopped at the first `)`
+— `REFERENCES conversations(id)` — so it checked a truncated column list. It now
+walks brackets, and reports `messages.starred is in CREATE TABLE and in an
+onCreate ALTER` on the broken tree.
+
 Tests: `NotificationCategoryTest` (stable id, opt-in selection, variants) and
 `NotificationChannelWiringTest` (poster checks existence, no bulk creation,
-the customise row opens the system page, 13 locales) — both green in the full
-1172-test run. `test-notification-channels.sh` rewritten to 21 cases, 21/0 on
+the three channels exist at launch, the customise row opens the system page,
+13 locales) — both green in the full 1185-test run. `test-notification-channels.sh` rewritten to 21 cases, 21/0 on
 `emulator-5558`. Non-vacuity: with `conversationChannelExists()` forced to
 `true`, the fallback case fails — "the message was dropped instead of falling
 back" — 13/8.
