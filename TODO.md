@@ -5,6 +5,35 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #395 verified fixed: a grouped amount in an RTL message (2026-10-31)
+
+Reporter (1.0.30, F-Droid): "20,980.01" in an RTL message paints as
+"980.01,20". Confirmed as a 1.0.30-only bug and confirmed fixed on HEAD
+(`1.0.31`), verified on `emulator-5558` against Google Messages
+`20260827_01_RC03` and Fossify `1.10.2`.
+
+- Root cause: the 1.0.30 run regex had no `,` in its middle character class,
+  so `مبلغ 20,980.01 ریال` matched as two runs (`20`, `980.01`). Each was
+  isolated on its own and two adjacent isolates in an RTL paragraph paint
+  right-to-left — exactly "980.01,20". The same split turns `20 980.01` into
+  "980.01 20" today, since a space is a neutral rather than a number
+  separator.
+- All three apps paint `مبلغ 20,980.01 ریال` identically on the AVD. GM
+  additionally wraps the list preview in `BidiFormatter` (LRM … RLE/PDF) where
+  we derive the base direction from the first/last strong character; same
+  result on screen.
+- Unit: `BidiTextTest.aGroupedAmountWithDecimalsIsIsolatedWhole`,
+  `theGroupedAmountPaintsInReadingOrderInAnRtlBubble` (asserts the painted
+  order through `java.text.Bidi`, so a future regex that drops `,` cannot pass
+  by looking isolated), `aSpaceGroupedAmountIsIsolatedToo`. Suite green.
+- `scripts/test-bidi-within-number.sh` (5): Persian, Hebrew and
+  space-grouped bodies each render inside one LTR isolate. Verified failing on
+  a build with `,` removed from the run regex (3 failures) and passing after
+  reinstalling the fixed APK.
+
+No code change was needed — nothing to fix, only tests to pin the behaviour.
+Ask the reporter to confirm on 1.0.31, then close.
+
 ## #362 verified: emoji, links, numbers and per-line direction (2026-10-31)
 
 The reporter's four raw broadcast samples and the "emoji are seen as LTR"
@@ -63,6 +92,65 @@ telephony provider, so a `starred` column must survive re-import — key it to
 `message_provider_ids`, or a re-sync silently drops people's stars. Needs JUnit
 coverage of star → import → delete, and a `test-starred-messages.sh` (star → chip
 appears → Search → Starred lists it with its chat and time → unstar → gone).
+
+## #339 follow-up 3: per-chat channels became opt-in (2026-10-31)
+
+The reporter's last comment asked for the opposite of what shipped: create a
+channel for every chat at first launch, and drop the in-app row because it
+disagreed with the chat's channel. Half of that was right — the disagreement was
+real — but the fix is not more channels.
+
+Checked both apps the reporter cites, on a device rather than from memory.
+Google Messages creates **no** per-chat channels (one "Incoming messages"
+channel; a chat's Notifications row opens Android's own page). Fossify Messages
+creates **none** at install, and one only when you turn on "Enable custom
+notifications" for that chat, with its "Customize notifications" button opening
+Android's channel page. Neither creates channels in bulk, and neither keeps a
+second copy of the tone.
+
+What changed here:
+
+- Per-chat channel id is now `messages_convo_<id>` — **stable**, no tone suffix.
+  The old id carried the tone, so changing it deleted the channel and everything
+  the user had tuned in Android.
+- A chat gets a channel only when the user switches **Custom notifications** on
+  in its details; off deletes it. The **Customize notifications** row opens
+  `Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS` for that channel.
+- The in-app per-chat sound picker is gone, and with it
+  `setConversationNotificationSound` / `conversationNotificationSoundFlow` /
+  `ConversationChannelTarget.overrideSound`. The `conversation_notifications.sound`
+  column stays (restores from old backups still carry it) but nothing reads it.
+- No bulk creation: `syncConversationChannels` and its launch/import/requery
+  call sites are gone. `syncNotificationChannels` now only re-titles channels
+  that exist, prunes deleted chats, and **deletes** the old per-tone ids.
+- Posting picks the per-chat channel only when it exists, so removing it falls
+  back to the category channel instead of dropping the notification (the bug
+  Fossify has).
+
+Tests: `NotificationCategoryTest` (stable id, opt-in selection, variants) and
+`NotificationChannelWiringTest` (poster checks existence, no bulk creation,
+the customise row opens the system page, 13 locales) — both green in the full
+1172-test run. `test-notification-channels.sh` rewritten to 21 cases, 21/0 on
+`emulator-5558`. Non-vacuity: with `conversationChannelExists()` forced to
+`true`, the fallback case fails — "the message was dropped instead of falling
+back" — 13/8.
+
+Traps met on the way:
+
+- The first run showed ~85 `messages_convo_<id>` channels on the device: an
+  intermediate build of this change had already converted the old per-tone ids
+  into stable ones, which cannot be told apart from an opted-in chat. The
+  upgrade path now deletes per-tone ids instead of converting them; a device
+  that ran that intermediate build keeps the channels it converted.
+- `dumpsys activity activities` has **no `topResumedActivity`** line on API 31
+  (only `mResumedActivity`), so the "did the row open Settings?" helper silently
+  matched nothing and the case failed on a build that worked. Match
+  `ResumedActivity`, not the newer line.
+- Tapping the chat title opens details, but the title is the locale-formatted
+  number; the script goes Chat → ⋮ (content-desc "More options") → "Details".
+- `pm clear`-free idempotency: asserting "no `messages_convo_*` anywhere" fails
+  on any device that ran an older build. Count them instead, and assert that the
+  conversation which just received a message has none.
 
 ## F-Droid screenshots refreshed for the 1.0.31 UI (2026-10-30)
 
