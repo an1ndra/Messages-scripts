@@ -306,17 +306,22 @@ draft_and_hold() {
     return 1
 }
 
+JALALI="Farvardin|Ordibehesht|Khordad|Tir|Mordad|Shahrivar|Mehr|Aban|Azar|Dey|Bahman|Esfand"
+
 if draft_and_hold; then
     sleep 3
     dump_ui >/dev/null 2>&1 || true
-    if grep -q "In your calendar:" "$TMP/ui.xml"; then
-        ok "schedule picker names the picked day in the reader's calendar"
-    else
-        bad "schedule picker shows no converted date"
-    fi
-    grep -qE "In your calendar: (Farvardin|Ordibehesht|Khordad|Tir|Mordad|Shahrivar|Mehr|Aban|Azar|Dey|Bahman|Esfand)" "$TMP/ui.xml" \
-        && ok "the picker's converted day is a Jalali one" \
-        || bad "the picker's converted day is not Jalali"
+    # The grid itself is the reader's calendar now, and the line under it names
+    # the picked day in Gregorian instead.
+    grep -qE "text=\"($JALALI) [0-9]{3,4}\"" "$TMP/ui.xml" \
+        && ok "the schedule grid draws Jalali months" \
+        || bad "the schedule grid does not draw Jalali months"
+    grep -qE "content-desc=\"[^\"]*($JALALI) [0-9]+, [0-9]{4}\"" "$TMP/ui.xml" \
+        && ok "the schedule grid draws Jalali days" \
+        || bad "the schedule grid does not draw Jalali days"
+    grep -q 'text="Gregorian: ' "$TMP/ui.xml" \
+        && ok "the picked day is echoed in Gregorian" \
+        || bad "the picked day is not echoed in Gregorian"
     adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
 else
     bad "holding Send did not reach the picker"
