@@ -5,6 +5,65 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #362 verified: emoji, links, numbers and per-line direction (2026-10-31)
+
+The reporter's four raw broadcast samples and the "emoji are seen as LTR"
+follow-up were re-run on `emulator-5558` against Google Messages
+`20260827_01_RC03`, Fossify `1.10.2` and our HEAD. Nothing reproduces.
+
+- Sample 1 (`📣… / l.tpshp.co/3lDXoA / لغو 11r.eu/t`) renders pixel-identically
+  in GM and ours: emoji at the right, link line LTR, `لغو` to the right of the
+  link.
+- Sample 4 (`کد ورود… / 85904 / @tabdeal.org #85904 / لغو11`) is the same in
+  both; GM isolates the number after `#`, we isolate the whole line — same
+  result on screen.
+- Emoji never vote: `📣📣 سلام، خوبی؟`, `سلام ❤️`, `سلام 🎉 ممنون از پیامت`
+  and `👍` all stay Persian in ours and in Fossify
+  (`BidiTextDirectionTest.emojiNeverVote` already pins the rule).
+- Fossify differs only cosmetically: it left-aligns pure-number lines inside the
+  bubble, where GM and ours keep them at the paragraph start.
+- Not measured: GM with a *trailing* emoji. Emulator SMS injection is GSM 7-bit
+  and mangles emoji, and GM imports provider rows only on first run, so that case
+  needs a data clear + restore to test.
+
+Ask the reporter to confirm on a current build, then close.
+
+## #394 Starred messages (2026-10-31)
+
+Asked for: star/unstar from the long-press menu, a star action on notifications,
+a dedicated Starred section (feed, or a pseudo-contact pinned at the top with a
+star avatar), the source chat and timestamp shown when opening a starred
+message, and a star badge on starred bubbles "like Google's".
+
+Verified on `emulator-5558` against Google Messages `20260827_01_RC03`,
+Fossify `1.10.2` and our HEAD:
+
+- **Google Messages**: stars from the selection toolbar (long-press → star icon),
+  paints a star chip on the starred bubble's bottom-right corner, and browses
+  them through **Search → Starred** (message + chat + time). It has **no** star
+  action on notifications — the row is `Mark as read` + `Reply`
+  (`dumpsys notification`). It also does **not** pin a pseudo-contact; that part
+  of the request is the reporter's own design, not GM's.
+- **Fossify 1.10.2**: none. Toolbar is copy/share/delete; overflow is forward,
+  select text, select all, properties.
+- **Ours**: none. Toolbar is copy / forward / move to trash; overflow is select
+  all / select text / share / view details / lock.
+
+Not started. If built, copy GM's shape: star in the selection toolbar, star chip
+on the bubble (the reaction pill already provides the styling), and a browse
+surface. Our search has **no filter chips at all**, so that surface needs a home:
+either a filter row (Starred / Unread / Links) or a "Starred" row above the
+conversation list. The pseudo-contact idea collides with list semantics (unread
+counts, archive, spam, row actions) and is not what GM does. Skip the notification
+action: no competitor has it and the row is already spent on Reply / Mark as
+read.
+
+Before coding: decide where the flag lives. Messages are imported from the
+telephony provider, so a `starred` column must survive re-import — key it to
+`message_provider_ids`, or a re-sync silently drops people's stars. Needs JUnit
+coverage of star → import → delete, and a `test-starred-messages.sh` (star → chip
+appears → Search → Starred lists it with its chat and time → unstar → gone).
+
 ## F-Droid screenshots refreshed for the 1.0.31 UI (2026-10-30)
 
 Shot set re-cut against `Develop` @ `acd8b24` (the merge of #392) on
