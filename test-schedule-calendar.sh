@@ -189,10 +189,14 @@ PY
 }
 
 info "Seed a pinned conversation dated $TS"
-if ! adb_ shell "test -f /data/data/$PKG/databases/messages.db" >/dev/null 2>&1; then
-    adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 8
-    adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
-fi
+# The file can exist while the schema does not — a cold boot interrupted
+# before the first launch leaves an empty database behind, and seeding then
+# fails with "no such table".
+for _attempt in 1 2 3; do
+    sql "SELECT 1 FROM conversations LIMIT 1;" >/dev/null 2>&1 && break
+    adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 12
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 2
+done
 sql "DELETE FROM conversations WHERE address='$NUM';" >/dev/null 2>&1
 sql "INSERT INTO conversations(address,name,snippet,timestamp,unread_count,pinned) VALUES('$NUM','$MARK','schedule calendar probe',$TS,0,1);" >/dev/null 2>&1
 CID=$(sql "SELECT id FROM conversations WHERE address='$NUM';")
