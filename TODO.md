@@ -5,6 +5,66 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #339 done: one per-chat notification control, not two (2026-11-01)
+
+The reporter's last point: chat details had **two** switches that both decide
+whether that chat alerts — **Notifications** (our own stored mute) and **Custom
+notifications** (a channel of the chat's own). Muting in one left the other
+saying the opposite, which is the same two-sources-of-truth bug as the tone
+picker this issue already removed.
+
+Both reference apps were checked on the device again: Google Messages has one
+**Notifications** row that creates the chat's channel on demand and opens
+Android's page for it; Fossify has **Enable custom notifications** and then
+**Customize notifications**. Neither keeps an in-app mute, so ours was the odd
+one out.
+
+What changed:
+
+- The app-side mute is gone. `SmsSupport.show()` no longer returns early on
+  `conversation_notifications.notifications_enabled`, and
+  `setConversationNotificationsEnabled` /
+  `conversationNotificationsEnabledFlow` /
+  `getConversationNotificationsEnabledBlocking` /
+  `ensureConversationNotificationRow` were removed. The columns stay in the
+  schema and in the backup import, for restores, exactly like `sound`.
+- The surviving switch now carries the plain label **Notifications**; the old
+  `contact_custom_notifications` key is gone from all 13 locales. Switch on =
+  the chat gets `messages_convo_<id>`; **Customize notifications** opens its
+  Android page; switch off deletes the channel and messages fall back to the
+  category channel.
+- Turning that channel off in Android is now the mute. The platform drops the
+  post, but the wake was ours to decide: `show()` reads
+  `channelImportanceFor(context, channelId) == IMPORTANCE_NONE` and skips the
+  full-screen intent for a muted channel, so a muted chat cannot light the
+  screen.
+- Legacy mutes are dropped (GM-style), as the reply promised: a chat muted with
+  the old switch notifies again. No channel is created behind the user's back.
+
+Tests: `./gradlew testDebugUnitTest` green (1187 tests;
+`NotificationChannelWiringTest.thePosterObeysTheChannelInsteadOfAnAppSideMute`
+pins the removed accessors and the wake gate, `SwitchStyleTest` follows the
+renamed state, `BadgeRepostWiringTest` the new wake condition), and
+`scripts/test-notification-channels.sh` is **22 passed / 0 failed** on
+`emulator-5558`.
+
+Non-vacuity: on the pre-change APK the same script is **15/7** — the new case
+fails ("the app-side mute (Custom notifications) is still on the screen"), and
+because the tap then lands on that leftover row the later channel cases cascade
+(no channel created, nothing posts on it, the system page never opens).
+
+Traps met:
+
+- `ContactDetailsWiringTest` bounds the Call/Contact block on the literal
+  `contact_notifications`, which survives this change — the rename went the
+  other way round (that key stays, `contact_custom_notifications` is what got
+  deleted), so that anchor needed no edit.
+- Removing the mute moved the switch's state name: `SwitchStyleTest` looked for
+  `checked = notifState`, and `BadgeRepostWiringTest` for
+  `if (!silentRepost && shouldWake(` — both now follow the production names.
+- A deleted channel stays listed in `dumpsys` with `mDeleted=true`, so the
+  "switch off deletes the channel" case must read the live set, not grep the id.
+
 ## #339 done: the app no longer keeps a notification tone of its own (2026-11-01)
 
 Reporter asked for the in-app sound setting to go, so a chat's tone can only
