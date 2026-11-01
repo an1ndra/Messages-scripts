@@ -43,7 +43,16 @@ anything in the text bar, the send icon could be a voice message icon".
   `NotificationHistoryTest` (audio line survives a blank body),
   `ForwardPlanTest`, `ComposerShapeTest` (corner = half the height). Full suite
   green.
-- `scripts/test-voice-message.sh` (17 checks): preflight refuses a `-no-audio`
+- The record button is a level-meter glyph (`ic_voice_wave`, six round-capped
+  bars) rather than a microphone: the composer is asking for a voice note, not
+  for microphone settings, and the same shape carries the bubble's waveform.
+  The small button at the end of the recording bar uses it too.
+- The recording bar is drawn *over* the composer instead of replacing the text
+  field: taking the field out of the composition dropped its focus, so the IME
+  closed under the finger that had just started recording. The overlay swallows
+  taps, so the field cannot be edited mid-recording either.
+- `scripts/test-voice-message.sh` (21 checks, incl. the keyboard): preflight
+  refuses a `-no-audio`
   emulator, then records for real, asserts the bubble with its length, the
   `bytes=… mime=audio/mp4` log line, slide-to-cancel leaving no message,
   playback starting, and Diagnostics reporting `Voice note: audio/mp4 …` plus

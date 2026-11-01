@@ -97,6 +97,14 @@ open_chat() {
 
 mic_center() { center_of "Record voice message"; }
 
+# "true" while the IME is on screen. The recording bar is drawn over the text
+# field rather than replacing it, because removing the field from the
+# composition drops its focus and closes the keyboard under the user's finger.
+ime_shown() {
+    adb_ shell dumpsys input_method 2>/dev/null | tr -d '\r' |
+        grep -m1 'mInputShown=' | sed 's/.*mInputShown=//'
+}
+
 sent_notes() { grep -c 'D VoiceNote: sent' "$TMP/logcat.txt" 2>/dev/null || true; }
 
 info "An empty composer shows the mic; typing brings Send back"
@@ -118,6 +126,49 @@ else
 fi
 for _ in 1 2 3 4 5; do adb_ shell input keyevent KEYCODE_DEL >/dev/null 2>&1; done
 sleep 1
+
+info "Recording leaves an open keyboard open"
+tap_edittext >/dev/null 2>&1
+sleep 1.5
+if [ "$(ime_shown)" = "true" ]; then
+    ok "the keyboard opened on the composer"
+else
+    bad "the keyboard did not open, so this check cannot say anything"
+fi
+C=$(mic_center) || { bad "voice button has no bounds"; exit 1; }
+(adb_ shell input swipe $C $C 4500 >/dev/null 2>&1) &
+SWIPE_PID=$!
+# The bar is only up while the finger is down, and a uiautomator dump costs a
+# second or two, so poll for it rather than sampling once.
+BAR=0
+for _ in 1 2 3 4 5; do
+    sleep 0.3
+    dump_ui >/dev/null 2>&1 || continue
+    if grep -qF 'text="Slide to cancel"' "$TMP/ui.xml"; then BAR=1; break; fi
+done
+if [ "$BAR" = "1" ]; then
+    ok "holding the mic started a recording with the keyboard up"
+else
+    bad "no recording bar appeared while the keyboard was open"
+fi
+if [ "$(ime_shown)" = "true" ]; then
+    ok "starting a recording does not dismiss the keyboard"
+else
+    bad "the keyboard was dismissed when recording started"
+fi
+wait $SWIPE_PID 2>/dev/null
+sleep 1
+if [ "$(ime_shown)" = "true" ]; then
+    ok "the keyboard is still up after the note is sent"
+else
+    bad "the keyboard closed after the note was sent"
+fi
+# Closing the IME must not cost the chat: BACK on an open keyboard only hides it.
+adb_ shell input keyevent 4 >/dev/null 2>&1
+sleep 1
+if ! dump_ui >/dev/null 2>&1 || ! grep -qF 'content-desc="Record voice message"' "$TMP/ui.xml"; then
+    open_chat || true
+fi
 
 info "Hold the mic to record, release to send"
 C=$(mic_center) || { bad "voice button has no bounds"; exit 1; }
