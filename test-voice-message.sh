@@ -629,6 +629,23 @@ if [ "$FOUND" = "1" ]; then
     else
         bad "the report does not report the recorded size"
     fi
+    # The store, the player and the waveform each report themselves, because a
+    # silent bubble looks the same whether it was never decoded or never sent.
+    if grep -qE "Voice messages: [0-9]+ sent, [0-9]+ received" "$TMP/ui.decoded.xml"; then
+        ok "the report counts the voice notes in the store"
+    else
+        bad "the report does not count the voice notes"
+    fi
+    if grep -qE "Voice playback: (idle|playing|paused)" "$TMP/ui.decoded.xml"; then
+        ok "the report names what the player is doing"
+    else
+        bad "the report does not name the player's state"
+    fi
+    if grep -qE "Voice waveform: (none|decoded|placeholder)" "$TMP/ui.decoded.xml"; then
+        ok "the report says whether the waveform decoded"
+    else
+        bad "the report does not say whether the waveform decoded"
+    fi
 else
     bad "could not reach Diagnostics"
 fi

@@ -194,6 +194,47 @@ note is locked, and hands-free recording is not obvious.
   bubble it just sent. The selection toolbar's overflow also has to be awaited
   — it fades in, and a tap a frame early hits the chat's own "More options".
 
+## #398 done: a multi-picture MMS shows every picture (2026-11-01)
+
+Reported: a received MMS with several pictures showed one and
+`[MMS: 2 additional/unsupported attachment(s) not displayed]`. The reporter's
+Diagnostics showed the import taking one `imageUri` per provider row, so the
+pictures were being dropped at import, not lost on the way to the screen.
+
+- **One message row per attachment.** `MmsSupport.content()` now collects every
+  image part (`imageId` + `extraImageIds`) and exposes `mediaRows()`; `omitted`
+  counts only media the app cannot show at all (video, documents, a second
+  voice note). The import writes a row per part, all with the same `sys_id`, so
+  they group as one MMS in the conversation. The caption stays on the first row.
+- **Schema.** `messages` was unique on `(transport, sys_id)`, which forbade a
+  second row for the same provider message. DB v31 drops that index and
+  recreates it as `(transport, sys_id, media_uri)`; the legacy `dedupeSysIds()`
+  migration had to change too — grouping by `sys_id` alone would have deleted
+  every picture but the first on upgrade.
+- **Backfill.** MMS imported before this change would otherwise stay
+  single-picture forever, so one re-scan runs once per install
+  (`SettingsStore.mmsPartsBackfillDone`): every provider row is re-examined and
+  the missing parts are inserted. No notifications fire for them — they are old
+  messages.
+- **Diagnostics** (added at the maintainer's request, so the next report carries
+  the answer): an `--- MMS ---` block with
+  `Imported: N row(s), K from multi-part MMS (max P row(s))` and
+  `Provider MMS: newest multi-part #id, N part(s)` plus one `seq=… mime` line
+  per part, read from the store and from `content://mms` respectively; and
+  `Voice messages: N sent, M received`, `Voice playback: idle|playing|paused`
+  and `Voice waveform: none|decoded|placeholder`.
+- Tests: `MmsSupportTest` (three pictures → one row + two extras, no notice;
+  media order; text-only MMS has no media rows; picture + voice note now keeps
+  both), `DiagnosticsReportTest` (store/provider wording, voice lines).
+- `scripts/test-mms-multi-image.sh` (7): seeds one MMS with three image parts
+  into the provider, then asserts three imported rows, three distinct part URIs,
+  no notice, idempotent re-sync, a conversation without the notice, and the two
+  Diagnostics lines. Verified **6 failures on the shipped build, 7/7 after**
+  (the app has to be reinstalled fresh: a downgrade from DB v31 is rejected).
+- Trap: provider `pdu._id`s are reused after a delete, so an app row left behind
+  from an earlier run can be counted as one of the fixture's parts — the script
+  deletes app rows for that `sys_id` before importing.
+
 ## #339 done: the app no longer keeps a notification tone of its own (2026-11-01)
 
 Reporter asked for the in-app sound setting to go, so a chat's tone can only
