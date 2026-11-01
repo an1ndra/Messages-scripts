@@ -5,6 +5,59 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #362 fixed properly: the base direction is per line, not per message (2026-11-01)
+
+Second follow-up on the issue, with two more real bodies that still came out
+LTR on the 1.0.31 dev build:
+
+```
+60374356بنام امید / فرستنده: / +989015000000 / استفاده شده SIM: /
+سیم ۱ / ارسال شده: / 18.06 / 11:24 PM
+```
+
+```
+واريز400,000 / مانده1,165,755 / 050705-19:01 / کارت8217* / bki. ir
+```
+
+- **The last-strong rule was the bug.** `BidiText.direction()` decided *one*
+  direction for the whole body and let the last strong character override the
+  first — the rule the issue itself asked for in October. Both bodies end in
+  Latin (`11:24 PM`, `bki. ir`; the space in `bki. ir` also slips past
+  `LINK_RUN`), so both bubbles were painted LTR.
+- **What GM and Fossify actually do** (verified side by side on
+  `emulator-5558`): each *line* is laid out in the direction of its own first
+  strong character, and aligned accordingly. In the receipt, `فرستنده:` and
+  `سیم ۱` are RTL while `18.06` and `11:24 PM` stay LTR in the same bubble.
+  Google Messages `20260827_01_RC03` and Fossify `1.10.2` agree pixel for
+  pixel; ours differed on every Persian line.
+- **Fix:** bubbles paint with `TextDirection.Content` (the platform's own
+  per-paragraph resolution) instead of a direction computed in the app, and
+  `BidiText.direction()` / the last-strong override are gone. `BidiText.lines()`
+  is the per-line rule (first strong; links, emoji and digits never vote) and
+  the isolate transform decides per line: number runs are isolated on RTL
+  lines, and in a mixed message every LTR line is pinned as one run so a card
+  mask or a timestamp cannot be dragged around by a Persian neighbour. An
+  all-LTR message is still left untouched.
+- **Masked card star:** `NUMBER_RUN` now swallows trailing `*`, so
+  `کارت8217*` keeps the star attached instead of painting `کارت*8217` — the one
+  pixel difference left against GM after the direction fix.
+- **Assertion surface changed shape:** `BubbleDirection` logs per-line
+  `dirs=Rtl,Ltr` and `BubbleBidi` logs `lines=Rtl,Ltr`; `ltrLines` is gone.
+  `test-rtl-direction.sh` was rewritten around per-line lists (25 cases),
+  including both issue bodies, the leading-amount and bare-domain lines, and
+  the two flips the old rule encoded (`Order 48291 تکمیل شد` is now Ltr,
+  `سلام OK` now Rtl). It fails **22 of 25** on the pre-fix APK — only the three
+  composer cases pass — and 25/0 on the fix.
+- **#345 re-verified, not regressed:** `test-bidi-card-numbers.sh` 9/0,
+  `test-bidi-bank-time.sh` 7/0, `test-bidi-persian-amount.sh` 7/0,
+  `test-bidi-within-number.sh` 5/0, `test-dialog-rtl-punctuation.sh` 6/0, and
+  the whole unit suite (1197 tests) green. The card/timestamp lines those
+  scripts assert on are still isolated — now because they are LTR lines of a
+  mixed message rather than because a pin guessed the paragraph direction.
+- **One-chat sweep:** 31 bodies (every #362 case plus the #345 bank/card/amount
+  shapes) seeded into a single conversation, scrolled once, asserted from
+  `BubbleDirection`/`BubbleBidi` and the `uiautomator` dump: 31/31.
+
 ## #395 verified fixed: a grouped amount in an RTL message (2026-10-31)
 
 Reporter (1.0.30, F-Droid): "20,980.01" in an RTL message paints as
