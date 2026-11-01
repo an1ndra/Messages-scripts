@@ -127,6 +127,23 @@ fi
 for _ in 1 2 3 4 5; do adb_ shell input keyevent KEYCODE_DEL >/dev/null 2>&1; done
 sleep 1
 
+info "The record disc matches Google Messages' palette"
+adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+VB=$(grep -o "VoiceButton: fill=#[0-9A-F]* ink=#[0-9A-F]* pill=#[0-9A-F]* recording=false" "$TMP/logcat.txt" | tail -1)
+FILL=$(sed -n 's/.*fill=#\([0-9A-F]*\).*/\1/p' <<< "$VB")
+INK=$(sed -n 's/.*ink=#\([0-9A-F]*\).*/\1/p' <<< "$VB")
+PILL=$(sed -n 's/.*pill=#\([0-9A-F]*\).*/\1/p' <<< "$VB")
+if [ -n "$FILL" ] && [ "$FILL" = "$PILL" ]; then
+    ok "idle, the record disc is the composer's own fill"
+else
+    bad "the idle record disc does not match the composer fill (fill=$FILL pill=$PILL)"
+fi
+if [ -n "$INK" ] && [ "$INK" != "$FILL" ]; then
+    ok "its glyph uses a different ink than the disc"
+else
+    bad "the glyph and the disc are painted the same colour"
+fi
+
 info "Recording leaves an open keyboard open"
 tap_edittext >/dev/null 2>&1
 sleep 1.5
