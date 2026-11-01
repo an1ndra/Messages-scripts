@@ -48,10 +48,11 @@ anything in the text bar, the send icon could be a voice message icon".
   three gestures — hold to record, slide left to cancel, swipe up to lock — and
   a "Got it". A hold-to-record button with two hidden exits is not discoverable
   from its icon; the card is gated on the device actually having a microphone.
-- The recording bar names **both** exits: `‹ Slide to cancel` and `⌃ Lock`. The
-  cancel text ellipsizes first if the row is tight; the lock hint never does,
-  because the padlock on the disc only appears once the finger is already moving
-  up — too late to teach the gesture.
+- The lock hint sits **above the button**, on a small rounded tab (padlock over a
+  chevron) the way WhatsApp teaches it — inside the pill it read as one more
+  label in a row that already says "Slide to cancel", and it only exists while a
+  note is running. The bar itself carries just `‹ Slide to cancel`; the padlock
+  on the disc still lights up once the finger heads up.
 - **Motion**: the record/send swap cross-fades, scales 0.7→1 and turns ±45°
   (`AnimatedContent` plus the content scope's own `transition` — Compose 1.8.3
   has no `rotateIn`/`rotateOut`). While recording, a translucent red ring behind

@@ -216,11 +216,11 @@ bin_clickable() {
     grep -oE 'content-desc="Cancel recording"[^>]*clickable="[^"]+"' "$TMP/ui.xml" |
         grep -oE 'clickable="[^"]+"' | head -1 | cut -d'"' -f2
 }
-if grep -qF 'text="Lock"' "$TMP/ui.xml" &&
+if grep -qF 'content-desc="Swipe up to lock recording"' "$TMP/ui.xml" &&
    grep -qF 'text="Slide to cancel"' "$TMP/ui.xml"; then
-    ok "the bar names both exits: slide to cancel and lock"
+    ok "the bar teaches both exits: slide to cancel and the lock tab"
 else
-    bad "the recording bar does not show the lock hint"
+    bad "no lock tab above the button while recording"
 fi
 if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml"; then
     if [ "$(bin_clickable)" = "false" ]; then
