@@ -5,6 +5,52 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #364 done: voice messages, sent and played (2026-11-01)
+
+Reported: "be able to do voice messages … by default, if we do not have written
+anything in the text bar, the send icon could be a voice message icon".
+
+- Composer: an empty draft (and nothing staged) turns the 48dp send circle into
+  an outlined mic. Press-and-hold records, sliding left/up past 72dp arms the
+  cancel, releasing does one of the two. A recording bar replaces the field:
+  red dot, `m:ss` timer, "Slide to cancel" (the string Google Messages uses).
+- Recording stops on its own at the carrier's MMS size budget, read from the
+  same `MmsFacade` profile the send path enforces (`VoiceNotePolicy`), so a note
+  never reaches the radio oversized.
+- Format: AAC-LC mono 32 kbps in MPEG-4, declared `audio/mp4` (Android's own
+  alias `audio/mp4a-latm` is normalised). The `:mms` stack already had
+  `SmilBuilder`/`ContentTypes` support; only the app refused to build one.
+- Sending: `sendMediaMessage` no longer hardcodes `"image"`, `MmsSender`
+  adopts the provider's part for audio as well as images (`adoptProviderMedia`),
+  retry and forward handle audio, and `SmsSupport.sendMms` takes an explicit
+  MIME.
+- Receiving: `MmsSupport.content()` extracts an audio part instead of counting
+  it as unsupported, the row imports as `media_type='audio'`, and the bubble
+  decodes the note's own amplitude envelope for its waveform
+  (`VoiceWaveform`) with play/pause and the length. Notifications label a
+  voice-only MMS "Voice message" like they label a photo-only one "Photo".
+- UI reference: Google Messages (`prefer GM`). Its composer here cannot be
+  exercised live — the AVD's modem is down — so the interaction and wording
+  come from GM's own `resources.arsc` ("Touch and hold to record audio",
+  "Slide to cancel", "Swipe up to lock recording", "Audio waveform playback
+  slider"). Fossify Messages 1.10.2 was checked too: it has no composer mic at
+  all (recording lives in its attach sheet), so nothing there was copied.
+- Composer geometry now matches GM's: one 48dp-tall pill with a 24dp corner,
+  the same height as the 48dp circle beside it. The Material `TextField`'s 56dp
+  minimum was what made the field taller than the button.
+- Tests: `VoiceNotePolicyTest`, `VoiceWaveformTest`, `MmsSupportTest` (audio
+  part, kind, alias, SMIL name), `ComposerSendTest` (mic/send swap),
+  `NotificationHistoryTest` (audio line survives a blank body),
+  `ForwardPlanTest`, `ComposerShapeTest` (corner = half the height). Full suite
+  green.
+- `scripts/test-voice-message.sh` (17 checks): preflight refuses a `-no-audio`
+  emulator, then records for real, asserts the bubble with its length, the
+  `bytes=… mime=audio/mp4` log line, slide-to-cancel leaving no message,
+  playback starting, and Diagnostics reporting `Voice note: audio/mp4 …` plus
+  `Last voice note: N B`. Verified failing on a build with the mic swap
+  disabled (3 failures: conversation could not open, composer showed Send,
+  no voice button), passing after.
+
 ## #339 done: the app no longer keeps a notification tone of its own (2026-11-01)
 
 Reporter asked for the in-app sound setting to go, so a chat's tone can only
