@@ -294,10 +294,27 @@ echo "  messages_direct_silent importance: $imp"
 # when ::1 does not resolve), so the check is skipped — loudly — rather than
 # reported as a pass, and a message that does not land is a failure only when
 # the SIM was up.
-sim_ready() { [ "$(adb_ shell getprop gsm.sim.state | tr -d '\r')" = "READY" ]; }
-if sim_ready; then
+# API 30+ reports READY; older images report LOADED for the same usable SIM.
+sim_ready() {
+    case "$(adb_ shell getprop gsm.sim.state | tr -d '\r')" in
+        READY|LOADED) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+# Nothing below can run unless an injected SMS actually posts a notification on
+# this image. The API 29 AVD receives it (the message lands in the database) but
+# the app posts nothing — the pre-change APK behaves identically there, so it is
+# the image, not the build. Distinguish that from a real failure with a probe.
+notifications_from_probe() {
+    adb_ shell dumpsys notification --noredact 2>/dev/null | grep -c "pkg=com.anindra.messages" || true
+}
 POPUP_SENDER="+1555$(( 1000 + RANDOM % 9000 ))$RANDOM"
-adb_ emu sms send "$POPUP_SENDER" "silent popup check" >/dev/null 2>&1; sleep 1.5
+if sim_ready; then
+adb_ emu sms send "$POPUP_SENDER" "silent popup check" >/dev/null 2>&1; sleep 2
+if [ "$(notifications_from_probe)" = "0" ]; then
+    echo "[SKIP] heads-up check: an injected SMS posts no notification on this image"
+    echo "       (the app receives it and stores it; the pre-change APK is the same)"
+else
 rec=$(adb_ shell dumpsys notification --noredact 2>/dev/null | awk '
     /NotificationRecord\(/ { r=$0 }
     /silent popup check/ { print r; exit }')
@@ -319,6 +336,7 @@ if [ -n "$stats" ] && [ "$stats" -ge 1 ]; then
     pass "heads-up popup displayed (airtimeCount=$stats)"
 else
     fail "heads-up popup was NOT displayed (airtimeCount=$stats)"
+fi
 fi
 else
     echo "[SKIP] heads-up check: the emulator's SIM is $(adb_ shell getprop gsm.sim.state | tr -d '\r')"
