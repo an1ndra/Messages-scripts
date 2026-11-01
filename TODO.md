@@ -43,6 +43,13 @@ anything in the text bar, the send icon could be a voice message icon".
   `NotificationHistoryTest` (audio line survives a blank body),
   `ForwardPlanTest`, `ComposerShapeTest` (corner = half the height). Full suite
   green.
+- Two exits from the recording, as in Google Messages: slide left to drop it
+  (the hint says "Slide to cancel"), or swipe up to **lock** it and keep
+  recording with the finger lifted. Locked, the bar's only control is a bin
+  ("Cancel recording") and the circle becomes Send; while unlocked the bin is
+  not drawn at all, because nothing can press it under a held finger. The arm
+  decision is pure (`VoiceGesture.armFor`: a diagonal up-left counts as the
+  cancel, since throwing a note away must be the easier accident).
 - The record button is a level-meter glyph (`ic_voice_wave`, six round-capped
   bars) rather than a microphone: the composer is asking for a voice note, not
   for microphone settings, and the same shape carries the bubble's waveform.

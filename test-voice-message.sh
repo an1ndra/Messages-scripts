@@ -151,6 +151,13 @@ if [ "$BAR" = "1" ]; then
 else
     bad "no recording bar appeared while the keyboard was open"
 fi
+# Nothing can press a control while that same finger is holding, so the bin must
+# not be drawn yet — it only appears once the recording is locked.
+if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml"; then
+    bad "the discard bin is drawn while the finger is still holding"
+else
+    ok "no unpressable bin while the finger is still holding"
+fi
 if [ "$(ime_shown)" = "true" ]; then
     ok "starting a recording does not dismiss the keyboard"
 else
@@ -200,19 +207,19 @@ else
     bad "the note is not sent as audio/mp4"
 fi
 
-info "Sliding up cancels instead of sending"
+info "Sliding left cancels instead of sending"
 COUNT_BEFORE=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
 LAST_BEFORE=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
 C=$(mic_center) || { bad "voice button vanished"; exit 1; }
 X=${C% *}; Y=${C#* }
-adb_ shell input swipe "$X" "$Y" "$X" "$((Y - 320))" 1200 >/dev/null 2>&1
+adb_ shell input swipe "$X" "$Y" "$((X - 320))" "$Y" 1200 >/dev/null 2>&1
 sleep 2
 dump_ui >/dev/null 2>&1
 COUNT_AFTER=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
 adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
 LAST_AFTER=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
 if [ "$COUNT_AFTER" = "$COUNT_BEFORE" ] && [ "$LAST_AFTER" = "$LAST_BEFORE" ]; then
-    ok "a slide-up cancelled the recording without sending it"
+    ok "a slide-left cancelled the recording without sending it"
 else
     bad "the cancelled recording was sent anyway"
 fi
@@ -220,6 +227,68 @@ if dump_ui >/dev/null 2>&1 && grep -qF 'content-desc="Record voice message"' "$T
     ok "the mic came back after the cancel"
 else
     bad "the composer did not return to the mic after cancelling"
+fi
+
+info "Swiping up locks the recording hands-free"
+COUNT_BEFORE=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
+C=$(mic_center) || { bad "voice button vanished before the lock test"; exit 1; }
+X=${C% *}; Y=${C#* }
+adb_ shell input swipe "$X" "$Y" "$X" "$((Y - 400))" 1500 >/dev/null 2>&1
+sleep 1.5
+dump_ui >/dev/null 2>&1
+if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml" &&
+   grep -qE 'text="[0-9]{2}:[0-9]{2}"' "$TMP/ui.decoded.xml"; then
+    ok "the swipe locked the recording while the finger was released"
+else
+    bad "the recording did not survive the finger being lifted"
+fi
+if grep -qF 'content-desc="Send"' "$TMP/ui.xml"; then
+    ok "a locked recording offers Send on the circle"
+else
+    bad "no way to send a locked recording"
+fi
+adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+LOCKED_BYTES=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
+
+info "The bin drops a locked recording"
+tap_text "Cancel recording" >/dev/null 2>&1
+sleep 1.5
+dump_ui >/dev/null 2>&1
+COUNT_AFTER=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
+adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+AFTER_BYTES=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
+if [ "$COUNT_AFTER" = "$COUNT_BEFORE" ] && [ "$AFTER_BYTES" = "$LOCKED_BYTES" ]; then
+    ok "the bin discarded the locked recording instead of sending it"
+else
+    bad "a discarded locked recording was sent anyway"
+fi
+
+info "A locked recording sends from the circle"
+C=$(mic_center) || { bad "voice button vanished after the discard"; exit 1; }
+X=${C% *}; Y=${C#* }
+adb_ shell input swipe "$X" "$Y" "$X" "$((Y - 400))" 1500 >/dev/null 2>&1
+sleep 1.5
+dump_ui >/dev/null 2>&1
+if grep -qF 'content-desc="Send"' "$TMP/ui.xml"; then
+    adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+    BYTES_BEFORE=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
+    tap_text "Send" >/dev/null 2>&1
+    # The bubble and the log line are both evidence; poll rather than sampling
+    # once, because the row only appears after the recorder has closed the file.
+    POSTED=0
+    for _ in 1 2 3 4 5 6; do
+        sleep 0.5
+        dump_ui >/dev/null 2>&1 || continue
+        COUNT_SENT=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
+        if [ "$COUNT_SENT" -gt "$COUNT_BEFORE" ]; then POSTED=1; break; fi
+        adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+        BYTES_NOW=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
+        if [ -n "$BYTES_NOW" ] && [ "$BYTES_NOW" != "$BYTES_BEFORE" ]; then POSTED=1; break; fi
+    done
+    [ "$POSTED" = "1" ] && ok "tapping Send posted the locked recording" \
+        || bad "the locked recording was not posted"
+else
+    bad "the locked recording never offered Send"
 fi
 
 info "The recorded note plays back"
