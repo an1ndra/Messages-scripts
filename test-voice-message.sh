@@ -97,6 +97,21 @@ open_chat() {
 
 mic_center() { center_of "Record voice message"; }
 
+# A deliberate lock: hold, slide up into the lock zone, and stay there long
+# enough for the dwell. `input swipe` cannot do this — it lifts the finger at
+# the end of the gesture, which is exactly the "swipe up and hope" that locked
+# by accident (#364).
+lock_mic() {
+    local c x y
+    c=$(mic_center) || return 1
+    x=${c% *}; y=${c#* }
+    adb_ shell input motionevent DOWN "$x" "$y" >/dev/null 2>&1
+    sleep 0.6
+    adb_ shell input motionevent MOVE "$x" "$((y - 450))" >/dev/null 2>&1
+    sleep 0.9
+    adb_ shell input motionevent UP "$x" "$((y - 450))" >/dev/null 2>&1
+}
+
 # "true" while the IME is on screen. The recording bar is drawn over the text
 # field rather than replacing it, because removing the field from the
 # composition drops its focus and closes the keyboard under the user's finger.
@@ -185,6 +200,29 @@ else
     bad "the glyph and the disc are painted the same colour"
 fi
 
+info "A tap on the mic is not a recording"
+adb_ shell logcat -c >/dev/null 2>&1
+C=$(mic_center) || { bad "voice button has no bounds"; exit 1; }
+adb_ shell input tap $C >/dev/null 2>&1
+sleep 1
+dump_ui >/dev/null 2>&1
+if grep -qF 'text="Slide to cancel"' "$TMP/ui.xml"; then
+    bad "a tap on the mic started a recording"
+else
+    ok "a tap on the mic records nothing"
+fi
+adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+if grep -q 'D VoiceNote: sent' "$TMP/logcat.txt"; then
+    bad "a tap on the mic sent a note"
+else
+    ok "a tap on the mic sends nothing"
+fi
+if grep -qF 'content-desc="Record voice message"' "$TMP/ui.xml"; then
+    ok "the mic is still there after a tap"
+else
+    bad "the composer lost the mic after a tap"
+fi
+
 info "Recording leaves an open keyboard open"
 tap_edittext >/dev/null 2>&1
 sleep 1.5
@@ -194,12 +232,15 @@ else
     bad "the keyboard did not open, so this check cannot say anything"
 fi
 C=$(mic_center) || { bad "voice button has no bounds"; exit 1; }
-(adb_ shell input swipe $C $C 4500 >/dev/null 2>&1) &
-SWIPE_PID=$!
+# A real hold: `input swipe` with identical endpoints is an instant tap, which
+# this app must no longer treat as a recording (#364). motionevent keeps the
+# finger down while the bar is polled.
+HX=${C% *}; HY=${C#* }
+adb_ shell input motionevent DOWN "$HX" "$HY" >/dev/null 2>&1
 # The bar is only up while the finger is down, and a uiautomator dump costs a
 # second or two, so poll for it rather than sampling once.
 BAR=0
-for _ in 1 2 3 4 5; do
+for _ in 1 2 3 4 5 6; do
     sleep 0.3
     dump_ui >/dev/null 2>&1 || continue
     if grep -qF 'text="Slide to cancel"' "$TMP/ui.xml"; then BAR=1; break; fi
@@ -236,7 +277,7 @@ if [ "$(ime_shown)" = "true" ]; then
 else
     bad "the keyboard was dismissed when recording started"
 fi
-wait $SWIPE_PID 2>/dev/null
+adb_ shell input motionevent UP "$HX" "$HY" >/dev/null 2>&1
 sleep 1
 if [ "$(ime_shown)" = "true" ]; then
     ok "the keyboard is still up after the note is sent"
@@ -252,7 +293,10 @@ fi
 
 info "Hold the mic to record, release to send"
 C=$(mic_center) || { bad "voice button has no bounds"; exit 1; }
-adb_ shell input swipe $C $C 2000 >/dev/null 2>&1
+HX=${C% *}; HY=${C#* }
+adb_ shell input motionevent DOWN "$HX" "$HY" >/dev/null 2>&1
+sleep 2
+adb_ shell input motionevent UP "$HX" "$HY" >/dev/null 2>&1
 sleep 2
 dump_ui >/dev/null 2>&1
 # The bubble shows the clip's length, the way Google Messages labels one; a
@@ -281,8 +325,12 @@ else
 fi
 
 info "Sliding left cancels instead of sending"
+# Take both readings fresh: a dump left over from the previous section can miss
+# the bubble it just sent, which read as "the cancel sent a note".
+dump_ui >/dev/null 2>&1
 COUNT_BEFORE=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
-LAST_BEFORE=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
+adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+SENT_BEFORE=$(grep -c 'D VoiceNote: sent' "$TMP/logcat.txt" 2>/dev/null || true)
 C=$(mic_center) || { bad "voice button vanished"; exit 1; }
 X=${C% *}; Y=${C#* }
 adb_ shell input swipe "$X" "$Y" "$((X - 320))" "$Y" 1200 >/dev/null 2>&1
@@ -290,8 +338,8 @@ sleep 2
 dump_ui >/dev/null 2>&1
 COUNT_AFTER=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
 adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
-LAST_AFTER=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
-if [ "$COUNT_AFTER" = "$COUNT_BEFORE" ] && [ "$LAST_AFTER" = "$LAST_BEFORE" ]; then
+SENT_AFTER=$(grep -c 'D VoiceNote: sent' "$TMP/logcat.txt" 2>/dev/null || true)
+if [ "$COUNT_AFTER" = "$COUNT_BEFORE" ] && [ "${SENT_AFTER:-0}" = "${SENT_BEFORE:-0}" ]; then
     ok "a slide-left cancelled the recording without sending it"
 else
     bad "the cancelled recording was sent anyway"
@@ -304,9 +352,22 @@ fi
 
 info "Swiping up locks the recording hands-free"
 COUNT_BEFORE=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
+# A hand that drifts up and comes back must not go hands-free on its own.
 C=$(mic_center) || { bad "voice button vanished before the lock test"; exit 1; }
 X=${C% *}; Y=${C#* }
-adb_ shell input swipe "$X" "$Y" "$X" "$((Y - 400))" 1500 >/dev/null 2>&1
+adb_ shell input motionevent DOWN "$X" "$Y" >/dev/null 2>&1
+sleep 0.6
+adb_ shell input motionevent MOVE "$X" "$((Y - 200))" >/dev/null 2>&1
+sleep 1.2
+dump_ui >/dev/null 2>&1
+if grep -qF 'text="Recording hands-free"' "$TMP/ui.xml"; then
+    bad "a small upward drift still locked the recording"
+else
+    ok "drifting up without a deliberate swipe does not lock"
+fi
+adb_ shell input motionevent UP "$X" "$((Y - 200))" >/dev/null 2>&1
+sleep 1.5
+lock_mic || { bad "voice button vanished before the lock test"; exit 1; }
 sleep 1.5
 dump_ui >/dev/null 2>&1
 if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml" &&
@@ -319,6 +380,19 @@ if [ "$(bin_clickable)" = "true" ]; then
     ok "the bin becomes a button once the recording is locked"
 else
     bad "the bin stayed inert after locking"
+fi
+# #364: a locked note has no finger on the screen, so a bar still offering
+# "Slide to cancel" is describing a gesture nobody can make — and the note
+# running hands-free has to say so.
+if grep -qF 'text="Recording hands-free"' "$TMP/ui.xml"; then
+    ok "the locked bar says the note is still recording hands-free"
+else
+    bad "the locked bar does not say it is recording hands-free"
+fi
+if grep -qF 'text="Slide to cancel"' "$TMP/ui.xml"; then
+    bad "the locked bar still offers a slide nobody can make"
+else
+    ok "the locked bar drops the slide hint"
 fi
 if grep -qF 'content-desc="Send"' "$TMP/ui.xml"; then
     ok "a locked recording offers Send on the circle"
@@ -342,9 +416,7 @@ else
 fi
 
 info "A locked recording sends from the circle"
-C=$(mic_center) || { bad "voice button vanished after the discard"; exit 1; }
-X=${C% *}; Y=${C#* }
-adb_ shell input swipe "$X" "$Y" "$X" "$((Y - 400))" 1500 >/dev/null 2>&1
+lock_mic || { bad "voice button vanished after the discard"; exit 1; }
 sleep 1.5
 dump_ui >/dev/null 2>&1
 if grep -qF 'content-desc="Send"' "$TMP/ui.xml"; then
@@ -388,6 +460,106 @@ if [ -n "$c" ]; then
         fi
     done
     [ "$STARTED" = "1" ] && ok "tapping play starts playback" || bad "playback did not start"
+fi
+
+info "A voice note is saved as audio, not as an image (#364)"
+COUNT_BEFORE=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
+c=$(center_of "Play voice message" 2>/dev/null) || c=""
+if [ -n "$c" ]; then
+    LX=${c% *}; LY=${c#* }
+    # Long-press the bubble itself, not the play control, so the app enters
+    # selection mode instead of starting playback again.
+    adb_ shell input swipe "$((LX + 120))" "$LY" "$((LX + 120))" "$LY" 900 >/dev/null 2>&1
+    SEL=0
+    for _ in 1 2 3 4 5; do
+        sleep 0.4
+        dump_ui >/dev/null 2>&1 || continue
+        # The chat's own top bar has a "More options" too, so the selection
+        # toolbar is the one that also carries "Cancel selection".
+        if grep -qF 'content-desc="Cancel selection"' "$TMP/ui.xml"; then SEL=1; break; fi
+    done
+    if [ "$SEL" = "1" ]; then
+        ok "long-pressing a voice note opens the selection toolbar"
+        # Poll for the menu: the toolbar fades in with an AnimatedContent, so a
+        # tap a frame too early hits the chat bar underneath instead.
+        MENU=0
+        for _ in 1 2 3 4 5; do
+            MC=$(center_of "More options" 2>/dev/null) || MC=""
+            [ -n "$MC" ] || break
+            adb_ shell input tap $MC >/dev/null 2>&1
+            for _ in 1 2 3; do
+                sleep 0.4
+                dump_ui >/dev/null 2>&1 || continue
+                if grep -qF 'text="Select all"' "$TMP/ui.xml"; then MENU=1; break 2; fi
+            done
+        done
+        if [ "$MENU" != "1" ]; then
+            bad "the selection overflow did not open"
+        fi
+        if grep -qF 'text="Save voice message"' "$TMP/ui.xml"; then
+            ok "the overflow offers to save the voice message"
+        else
+            bad "the overflow has no save action for a voice note"
+        fi
+        if grep -qF 'text="Save image"' "$TMP/ui.xml"; then
+            bad "a voice note is still offered as an image"
+        else
+            ok "a voice note is not offered as an image"
+        fi
+        adb_ shell logcat -c >/dev/null 2>&1
+        tap_text "Save voice message" >/dev/null 2>&1
+        SAVED=0
+        for _ in 1 2 3 4 5 6; do
+            sleep 0.5
+            adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+            LINE=$(grep -m1 'AttachmentSave' "$TMP/logcat.txt" 2>/dev/null)
+            [ -n "$LINE" ] && { SAVED=1; break; }
+        done
+        if [ "$SAVED" = "1" ]; then
+            ok "the save names its outcome for the script: $(sed 's/.*AttachmentSave: //' <<< "$LINE")"
+        else
+            bad "the save reported nothing, so success and failure look alike"
+        fi
+        if grep -qE 'AttachmentSave: target=AUDIO .* ok=true' "$TMP/logcat.txt"; then
+            ok "the voice note is saved as audio"
+        else
+            bad "the voice note was not saved (target=$(sed -n 's/.*target=\([A-Z]*\).*/\1/p' <<< "$LINE"))"
+        fi
+        if grep -qE 'AttachmentSave: .* mime=audio/mp4 ' "$TMP/logcat.txt"; then
+            ok "the saved file keeps its audio type"
+        else
+            bad "the saved file does not keep its audio type"
+        fi
+        if grep -qE 'AttachmentSave: .* name=.*\.m4a ok=' "$TMP/logcat.txt"; then
+            ok "the saved file is named .m4a, not .jpg"
+        else
+            bad "the voice note was named as if it were a picture"
+        fi
+        SAVED_NAME=$(sed -n 's/.*name=\(.*\) ok=.*/\1/p' <<< "$LINE")
+        # The audio collection has to hold the row; an audio insert into the
+        # gallery collection is exactly the write that used to fail. An empty
+        # name would match every row, so it fails instead.
+        AUDIO_ROWS=0
+        if [ -n "$SAVED_NAME" ]; then
+            AUDIO_ROWS=$(adb_ shell content query --uri content://media/external/audio/media \
+                --projection _display_name 2>/dev/null | grep -cF "$SAVED_NAME" || true)
+        fi
+        if [ "${AUDIO_ROWS:-0}" -ge 1 ]; then
+            ok "the note landed in the audio collection (Music/Messages)"
+        else
+            bad "no audio row was written for the saved voice note"
+        fi
+        [ -n "$SAVED_NAME" ] && adb_ shell "rm -f \"/sdcard/Music/Messages/$SAVED_NAME\"" >/dev/null 2>&1
+        [ -n "$SAVED_NAME" ] && adb_ shell content delete --uri content://media/external/audio/media \
+            --where "\"_display_name='$SAVED_NAME'\"" >/dev/null 2>&1
+        # Leave nothing selected for the sections that follow.
+        adb_ shell input keyevent 4 >/dev/null 2>&1
+        sleep 0.5
+    else
+        bad "a long press on a voice note did not select anything"
+    fi
+else
+    bad "no voice bubble to save"
 fi
 
 info "Diagnostics reports the voice-note cap and the last note"

@@ -93,6 +93,67 @@ anything in the text bar, the send icon could be a voice message icon".
   disabled (3 failures: conversation could not open, composer showed Send,
   no voice button), passing after.
 
+### #364 follow-up: the three things the reporter found (2026-11-01)
+
+Grise3 verified a note arrives and sounds right, then reported:
+"Save image" on a voice note fails, "slide to cancel" does nothing once the
+note is locked, and hands-free recording is not obvious.
+
+- **Save was the wrong action, not a broken write.** The overflow offered
+  `chat_save_image` for any selected message with a `mediaUri`, and
+  `saveMessageImage` always inserted into `MediaStore.Images` — an `audio/mp4`
+  insert there throws, and `DownloadsStore` swallowed the exception, which is
+  why logcat was silent. Even a successful insert would have named the file
+  `.jpg`: `MmsSupport.EXTENSIONS` only knew pictures. Now
+  `MmsSupport.saveTargetFor(mediaType)` is the one decision, read by the menu
+  (`SelectionToolbar.saveLabelRes` → "Save voice message") and by
+  `DownloadsStore.writeMedia`, which picks Images (`Pictures/Messages`),
+  Audio (`Music/Messages`) or Downloads. Audio extensions were added, and the
+  outcome is logged as `AttachmentSave: target=… mime=… name=… ok=…` so a
+  script can tell success from failure.
+- **The locked bar was describing a gesture nobody could make.** Its copy came
+  from `arm` alone, so once `locked` the finger was gone but the bar still said
+  "Slide to cancel" with a chevron. `VoiceBar.modeFor(locked, arm)` is now one
+  value (`HOLD` / `CANCEL` / `LOCKED`) driving the hint, the chevron-vs-lock
+  icon, whether the bin is a button, and a pulsing dot; locked reads
+  "Recording hands-free". The bar's contents also follow the slide, so the
+  gesture visibly does something.
+- **Two gestures were too easy to trigger.** A tap on the mic opened
+  `MediaRecorder` and left a note behind — the recorder now only starts after
+  `VoiceGesture.HOLD_DELAY_MS` (260 ms) of held press, so a tap records
+  nothing. Locking armed at the cancel's 72dp, so a hand drifting up while
+  speaking dropped into hands-free; the lock now needs 1.75× the distance
+  (`lockThreshold`), a swipe that is more up than sideways, **and**
+  `LOCK_DWELL_MS` (400 ms) spent in the lock zone — crossing it is no longer a
+  lock, which is what "still too sensitive" meant after the first pass. The
+  dwell is committed by its own effect, not by the drag loop, because a finger
+  that stops moving stops producing pointer events.
+- Trap worth remembering: `holding` was already taken by the send circle's
+  schedule-hold further down `InputBar`, so assigning to it from the record
+  gesture silently rebound to the other variable and the delayed start never
+  fired. The mic's state is `micHeld` for that reason.
+- Tests: `SelectionToolbarTest` (audio is never "Save image", text/files offer
+  no save), `MmsSupportTest` (`.m4a` name and audio fallback MIME),
+  `VoiceGestureTest` (drift does not lock, sideways swipe does not lock, lock
+  costs more than cancel, hold delay ≥ 200 ms), `VoiceBarTest` (one hint per
+  mode, chevron/lock swap, bin only pressable when locked, slide offset
+  clamped).
+- `scripts/test-voice-message.sh` grew from 21 to **48 checks**: a tap records
+  and sends nothing, a drift up does not lock, a dwelled swipe does, the locked
+  bar says "Recording hands-free" and drops the slide hint, and a long-pressed
+  voice note offers "Save voice message" (not "Save image"), saving with
+  `target=AUDIO … ok=true`, a `.m4a` name and a row in the audio collection.
+  Verified against the shipped build first: 9 of the new assertions failed
+  (menu said "Save image", no `AttachmentSave` line, no audio row) while the
+  liveness ones passed, as expected; 48/48 after.
+- Two script traps found here: `input swipe x y x y` is a **tap**, not a hold
+  (the old build recorded on it, which is exactly the "starts recording too
+  easily" report), so holds and dwells use `input motionevent DOWN/MOVE/UP`;
+  and both readings of a "did this send anything?" comparison have to be taken
+  in the same section, because a stale dump from the previous one misses the
+  bubble it just sent. The selection toolbar's overflow also has to be awaited
+  — it fades in, and a tap a frame early hits the chat's own "More options".
+
 ## #339 done: the app no longer keeps a notification tone of its own (2026-11-01)
 
 Reporter asked for the in-app sound setting to go, so a chat's tone can only
