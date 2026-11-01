@@ -140,6 +140,22 @@ note is locked, and hands-free recording is not obvious.
 - The stalk is **1.5× taller** (154dp, 114dp visible) at the maintainer's
   request, which also puts the padlock further from the button; the 0.5×
   misreading briefly tried the opposite and made the drift case worse.
+- **The tall tab floated free of the disc.** A 2x zoom of the composer showed a
+  24px dark seam between the tab's bottom and the disc: the tab's bottom sat
+  *above* the button, so the "stalk" read as a white slab pasted over the chat.
+  Three separate Compose traps produced that, all measured rather than guessed
+  (`VoiceLockGeom: tabTop=… tabH=… micTop=…` on the device):
+  1. `height()` is coerced to the parent's 56dp box, so the tab came out 38dp
+     tall and lost its chevron; `requiredHeight()` is what keeps the length.
+  2. `padding(top = …)` on the tab shifted everything `onGloballyPositioned`
+     and the hit area saw, so the icon log and the button did not agree — it is
+     a `Spacer` inside the column now.
+  3. A `Box` **centres a child larger than itself**, so `.align(TopCenter)` plus
+     `offset(y = -VISIBLE)` landed the tab 43dp too high; `OFFSET_DP` now
+     subtracts `(BUTTON - HEIGHT) / 2` and a unit test pins that the tab's top
+     is `VISIBLE_DP` above the button and its bottom `TUCK_DP` behind the disc.
+  The visible height is 114dp (1.5x the original 76dp) and the bottom tucks
+  28dp behind the disc, so the tab reads as rising out of the record button.
 - **The disc lied before anything locked.** Screenshots at 140/220/300px of lift
   showed the record disc already wearing a padlock (the old `lockHint` fired at
   35% of the slide) while the bar still said "Slide to cancel" and nothing had
