@@ -151,12 +151,21 @@ if [ "$BAR" = "1" ]; then
 else
     bad "no recording bar appeared while the keyboard was open"
 fi
-# Nothing can press a control while that same finger is holding, so the bin must
-# not be drawn yet — it only appears once the recording is locked.
+# Google Messages draws the bin mid-hold as the target the slide is aimed at,
+# but it is not a button until the recording is locked; a clickable-looking bin
+# under a held finger is the thing that read as broken.
+bin_clickable() {
+    grep -oE 'content-desc="Cancel recording"[^>]*clickable="[^"]+"' "$TMP/ui.xml" |
+        grep -oE 'clickable="[^"]+"' | head -1 | cut -d'"' -f2
+}
 if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml"; then
-    bad "the discard bin is drawn while the finger is still holding"
+    if [ "$(bin_clickable)" = "false" ]; then
+        ok "the bin is drawn mid-hold but is not clickable yet"
+    else
+        bad "the bin is a live button under a finger that is still holding"
+    fi
 else
-    ok "no unpressable bin while the finger is still holding"
+    bad "the discard bin is missing from the recording bar"
 fi
 if [ "$(ime_shown)" = "true" ]; then
     ok "starting a recording does not dismiss the keyboard"
@@ -241,6 +250,11 @@ if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml" &&
     ok "the swipe locked the recording while the finger was released"
 else
     bad "the recording did not survive the finger being lifted"
+fi
+if [ "$(bin_clickable)" = "true" ]; then
+    ok "the bin becomes a button once the recording is locked"
+else
+    bad "the bin stayed inert after locking"
 fi
 if grep -qF 'content-desc="Send"' "$TMP/ui.xml"; then
     ok "a locked recording offers Send on the circle"

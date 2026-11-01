@@ -50,6 +50,14 @@ anything in the text bar, the send icon could be a voice message icon".
   not drawn at all, because nothing can press it under a held finger. The arm
   decision is pure (`VoiceGesture.armFor`: a diagonal up-left counts as the
   cancel, since throwing a note away must be the easier accident).
+- Palette measured off Google Messages' own composer, not guessed: idle the
+  disc is the **pill's own fill** (#1A2025) with a #C0C7CD glyph, and recording
+  repaints it **#DC362E** with white ink (`ColorScheme.recordActive` in
+  `Theme.kt` — `error` in a dark M3 scheme is a pale salmon meant for text and
+  read as a disabled button). The bar is GM's: a steady 12dp white dot, the
+  `mm:ss` counter, the bin, a left chevron and "Slide to cancel" centred in the
+  space that is left. The disc does **not** swell while recording — that painted a
+  lighter arc over the pill's edge and read as a ripple around the button.
 - The record button is a level-meter glyph (`ic_voice_wave`, six round-capped
   bars) rather than a microphone: the composer is asking for a voice note, not
   for microphone settings, and the same shape carries the bubble's waveform.
