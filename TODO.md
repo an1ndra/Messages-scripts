@@ -5,6 +5,37 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #339 done: the app no longer keeps a notification tone of its own (2026-11-01)
+
+Reporter asked for the in-app sound setting to go, so a chat's tone can only
+come from its notification channel. Done in full: the picker is gone, and the
+three category channels are the only ids a category can own now.
+
+- What was wrong: the tone lived in `SettingsStore` and in the channel id
+  (`messages_direct_dragon`). Changing it minted a new channel and deleted the
+  old one, so the user's importance, vibration and pop-on-screen tuning went
+  with it. If the tone was changed in Android instead, the picker kept showing
+  the stored value — two sources of truth for one sound.
+- Now: `messages_<category>_default` while receive sound is on,
+  `messages_<category>_silent` while it is off, and the tone is set once at
+  creation from the system default. The retired per-tone ids (`_app`,
+  `_dragon`, `_uf09`, `_uf062`) are swept on every launch. The row that remains
+  is **Manage in system settings**, which opens Android's channel page — the
+  same hand-off the per-chat switch already used.
+- Removed: `notificationSound`, `notificationSoundFor`/`setNotificationSoundFor`
+  and `hasNotificationSoundOverride` from `SettingsStore`, the picker in both
+  settings trees, `NotificationHelper.previewNotificationSound`, four bundled
+  tone files (`dragon_studio`, `universfield_09`, `universfield_062`; the send
+  sound keeps `notification_sound.mp3` and the silent channel keeps
+  `silent.wav`), and 8 string keys × 13 locales.
+- Verified: `./gradlew testDebugUnitTest` green (1185 tests);
+  `scripts/test-notification-sound.sh` rewritten — **4 failures on the pre-change
+  APK** (picker present, `messages_direct_dragon` minted from the stored pref,
+  `messages_direct_default` deleted, channel sound changed), **22 passed / 0
+  failed** after. The heads-up half of that script skipped on this run because
+  the AVD's modem is down (`Unable to connect character device modem`,
+  `gsm.sim.state=NOT_READY`); the silent-clip assertion still ran and passed.
+
 ## #395 verified fixed: a grouped amount in an RTL message (2026-10-31)
 
 Reporter (1.0.30, F-Droid): "20,980.01" in an RTL message paints as
