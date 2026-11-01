@@ -56,6 +56,32 @@ blank, but the app goes to that conversation."
   target (keeping the activity declared) gives 6/1, failing exactly
   "the bubble has no task of its own".
 
+### Follow-up: the bubble asked for the app lock again (2026-11-01)
+
+Reporter (6557380328, on the build with the fix): "unlock dialog appear when
+I'm in the app, app is onced unlocked but opening that bubble asks for it
+again". Correct — and caused by the fix above, not by the platform: the prompt
+sat in `setContent` behind `remember { mutableStateOf(!appLockEnabled) }`, so
+it was per activity, and a bubble is now always a second activity. Google
+Messages does not re-ask.
+
+`eff7cf5` ("one app-lock prompt per session, ended by the screen") already
+existed on `fix/345-bidi-dupes-badge` and was never on `Develop`; it is
+cherry-picked onto the bubble branch. `LockSession` holds the unlock for the
+process, the gate skips the prompt when it is open, and a screen-off receiver
+ends it (nothing persisted, so a restart asks again).
+
+- Units: `LockSessionTest`. `scripts/test-app-lock-session.sh` 4/0
+  (starts locked, survives a new activity, ends on screen off, never persisted).
+- `scripts/test-bubble-foreground.sh` grew two cases: with the app lock on and
+  the session unlocked, opening a bubble must not log `prompt=shown` (it fails
+  on a build whose `isUnlocked()` is stubbed to false: 9/1), and the bubble must
+  still open. 10/0 now.
+- Verified end to end on `emulator-5558`: session unlocked → tap bubble →
+  `BubbleChatActivity` in task `A=10122:com.anindra.messages.bubble`
+  (`mode=multi-window`), no prompt, chat rendered; session locked → the same
+  tap logs `prompt=shown` and shows the lock gate.
+
 ## #395 verified fixed: a grouped amount in an RTL message (2026-10-31)
 
 Reporter (1.0.30, F-Droid): "20,980.01" in an RTL message paints as

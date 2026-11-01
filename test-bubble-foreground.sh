@@ -31,6 +31,12 @@ FLAG_BUBBLE=0x1000
 adb_ root >/dev/null 2>&1
 adb_ wait-for-device
 
+PREFS="/data/data/$PKG/shared_prefs/messages_settings.xml"
+# Add-or-update a boolean pref while the app is stopped.
+pref_bool() {
+    adb_ shell "if grep -q 'name=\"$1\"' $PREFS; then sed -i 's#name=\"$1\" value=\"[^\"]*\"#name=\"$1\" value=\"$2\"#' $PREFS; else sed -i 's#</map>#    <boolean name=\"$1\" value=\"$2\" /></map>#' $PREFS; fi" >/dev/null 2>&1
+}
+
 sql() { adb_ shell "sqlite3 /data/data/$PKG/databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r'; }
 notif_dump() { adb_ shell "dumpsys notification --noredact" 2>/dev/null | tr -d '\r'; }
 window_dump() { adb_ shell "dumpsys window windows" 2>/dev/null | tr -d '\r'; }
@@ -70,6 +76,7 @@ task_modes() { app_tasks | grep -o "mode=[a-z-]*" | sort -u | tr '\n' ' '; }
 
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1
+    pref_bool app_lock_enabled false
     sql "DELETE FROM messages WHERE body='$TEXT';" >/dev/null 2>&1
     sql "DELETE FROM conversations WHERE address='$NUM';" >/dev/null 2>&1
 }
@@ -198,6 +205,53 @@ if app_tasks | grep -q "mode=multi-window"; then
 else
     ok "Back closed the bubble's task"
 fi
+
+# The bubble is a second activity, and the app-lock prompt used to run once per
+# activity: with the app already unlocked, opening a bubble asked for the
+# fingerprint again (#354 follow-up, `LockSession`).
+info "An unlocked app-lock session is not re-prompted by the bubble"
+pref_bool app_lock_enabled true
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell logcat -c >/dev/null 2>&1
+adb_ shell am start -n "$ACT" --es lock_session_probe unlock >/dev/null 2>&1
+sleep 5
+region=""
+for _ in $(seq 1 10); do
+    send_sms
+    for _ in $(seq 1 6); do
+        region=$(bubble_region)
+        [ -n "$region" ] && break
+        sleep 1
+    done
+    [ -n "$region" ] && break
+done
+if [ -z "$region" ]; then
+    bad "no bubble to open for the app-lock check"
+else
+    read -r x1 y1 x2 y2 <<<"$(echo "$region" | grep -o "(-\?[0-9]*,[0-9]*,[0-9]*,-\?[0-9]*)" | tr -d '()' | tr ',' ' ')"
+    x=$(( (x1 + x2) / 2 )); y=$(( (y1 + y2) / 2 ))
+    [ "$x" -lt 0 ] && x=8
+    adb_ shell input tap "$x" "$y"
+    sleep 6
+    if adb_ shell logcat -d -s LockSession:D 2>/dev/null | tr -d '\r' | grep -q "prompt=shown"; then
+        bad "the bubble asked for the app lock again, though the session was unlocked"
+    else
+        ok "the unlocked session carried into the bubble (no second prompt)"
+    fi
+    # A build that has no session at all also logs no prompt: what it does
+    # instead is put the lock screen in front of the chat.
+    if wait_layout_has "$TEXT" 8; then
+        ok "the bubble shows the chat with the app lock on"
+    else
+        bad "the bubble was gated by the app lock (a dialog instead of the chat)"
+    fi
+    if app_tasks | grep -q "mode=multi-window"; then
+        ok "the bubble still opened with the app lock on"
+    else
+        bad "the bubble did not open with the app lock on"
+    fi
+fi
+pref_bool app_lock_enabled false
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
