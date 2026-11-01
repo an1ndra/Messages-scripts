@@ -142,6 +142,16 @@ channel_sound() {
         | grep -oE "mSound=[^,]*" | head -1 | cut -d= -f2-
 }
 
+# Importance a channel carries. The silent channel must stay at HIGH: a channel
+# whose sound is null is demoted by Android and never heads-up, which is why the
+# silent case seeds a silent clip instead.
+channel_importance() {
+    adb_ shell dumpsys notification --noredact 2>/dev/null | tr -d '\r' \
+        | grep -F "NotificationChannel{mId='$1'" \
+        | grep -v "mDeleted=true" | head -1 \
+        | grep -oE "mImportance=[0-9]+" | head -1 | cut -d= -f2-
+}
+
 # Channel the notification containing [body] was posted on.
 notif_channel() {
     local body="$1"
@@ -273,6 +283,11 @@ case "$snd" in
     *)
         fail "the silent channel does not use the silent clip ($snd)" ;;
 esac
+imp=$(channel_importance messages_direct_silent)
+echo "  messages_direct_silent importance: $imp"
+[ "$imp" = "4" ] &&
+    pass "the silent channel stayed at IMPORTANCE_HIGH (a null sound would demote it)" ||
+    fail "the silent channel lost its importance ($imp) — heads-up would be suppressed"
 
 # The heads-up assertion needs a real inbound SMS. The emulator's modem is a
 # separate process (it fails with "Unable to connect character device modem"
