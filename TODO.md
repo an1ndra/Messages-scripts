@@ -48,6 +48,10 @@ anything in the text bar, the send icon could be a voice message icon".
   three gestures — hold to record, slide left to cancel, swipe up to lock — and
   a "Got it". A hold-to-record button with two hidden exits is not discoverable
   from its icon; the card is gated on the device actually having a microphone.
+- The recording bar names **both** exits: `‹ Slide to cancel` and `⌃ Lock`. The
+  cancel text ellipsizes first if the row is tight; the lock hint never does,
+  because the padlock on the disc only appears once the finger is already moving
+  up — too late to teach the gesture.
 - **Motion**: the record/send swap cross-fades, scales 0.7→1 and turns ±45°
   (`AnimatedContent` plus the content scope's own `transition` — Compose 1.8.3
   has no `rotateIn`/`rotateOut`). While recording, a translucent red ring behind

@@ -216,6 +216,12 @@ bin_clickable() {
     grep -oE 'content-desc="Cancel recording"[^>]*clickable="[^"]+"' "$TMP/ui.xml" |
         grep -oE 'clickable="[^"]+"' | head -1 | cut -d'"' -f2
 }
+if grep -qF 'text="Lock"' "$TMP/ui.xml" &&
+   grep -qF 'text="Slide to cancel"' "$TMP/ui.xml"; then
+    ok "the bar names both exits: slide to cancel and lock"
+else
+    bad "the recording bar does not show the lock hint"
+fi
 if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml"; then
     if [ "$(bin_clickable)" = "false" ]; then
         ok "the bin is drawn mid-hold but is not clickable yet"
