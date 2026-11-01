@@ -97,19 +97,44 @@ open_chat() {
 
 mic_center() { center_of "Record voice message"; }
 
-# A deliberate lock: hold, slide up into the lock zone, and stay there long
-# enough for the dwell. `input swipe` cannot do this — it lifts the finger at
-# the end of the gesture, which is exactly the "swipe up and hope" that locked
-# by accident (#364).
+# A deliberate lock, the way a hand does it: hold, drag up slowly until the
+# finger is on the padlock, and rest there. The padlock is a target, not a
+# distance, and the app logs where it is (`VoiceLock: icon=[x1,y1][x2,y2]`), so
+# the drag aims at the drawn icon instead of guessing its geometry — and the
+# note only locks after LOCK_DWELL_MS on it. `input swipe` cannot express this:
+# it lifts the finger at the end of the travel.
+LOCK_ICON=""
 lock_mic() {
-    local c x y
+    local c x y ix iy step rect
     c=$(mic_center) || return 1
     x=${c% *}; y=${c#* }
+    ix=""; iy=""
+    LOCK_ICON=""
     adb_ shell input motionevent DOWN "$x" "$y" >/dev/null 2>&1
     sleep 0.6
-    adb_ shell input motionevent MOVE "$x" "$((y - 450))" >/dev/null 2>&1
-    sleep 0.9
-    adb_ shell input motionevent UP "$x" "$((y - 450))" >/dev/null 2>&1
+    for _ in 1 2 3 4 5; do
+        adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+        rect=$(grep -o 'VoiceLock: icon=\[[0-9]*,[0-9]*\]\[[0-9]*,[0-9]*\]' "$TMP/logcat.txt" | tail -1)
+        [ -n "$rect" ] && break
+        sleep 0.3
+    done
+    if [ -n "$rect" ] && [[ "$rect" =~ \[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\] ]]; then
+        ix=$(( (${BASH_REMATCH[1]} + ${BASH_REMATCH[3]}) / 2 ))
+        iy=$(( (${BASH_REMATCH[2]} + ${BASH_REMATCH[4]}) / 2 ))
+        LOCK_ICON="$rect"
+    else
+        # Never silently guess: the caller reports the missing report.
+        iy=$(( y - 120 ))
+    fi
+    for step in 40 80 120 160 200; do
+        [ -n "$iy" ] && [ $((y - step)) -le "$iy" ] && break
+        adb_ shell input motionevent MOVE "$x" "$((y - step))" >/dev/null 2>&1
+        sleep 0.12
+    done
+    [ -n "$ix" ] || ix=$x
+    adb_ shell input motionevent MOVE "$ix" "$iy" >/dev/null 2>&1
+    sleep 0.8
+    adb_ shell input motionevent UP "$ix" "$iy" >/dev/null 2>&1
 }
 
 # "true" while the IME is on screen. The recording bar is drawn over the text
@@ -355,19 +380,34 @@ COUNT_BEFORE=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/
 # A hand that drifts up and comes back must not go hands-free on its own.
 C=$(mic_center) || { bad "voice button vanished before the lock test"; exit 1; }
 X=${C% *}; Y=${C#* }
+adb_ shell logcat -c >/dev/null 2>&1
 adb_ shell input motionevent DOWN "$X" "$Y" >/dev/null 2>&1
 sleep 0.6
-adb_ shell input motionevent MOVE "$X" "$((Y - 200))" >/dev/null 2>&1
-sleep 1.2
+adb_ shell input motionevent MOVE "$X" "$((Y - 100))" >/dev/null 2>&1
+sleep 1.5
 dump_ui >/dev/null 2>&1
 if grep -qF 'text="Recording hands-free"' "$TMP/ui.xml"; then
-    bad "a small upward drift still locked the recording"
+    bad "an upward drift short of the padlock still locked the recording"
 else
-    ok "drifting up without a deliberate swipe does not lock"
+    ok "drifting up without reaching the padlock does not lock"
 fi
-adb_ shell input motionevent UP "$X" "$((Y - 200))" >/dev/null 2>&1
+# The disc's glyph has no text equivalent, so the app logs the armed state.
+adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+if ! grep -q 'VoiceLock: arm=' "$TMP/logcat.txt"; then
+    bad "the disc's armed state is not reported, so this check says nothing"
+elif grep -q 'VoiceLock: arm=LOCK' "$TMP/logcat.txt"; then
+    bad "a 100px lift armed the padlock, so the disc already looked locked"
+else
+    ok "a lift short of the padlock does not even arm it"
+fi
+adb_ shell input motionevent UP "$X" "$((Y - 100))" >/dev/null 2>&1
 sleep 1.5
 lock_mic || { bad "voice button vanished before the lock test"; exit 1; }
+if [ -n "$LOCK_ICON" ]; then
+    ok "the app reports the padlock's own target ($LOCK_ICON)"
+else
+    bad "the padlock's target is not reported, so this drag is a guess"
+fi
 sleep 1.5
 dump_ui >/dev/null 2>&1
 if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml" &&

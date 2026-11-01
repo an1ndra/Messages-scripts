@@ -121,13 +121,37 @@ note is locked, and hands-free recording is not obvious.
 - **Two gestures were too easy to trigger.** A tap on the mic opened
   `MediaRecorder` and left a note behind — the recorder now only starts after
   `VoiceGesture.HOLD_DELAY_MS` (260 ms) of held press, so a tap records
-  nothing. Locking armed at the cancel's 72dp, so a hand drifting up while
-  speaking dropped into hands-free; the lock now needs 1.75× the distance
-  (`lockThreshold`), a swipe that is more up than sideways, **and**
-  `LOCK_DWELL_MS` (400 ms) spent in the lock zone — crossing it is no longer a
-  lock, which is what "still too sensitive" meant after the first pass. The
-  dwell is committed by its own effect, not by the drag loop, because a finger
-  that stops moving stops producing pointer events.
+  nothing. Locking armed at a distance (72dp, then 1.75× that), so a hand
+  drifting up mid-sentence dropped into hands-free no matter where it stopped;
+  the maintainer's wording was "the hand should move from the record button
+  till the lock icon", and that is now literal: `VoiceLockTab.reached()` hit
+  tests the padlock, and the lock also needs `LOCK_DWELL_MS` (300 ms) resting
+  on it, so a fast swipe that merely passes over the icon still sends. Crossing
+  a distance never locks.
+- **The target is measured, not derived.** The first positional version computed
+  the icon from the button's position, and because the drawn stalk sat ~12dp
+  higher than that arithmetic, the hit area still reached down into the button —
+  the maintainer felt it as "still sensitive". `onGloballyPositioned` on the
+  stalk feeds `VoiceLockTab.reached()` and the app logs the rectangle
+  (`VoiceLock: icon=[x1,y1][x2,y2]`, from the same `iconBounds()` the gesture
+  uses). `scripts/test-voice-message.sh` drags to exactly that rectangle, so it
+  cannot pass while aiming somewhere a finger could not lock from — the repo's
+  rule that a value only visible as pixels has to report itself as text.
+- The stalk is **1.5× taller** (154dp, 114dp visible) at the maintainer's
+  request, which also puts the padlock further from the button; the 0.5×
+  misreading briefly tried the opposite and made the drift case worse.
+- **The disc lied before anything locked.** Screenshots at 140/220/300px of lift
+  showed the record disc already wearing a padlock (the old `lockHint` fired at
+  35% of the slide) while the bar still said "Slide to cancel" and nothing had
+  locked — the "still sensitive" report was this, not the hit area. The glyph
+  and the stalk's highlight now follow `arm == LOCK`, i.e. the finger actually
+  being on the padlock; a lift short of it changes nothing on screen. The armed
+  state has no text equivalent, so the app logs `VoiceLock: arm=…` on every
+  recording, and the script asserts a 100px lift reports `arm=NONE` and never
+  `arm=LOCK`.
+- The dwell is committed by its own effect, not the drag loop: a finger that
+  stops moving stops producing pointer events, which is exactly the case the
+  dwell is waiting for.
 - Trap worth remembering: `holding` was already taken by the send circle's
   schedule-hold further down `InputBar`, so assigning to it from the record
   gesture silently rebound to the other variable and the delayed start never
