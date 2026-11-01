@@ -5,6 +5,57 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## A bubble tapped while the app is on screen opened blank (#354 round 5, 2026-11-01)
+
+Reporter (1.0.31 dev build, comment 6555074162): "i experienced showing
+buuble for a chat while i was in the app, i clicked the bubble, bubble opens
+blank, but the app goes to that conversation."
+
+- Bubbles floating over the app is **platform-standard**: Google Messages
+  `20260827_01_RC03` floats the same collapsed bubble in the same place
+  (`SkRegion((-41,335,190,566))`, notification flags `0x1010`) while its own
+  conversation list is foreground. Fossify `1.10.2` has no bubbles at all
+  (notification flags `0x10`, no `Bubbles!` window) — the two ends of the
+  range, so the bug is ours, not the platform's.
+- Root cause: the bubble `PendingIntent` targeted `MainActivity`, which is
+  `singleTop`. With the app resumed the launch was delivered to the running
+  instance (`onNewIntent` → `navRoute = "opening"`), so no task existed for
+  the bubble host: the app navigated and the expanded bubble had nothing to
+  render. Reproduced from `dumpsys`: `START … cmp=…/.MainActivity` and a single
+  `Task … mode=fullscreen`. GM, same tap, creates a second
+  `Task … mode=multi-window` hosting the chat and leaves its own task alone.
+- `FLAG_ACTIVITY_MULTIPLE_TASK | FLAG_ACTIVITY_NEW_DOCUMENT` alone did **not**
+  fix it (the flags reached the launch — `flg=0x18080000` — and the task was
+  still reused), and an `<activity-alias>` cannot help either: `launchMode`
+  and `taskAffinity` are not alias attributes, so it inherits `singleTop`.
+- Fix: `BubbleChatActivity : MainActivity` as its own declared activity with
+  `launchMode="standard"`, `taskAffinity="com.anindra.messages.bubble"` and
+  `excludeFromRecents`, and the bubble/shortcut intent targets it. MainActivity
+  is `open` for the subclass; no UI code changed.
+- Also fixed: `ForegroundTracker` held one open address. With the app window
+  and a bubble open on different chats, closing either cleared the other, so
+  the next message could notify for a chat still on screen. It now counts
+  registrations per address (`openConversation`/`closeConversation`).
+- Unit: `ForegroundTrackerTest` (6), `NotificationBubbleWiringTest`
+  (`theBubbleLaunchOwnsItsOwnTask`, `theBubbleActivityIsItsOwnTask`). Suite
+  green.
+- `scripts/test-bubble-foreground.sh` (7): app foreground on its list → SMS →
+  BUBBLE flag → tap collapsed bubble → asserts a `mode=multi-window` bubble
+  task **and** the app's task still fullscreen, the chat rendered rather than a
+  blank window, the notification alive, and Back retiring the task.
+- AVD note: this host's emulator could not reach its modem simulator
+  (`qemu: Unable to connect character device modem … ::1:34709`), because qemu
+  resolves `::1` with `AI_ADDRCONFIG` and glibc refuses that on a host with no
+  global IPv6. Fixed with an `LD_PRELOAD` shim
+  (`~/.local/lib/no-addrconfig.so`, recipe in the app repo's `AGENTS.md`):
+  `gsm.sim.state` is now `LOADED` and `adb emu sms send` delivers again. The
+  script still falls back to `scripts/lib/inject-sms/` (a GSM-7 PDU +
+  `InjectSms` dex run through `app_process` as root, broadcasting a real
+  `SMS_DELIVER`) for hosts without the shim.
+- Verified on `emulator-5558`: 7/0 with the fix; reverting only the intent
+  target (keeping the activity declared) gives 6/1, failing exactly
+  "the bubble has no task of its own".
+
 ## #395 verified fixed: a grouped amount in an RTL message (2026-10-31)
 
 Reporter (1.0.30, F-Droid): "20,980.01" in an RTL message paints as
