@@ -43,6 +43,16 @@ anything in the text bar, the send icon could be a voice message icon".
   `NotificationHistoryTest` (audio line survives a blank body),
   `ForwardPlanTest`, `ComposerShapeTest` (corner = half the height). Full suite
   green.
+- **First-run guide** (`VoiceGuideCard`, once per install, flag
+  `voice_guide_seen` in `SettingsStore`): a card above the composer with the
+  three gestures — hold to record, slide left to cancel, swipe up to lock — and
+  a "Got it". A hold-to-record button with two hidden exits is not discoverable
+  from its icon; the card is gated on the device actually having a microphone.
+- **Motion**: the record/send swap cross-fades, scales 0.7→1 and turns ±45°
+  (`AnimatedContent` plus the content scope's own `transition` — Compose 1.8.3
+  has no `rotateIn`/`rotateOut`). While recording, a translucent red ring behind
+  the disc breathes and also grows with the microphone level
+  (`VoiceRecorder.level()` polled at ~12 Hz), so a quiet room still shows motion.
 - Two exits from the recording, as in Google Messages: slide left to drop it
   (the hint says "Slide to cancel"), or swipe up to **lock** it and keep
   recording with the finger lifted. Locked, the bar's only control is a bin

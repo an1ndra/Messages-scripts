@@ -107,6 +107,47 @@ ime_shown() {
 
 sent_notes() { grep -c 'D VoiceNote: sent' "$TMP/logcat.txt" 2>/dev/null || true; }
 
+info "The first run explains the gesture, once"
+adb_ shell pm clear "$PKG" >/dev/null 2>&1
+for p in SEND_SMS RECEIVE_SMS READ_SMS READ_CONTACTS READ_PHONE_STATE POST_NOTIFICATIONS RECORD_AUDIO; do
+    adb_ shell pm grant "$PKG" android.permission.$p 2>/dev/null
+done
+adb_ shell cmd role add-role-holder android.app.role.SMS "$PKG" 2>/dev/null
+open_chat
+if grep -qF 'text="Send a voice message"' "$TMP/ui.xml"; then
+    ok "a fresh install is told what the record button does"
+else
+    bad "no first-run guide on a fresh install"
+fi
+if grep -qF 'Swipe up to lock' "$TMP/ui.decoded.xml"; then
+    ok "the guide names the lock gesture"
+else
+    bad "the guide does not mention the lock"
+fi
+tap_text "Got it" >/dev/null 2>&1
+# The card goes away on the next frame; poll so a slow dump cannot read the
+# screen that was there when the button was tapped.
+DISMISSED=0
+for _ in 1 2 3 4 5 6; do
+    sleep 0.4
+    dump_ui >/dev/null 2>&1 || continue
+    if ! grep -qF 'text="Send a voice message"' "$TMP/ui.xml"; then DISMISSED=1; break; fi
+done
+if [ "$DISMISSED" = "1" ]; then
+    ok "the guide closes when dismissed"
+else
+    bad "the guide stayed after being dismissed"
+fi
+adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" >/dev/null 2>&1
+sleep 4
+dump_ui >/dev/null 2>&1
+if grep -qF 'text="Send a voice message"' "$TMP/ui.xml"; then
+    bad "the guide came back on the next open"
+else
+    ok "the guide does not come back"
+fi
+
 info "An empty composer shows the mic; typing brings Send back"
 open_chat && ok "the conversation opened" || bad "could not open the conversation"
 if dump_ui >/dev/null 2>&1 && grep -qF 'content-desc="Record voice message"' "$TMP/ui.xml"; then
