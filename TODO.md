@@ -5,6 +5,65 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Home-search scopes restyled as compact pills (2026-10-31)
+
+The All / Contacts / Messages / Unread / Starred row was a `FilterChip` strip
+(32dp, 8dp corners, outline border). It is now one row of `SearchScopePill`s:
+the selected scope is a stadium wherever it sits (primary fill, no tick icon,
+no border), the unselected ones keep the row's connected ends (round on the
+outer edge only, 4dp inside), 40dp tall, 8dp vertical padding, 4dp apart.
+
+- `ConversationsScreen.kt`: `SearchScopeChip`'s `FilterChip` loop replaced by
+  `SearchScopePill` (Surface + `selectable(Role.Tab)` so the selected state is
+  still announced; press scale follows the ExpressiveTabs conventions, all
+  colours are M3 role pairs). Radii come from `SearchScopeCorners` -
+  `selected()` (EDGE 20 = half the pill height) and `radii(index, lastIndex)`
+  (INNER 4) - a pure object over a `ScopeCorners` value class, so the row picks
+  corners by position and passes them in.
+- The four corner radii are animated with the same `motionTween` as the fill
+  (collapses to `snap` under reduce-motion), so selecting morphs the shape
+  instead of jumping.
+- The row is masked with `Modifier.edgeFade`: a `BlendMode.DstIn` gradient over
+  an offscreen layer, driven by `ScrollState.canScrollForward/Backward`. A
+  partly visible pill now fades out instead of ending in a hard slice; the mask
+  is not an overlay, so it needs no knowledge of the background colour. The row
+  keeps the app's 16dp side inset (aligned with the header and the avatars) and
+  the pill's own side padding is 10dp, which is what keeps all five on screen
+  without scrolling on a 392dp-wide device. The strip is centred inside a
+  full-width `BoxWithConstraints` track (`widthIn(min = track)` + `spacedBy(4.dp,
+  CenterHorizontally)`), so the two side margins match (measured 62px / 61px on
+  the 1080px AVD) instead of the row ending short of the right inset.
+- Preview: `SearchScopePillPreview` in `ConversationPreviews.kt`.
+- Unit: `SearchScopePillTest` (13) - the radii table (first/last/interior/row
+  of one), the selected scope is a stadium wherever it sits, round end == half
+  the pill height, pill instead of chip, 40dp, 10dp pill padding, 4dp gutter, 16/8dp row padding,
+  the edge fade wiring + `DstIn`, four animated corner radii, no icon
+  composable, primary/onPrimary vs secondaryContainer/onSecondaryContainer,
+  `selectable` + `Role.Tab`. `testDebugUnitTest` green.
+- `scripts/test-search-scope-pills.sh` (14): five scopes present, the row
+  scrolls to Starred, the row stays <= 62dp tall, exactly one scope selected,
+  selection moves across Unread/Contacts/All. Passes on `emulator-5558`.
+
+- Adaptive sizing (`SearchScopeSizing`, pure + unit tested): the row measures
+  its widest label (SemiBold, so the selected one cannot overflow) and only
+  stretches to equal `weight(1f)` segments when every label fits its equal
+  share; otherwise it keeps natural widths and scrolls, so a long translation
+  is never truncated. The stretched strip is an explicit
+  `width(minOf(track, MAX_TRACK))` (600dp cap, centred beyond that) - a
+  `widthIn(max=...)` under `fillMaxWidth` is ignored, the parent's tight
+  constraints win. Measured on the AVD: 392dp phone -> natural widths
+  (128..235px pills, margins 48/61 node-bounds = 62/61 painted); 785dp window ->
+  five 303px segments, 299px margins each side.
+- `scripts/test-search-scope-pills.sh` now measures the row from the pills
+  themselves (`row_metrics`) instead of the `HorizontalScrollView` node, which
+  does not exist once the row is stretched: it asserts all five pills, equal
+  outer margins, <= 62dp row height, reachability, and selection. 14/14 on
+  `emulator-5558` in portrait and at `wm size 2208x1080`.
+
+Note for the next pass: roundness and fill are pixels, so the script cannot
+see the restyle - it is behavioural plus the band-height guard, and the style
+itself is pinned by `SearchScopePillTest` only.
+
 ## #395 verified fixed: a grouped amount in an RTL message (2026-10-31)
 
 Reporter (1.0.30, F-Droid): "20,980.01" in an RTL message paints as
