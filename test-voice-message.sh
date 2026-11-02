@@ -242,6 +242,20 @@ if grep -q 'D VoiceNote: sent' "$TMP/logcat.txt"; then
 else
     ok "a tap on the mic sends nothing"
 fi
+# A press that ends before the encoder has a frame is "too short", not
+# "couldn't start": the toast has to tell the user to hold longer (#364). The
+# microphone opens after HOLD_DELAY_MS (260 ms), so a 500 ms hold records for
+# only ~240 ms.
+adb_ shell logcat -c >/dev/null 2>&1 || true
+C=$(mic_center) || { bad "voice button has no bounds"; exit 1; }
+adb_ shell input swipe ${C% *} ${C#* } ${C% *} ${C#* } 500 >/dev/null 2>&1
+sleep 1
+adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+if grep -q 'D VoiceNote: finish tooShort' "$TMP/logcat.txt"; then
+    ok "a too-brief hold is reported as too short"
+else
+    bad "a too-brief hold is still reported as a failed start"
+fi
 if grep -qF 'content-desc="Record voice message"' "$TMP/ui.xml"; then
     ok "the mic is still there after a tap"
 else
@@ -623,6 +637,25 @@ if [ "$FOUND" = "1" ]; then
         ok "the report names the recorder's format and cap"
     else
         bad "the report has no voice-note line"
+    fi
+    # The advertised length and the send budget must agree. The send path pays
+    # 12 KiB of PDU/SMIL overhead and 512 B for each of the media and SMIL parts
+    # before the attachment gets anything; a cap derived from the raw carrier
+    # size advertised one more second than the fitter would accept (#364).
+    # 5024 is VoiceNotePolicy.bytesPerSecond (32 kbps + 1 KiB/s container).
+    VOICE_CAP_LINE=$(grep -oE 'audio/mp4, up to [0-9]+s \(carrier cap [0-9]+B\)' "$TMP/ui.decoded.xml" | head -1)
+    UP=$(sed -n 's/.*up to \([0-9]*\)s.*/\1/p' <<< "$VOICE_CAP_LINE")
+    CAP=$(sed -n 's/.*carrier cap \([0-9]*\)B.*/\1/p' <<< "$VOICE_CAP_LINE")
+    if [ -n "$UP" ] && [ -n "$CAP" ]; then
+        ADVERTISED=$((UP * 5024))
+        BUDGET=$((CAP - 12288 - 2 * 512))
+        if [ "$ADVERTISED" -le "$BUDGET" ]; then
+            ok "the advertised ${UP}s fits the attachment budget ($ADVERTISED <= $BUDGET B)"
+        else
+            bad "the advertised ${UP}s is ${ADVERTISED}B, over the ${BUDGET}B the send path allows"
+        fi
+    else
+        bad "could not read the advertised cap from Diagnostics"
     fi
     if grep -qE "Last voice note: [1-9][0-9]* B" "$TMP/ui.decoded.xml"; then
         ok "the report names the last note's size"

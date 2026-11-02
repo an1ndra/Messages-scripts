@@ -194,6 +194,195 @@ note is locked, and hands-free recording is not obvious.
   bubble it just sent. The selection toolbar's overflow also has to be awaited
   — it fades in, and a tap a frame early hits the chat's own "More options".
 
+### #364 code-review round 2 (2026-11-03)
+
+A second review of the #364/#398 diff, done on code alone because another agent
+held `emulator-5558` (and that instance runs with `-no-audio`, so the voice
+script would refuse it anyway):
+
+- **The advertised cap did not fit the send path.** The recorder stopped at
+  `MAX_SECONDS` (120 s) or `carrierCap / 5024`, but the MMS budget is
+  `carrierCap − 12 KiB PDU/SMIL − (2 × 512 B parts)`. At the default 307,200 B
+  the app advertised and recorded 61 s, while the fitter would only accept
+  58 s; at 614,400 B it said 120 s but the budget ends at 119 s. The cap now
+  comes from `BudgetPolicy.attachmentBudget()` through
+  `VoiceNotePolicy.maxSecondsForCarrier()`, used by both the composer and
+  Diagnostics (307,200 → 58 s, 102,400 → 17 s, 614,400 → 119 s).
+- **The import gate advanced after a failed pass.** `mmsImportVersionAfter()`
+  only moves to `MMS_IMPORT_VERSION` when the rescan reports complete; a
+  revoked `READ_SMS` now rethrows from `MmsProviderReader` instead of looking
+  like one unreadable row, so the next pass retries.
+- **Backfilled MMS bumped the unread badge.** `countsAsNewUnread()` gates the
+  bump on a genuinely new inbound unread row, not a re-import of something
+  already stored.
+- **An album split when a scheduled row sorted into it.** `foldAlbums()` now
+  groups every picture of a provider MMS across the whole list and emits one
+  `ChatRow.Album` at the first of them, so no message can sit between two
+  pictures of the same album (and the duplicate LazyColumn keys are gone).
+- **Select-all could take half an album.** Selection works in album-sized
+  groups now (`SelectionToolbar.selectAllCandidates`), skipping a group whole
+  when any of its rows is locked.
+- **A caption was copied onto every picture.** `captionForAttachment()` keeps
+  the draft on the first attachment only, in the staged-composer and
+  share-intent paths alike; retry also no longer drops the caption.
+- **Blocked numbers could still send media.** The voice, staged-picture,
+  share-intent and forward paths now check `isNumberBlocked()` like the text
+  path does.
+- **The save failure named the wrong thing.** When a voice note's row could
+  not be read, the toast said "Could not save the image"; it now picks the
+  voice string from the message's own kind.
+- Tests: `VoiceNotePolicyTest` (budget-derived caps and fit),
+  `MmsSupportTest` (import version only after a clean rescan, unread gate),
+  `ChatAlbumTest` (non-adjacent pictures, interleaved albums),
+  `SelectionToolbarTest` (album-atomic select-all), `ComposerSendTest`
+  (caption on the first attachment), and `scripts/test-voice-message.sh`
+  asserts the advertised seconds fit `carrierCap − 12288 − 2×512`.
+- **Still open:** a multi-picture send still produces one MMS per picture
+  (`sendPendingMedia` loops `sendMediaMessage`) — a multi-part outbound PDU is
+  a `:mms` change, not a #364 fix, and it needs the maintainer's approval
+  before the UI contract changes.
+- **Device run (2026-11-03, `emulator-5558`, AOSP 12, audio enabled):**
+  `test-voice-message.sh` **54/54**; `test-mms-multi-image.sh` **13/13** after
+  fixing its own Diagnostics navigation (it tapped the "Advanced settings"
+  screen title forever instead of scrolling to the row two swipes below);
+  `test-mms-import.sh` **5/5**. `test-pending-media.sh` cannot reach its photo
+  picker on this image: `android.provider.action.PICK_IMAGES` has no activity,
+  so `PickMultipleVisualMedia` falls back to DocumentsUI and the script's
+  "Photo taken" tiles never exist — an image limitation, not a regression
+  (the caption split it would exercise is covered by `ComposerSendTest`).
+- **The multi-select script was red for its own reasons.** It seeded a number
+  it never searched for, relied on `adb emu sms send` (this image has no SIM,
+  so nothing is delivered), and asserted `deleted_at IS NULL` against a
+  `NOT NULL DEFAULT 0` column, which counted every live row as trashed. It now
+  seeds through `run-as sqlite3`, uses `deleted_at=0` / `>0`, and expects Copy
+  for multi-select (`SelectionToolbar.showCopy` is `count >= 1`, pinned by
+  `SelectionToolbarTest`). The restore step restores every trashed row instead
+  of assuming the first Restore button is the one under test
+  (`test-multi-select-actions.sh` **15/15**).
+- **Final build re-verified (2026-11-03, `emulator-5558`):** after reinstalling
+  the current `assembleDebug` APK, `test-voice-message.sh` **54/54** and
+  `test-mms-multi-image.sh` **13/13** again; `test-multi-select-actions.sh`
+  **15/15**.
+
+### #364 code-review round 3: four silent failures (2026-11-03)
+
+A third pass over the #364 diff, checked against the device rather than code
+alone. Each fix ships a JUnit test and a device assertion.
+
+- **M4 — Save on an album saved one picture.** The toolbar took
+  `selectedMessages.first()`'s media URI and saved only that, so a three-picture
+  MMS reported success after writing one file. `SelectionToolbar.saveTargets()`
+  now returns every selected row that carries a file, and the Save action loops
+  them; `test-mms-multi-image.sh` asserts one `AttachmentSave:` outcome per
+  picture (**17/17**).
+- **M8 — a send that stored nothing still ate the tray and caption.**
+  `sendPendingMedia` removed the picture and cleared the draft from the send
+  *callback* regardless of the result. It now removes only stored URIs and
+  clears the composer only through `mayClearStaged(remaining, unstored)`, so a
+  conversation the MMS path refuses leaves both for a retry. The AVD has no
+  photo picker, so `MainActivity` gained a debug-only `mms_stage` probe (with
+  `ChatScreen.initialStagedMedia`) that opens a chat with a picture in the
+  composer. `scripts/test-staged-media-retry.sh` renames the open conversation
+  externally (the app's conversation flow only re-reads after its own
+  `notifyChanged()`, so the composer keeps its stale valid address) and proves
+  the refused send stores no row and keeps both: **8/8**, and **6/8** with the
+  old unconditional clear put back.
+- **M10 — a too-short voice hold failed silently.** `VoiceRecorder.finish()`
+  returned null for a recording under `MIN_RECORD_MS` and for a genuine failure
+  alike, so neither showed a toast. It returns `FinishResult`
+  (`Recorded`/`TooShort`/`Failed`); `test-voice-message.sh` holds for ~500 ms
+  and asserts the `chat_voice_too_short` path (**55/55**).
+- **M11 — a refused outbox hand-off left a dead part URI.** `sendStarted`
+  adopted the provider media before the platform had accepted the PDU. The
+  outcome now goes through `handoffAction()`: `not_started` unlinks the row and
+  the `message_provider_ids` entry instead of adopting it; anything else
+  adopts. `MmsSenderTest` covers both, `test-mms-send.sh` asserts the linked
+  row and the `content://mms/part/*` URI (**17/17**).
+
+### #364 B2/M5 + M2/M3: one MMS for several pictures, and an import with no version gate (2026-11-03)
+
+Round 2 left multi-part outbound open pending the maintainer's approval; the
+maintainer then selected it together with the MMS import refactor.
+
+- **B2/M5 — three staged pictures used to leave as three MMS.** The composer
+  called the send path once per picture, so each got its own PDU, provider row
+  and bubble. They now leave in one PDU and one SMIL slideshow:
+  - `:mms` carries `OutgoingMessage.attachments: List<OutgoingAttachment>`;
+    `SendReqBuilder` writes one part per attachment under unique names
+    (`image`, `image2`, …), `partCount(caption, n)` counts them, and
+    `BudgetPolicy.perAttachmentBudget()` splits the carrier cap between them.
+    Every attachment must fit: one refusal fails the whole message. SMIL puts
+    each picture in its own `<par>`; the caption stays in the first.
+  - `Repository.sendMediaAlbum()` writes one row per URI under one transaction
+    (caption on the first row); `MmsSender.send()` reads them all into the one
+    PDU and links every row to the one outbox row; `adoptProviderMediaRows()`
+    assigns each row its own part in `seq` order; `markMessageStatusSuspend()`
+    settles the album rows together through `sys_id`.
+  - The composer and the share-intent path call `sendMediaAlbum` once. Retry
+    resends the whole album (`repo.messagesBySysId`), and forwarding groups a
+    selection by provider id (`forwardMessages`), so an album whose rows are all
+    selected is forwarded once, as an album.
+  - `captionForAttachment()` and `mayClearStaged()` are gone: the album call
+    reports one stored count, and the repository owns the caption rule.
+- **M2/M3 — the one-time import gate is gone.** `SettingsStore.mmsImportVersion`
+  and `MmsSupport.MMS_IMPORT_VERSION` no longer exist. Every sync reads the
+  stored part URIs per provider message and the provider's media parts in one
+  cursor (`MmsProviderReader.mediaPartsById()`), skipping only a row that
+  already has *every* media part (`MmsSupport.completeMmsIds`). A row that lost
+  pictures, whatever version imported it, is backfilled on the next pass; a
+  provider that cannot be read returns null and nothing is skipped.
+  - A refused hand-off marks every row of the album failed. A refusal happens
+    before any row is linked to the provider, so the `sys_id` status cascade has
+    nothing to follow; the hand-off itself (`handOff(rowIds, …)`) settles them
+    and the forwarded album's caption also goes through `hideLinks`.
+- Tests: `SendReqBuilderTest` (part count, one slide and one part name per
+  picture, every SMIL src resolves), `MmsFacadeTest` (three attachments share
+  the split budget and reach the transport in one PDU; one bad attachment sends
+  nothing), `SmilBuilderTest` (pictures never share a par), `MmsSupportTest`
+  (a provider row is complete only when every part has a row),
+  `AlbumRetryForwardTest` (retry/forward act on the whole album, and a refused
+  album hand-off fails every row),
+  `ComposerSendTest`/`PendingMediaWiringTest` re-anchored to the album send.
+  `./gradlew testDebugUnitTest` green (app 1271, mms 319).
+- Device (`emulator-5558`, AOSP 12): **new** `scripts/test-mms-album-send.sh`
+  **10/10** — stages three pictures through the debug `mms_stage` probe (now
+  accepts `--esa` for a list), sends them, and asserts three stored rows, one
+  shared non-zero `sys_id`, three distinct `content://mms/part/*` URIs, the
+  caption on exactly one row, one `content-desc="3 photos"` bubble and an
+  empty tray. With the per-picture composer put back it is **8/10** (three
+  `sys_id`s, no album bubble).
+- Re-ran the affected suites on the same build: `test-staged-media-retry.sh`
+  **8/8**, `test-mms-send.sh` **17/17** (its log anchor followed `MmsSender`
+  from "linked to message" to "linked to N message(s)"),
+  `test-mms-multi-image.sh` **19/19**, `test-multi-select-actions.sh`
+  **15/15**, `test-voice-message.sh` **55/55**.
+- **M6 — a multi-picture bubble can carry a reaction.** The long-press bar was
+  gated on the bubble being one row (`rowIds.size == 1`), and an album's
+  long-press selects all of its rows, so reactions could never be added to one.
+  The gate is now "this bubble is the whole selection": an album counts as one
+  message, while selecting a second message still hides the bar (5c7e694, which
+  `test-reaction-cases.sh` pins and the album change had regressed). The
+  reaction is stored on the album's first row, which is the row the bubble
+  reads and the caption lives on.
+- Tests for M6: `AlbumReactionBarTest` covers the gate (single, album, partial
+  album, album plus another message); `MessageReactionsTest` re-anchored to it.
+  `./gradlew testDebugUnitTest` green (app 1275, mms 319).
+- Device for M6: **new** `scripts/test-album-reactions.sh` **6/6** on the final
+  build (fail-before: **2/6**, the four reaction assertions red). Also re-ran
+  `test-reaction-cases.sh` **9/9** (its multi-select/deselect cases caught the
+  gate regression above), `test-message-reactions.sh` **6/6**,
+  `test-forward.sh` **8/8**, and `test-media-uri-survives-restart.sh` **5/5**
+  after switching its share source from `file:///sdcard/...` (unreadable under
+  targetSdk 36 scoped storage, so the share never reached the picker on this
+  AVD) to the app's own FileProvider `content://` URI.
+- Environment limits on `emulator-5558`, not code failures:
+  `test-reaction-roundtrip.sh` cannot deliver inbound SMS because the AVD's
+  modem is down (`gsm.sim.state` unset, radio OUT_OF_SERVICE; `adb emu sms
+  send` returns OK but nothing reaches the framework), and
+  `test-pending-media.sh` expects the API-35 system Photo Picker ("Photo
+  taken" tiles / "Add (N)"), while API 31 falls back to DocumentsUI — it was
+  written for the historical API-35 AVD.
+
 ## #398 follow-up done: a multi-picture MMS is one message again (2026-11-02)
 
 Reported (with a screenshot of three pictures and the notice between them): the
