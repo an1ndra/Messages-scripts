@@ -194,6 +194,47 @@ note is locked, and hands-free recording is not obvious.
   bubble it just sent. The selection toolbar's overflow also has to be awaited
   — it fades in, and a tap a frame early hits the chat's own "More options".
 
+## #398 follow-up done: a multi-picture MMS is one message again (2026-11-02)
+
+Reported (with a screenshot of three pictures and the notice between them): the
+fix shipped every picture, but "as if they were separate messages (even though
+there is only one message containing the images)", and the conversation still
+printed `[MMS: 2 additional/unsupported attachment(s) not displayed]` "but they
+are all displayed".
+
+- **One bubble, picture grid.** The rows were never grouped: `Message` had no
+  `sys_id`, so the chat drew each attachment as its own message with its own
+  timestamp, long-press and delete. `Message.sysId` is read now, and
+  `ChatRow.foldAlbums` folds consecutive picture rows of one provider MMS into
+  `ChatRow.Album`, which `ChatBubble` draws through the new `AlbumGrid` — two
+  tiles per row, at most four, the last one a "+N" scrim. A lone picture stays a
+  plain `ChatRow.Sent`, so an ordinary photo MMS renders exactly as before.
+- The album is one message for everything else too: long-press or tap selects
+  every row it holds (delete, star, lock, forward act on all of them), it has
+  one timestamp/status line, and the caption stays under the grid. Reactions
+  stay on single messages, since a reaction is sent per message.
+- **The stale notice.** A picture-only MMS has an empty body, so the notice an
+  old import wrote is not "overwritten" by the current import — it is the only
+  thing in the body. The provider is now the authority: a re-scan rewrites the
+  first row's body from `MmsSupport.content()` (`refreshedBody`), keeping the
+  stored text only when the provider row yields nothing at all (its parts were
+  deleted after import).
+- The one-time backfill became a **version** (`SettingsStore.mmsImportVersion`
+  against `MmsSupport.MMS_IMPORT_VERSION = 2`): 1 filled in the extra pictures,
+  2 also rewrites the bodies. An install already on 1 pays for exactly one more
+  pass over the provider, not two.
+- Message ordering is now `ORDER BY timestamp DESC, id DESC`, so an album's
+  pictures keep provider order instead of relying on SQLite's tie-breaking.
+- Tests: `ChatAlbumTest` (fold, two albums, singleton, SMS/audio never fold, a
+  message between pictures breaks the album, a scheduled row breaks it, grid
+  counts, ids), `MmsSupportTest` (a notice-only body is cleared, a caption
+  survives, a still-true video notice is kept, an emptied provider row keeps
+  its text). `scripts/test-mms-multi-image.sh` (13) now also puts the old notice
+  back on an imported row, rolls the version back, asserts the re-scan clears
+  it, and asserts the conversation has one `content-desc="3 photos"` album and
+  no lone "Photo" bubble. Verified 9 failures before the change (album and
+  notice both missing), 13/13 after.
+
 ## #398 done: a multi-picture MMS shows every picture (2026-11-01)
 
 Reported: a received MMS with several pictures showed one and
@@ -213,9 +254,10 @@ pictures were being dropped at import, not lost on the way to the screen.
   every picture but the first on upgrade.
 - **Backfill.** MMS imported before this change would otherwise stay
   single-picture forever, so one re-scan runs once per install
-  (`SettingsStore.mmsPartsBackfillDone`): every provider row is re-examined and
-  the missing parts are inserted. No notifications fire for them — they are old
-  messages.
+  (`SettingsStore.mmsPartsBackfillDone`, now the versioned
+  `mmsImportVersion` — see the follow-up above): every provider row is
+  re-examined and the missing parts are inserted. No notifications fire for them
+  — they are old messages.
 - **Diagnostics** (added at the maintainer's request, so the next report carries
   the answer): an `--- MMS ---` block with
   `Imported: N row(s), K from multi-part MMS (max P row(s))` and

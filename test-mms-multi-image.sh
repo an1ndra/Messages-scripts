@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Regression for #398: an MMS carrying several pictures must show all of them.
+# Regression for #398: an MMS carrying several pictures must show all of them,
+# as one message.
 #
 # The app used to import one picture per provider MMS and print
 # "[MMS: N additional/unsupported attachment(s) not displayed]" over the rest.
-# Each picture part now becomes its own message row, grouped under the same
-# provider id, so the conversation shows every one.
+# Each picture part now becomes its own message row under the same provider id,
+# and the chat folds those rows into one bubble showing every picture as a grid.
 #
 # The fixture is written straight into the provider database (the emulator is
 # rooted): one MMS, three image parts, no text. Asserted on both sides — the
 # provider really holds three parts, the app really stores three rows — and
-# again after a restart, because the import is what a second sync re-runs.
+# again after a restart, because the import is what a second sync re-runs. The
+# last checks put back the notice an old import wrote and prove the versioned
+# re-scan clears it and the chat draws one album instead of three messages.
 source "$(dirname "$0")/env.sh"
 set -euo pipefail
 
@@ -71,7 +74,7 @@ for _ in 1 2 3 4 5 6; do
 done
 ROWS=$(imported_rows)
 [[ "$ROWS" == 3 ]] && pass "all three pictures were imported as separate rows" \
-    || fail "all three pictures were imported as separate rows (got $ROWS)"
+    || { fail "all three pictures were imported as separate rows (got $ROWS)"; exit 1; }
 
 DISTINCT=$(local_query "SELECT COUNT(DISTINCT media_uri) FROM messages WHERE sys_id=$PDU;")
 [[ "$DISTINCT" == 3 ]] && pass "the three rows point at three different parts" \
@@ -92,6 +95,29 @@ ROWS=$(imported_rows)
 [[ "$ROWS" == 3 ]] && pass "a second sync does not duplicate the pictures" \
     || fail "a second sync does not duplicate the pictures (got $ROWS)"
 
+# A row imported before the multi-picture fix carried the notice in its body even
+# though every picture is on screen. Put that row back as the old import left it,
+# roll the one-time re-scan back, and let the next start rewrite it.
+adb_ shell am force-stop "$PKG" >/dev/null
+sleep 2
+local_query "UPDATE messages SET body='[MMS: 2 additional/unsupported attachment(s) not displayed]' WHERE sys_id=$PDU AND media_uri=(SELECT MIN(media_uri) FROM messages WHERE sys_id=$PDU);" >/dev/null
+NOTICE_SET=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
+[[ "$NOTICE_SET" == 1 ]] && pass "the fixture carries the notice an old import wrote" \
+    || fail "the fixture carries the notice an old import wrote (got $NOTICE_SET)"
+adb_ shell "run-as $PKG sed -i '/mms_import_version/ s/value=\"[0-9]*\"/value=\"0\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1 || true
+adb_ shell am start -n "$ACT" >/dev/null
+for _ in $(seq 1 20); do
+    NOTICE_LEFT=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
+    [[ "$NOTICE_LEFT" == 0 ]] && break
+    sleep 2
+done
+NOTICE_LEFT=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
+[[ "$NOTICE_LEFT" == 0 ]] && pass "the re-scan clears the notice over pictures it now shows" \
+    || fail "the re-scan clears the notice over pictures it now shows (got $NOTICE_LEFT)"
+
+# The three pictures share one provider MMS, so they must share one bubble: the
+# album names itself "3 photos" for a screen reader, and no picture renders as a
+# lone "Photo" bubble of its own.
 adb_ shell am force-stop "$PKG" >/dev/null
 sleep 1
 adb_ shell am start -n "$ACT" --es open_conversation_address "$ADDRESS" >/dev/null
@@ -102,25 +128,49 @@ for _ in 1 2 3 4 5; do
     # The composer's mic means a conversation is open; the address renders
     # grouped ("(555) 933-0002") rather than as stored, so it cannot be grepped.
     if grep -Fq 'content-desc="Record voice message"' "$TMP/ui.xml" &&
-       ! grep -Fq 'additional/unsupported attachment' "$TMP/ui.xml"; then SHOWN=1; break; fi
+       grep -Fq 'content-desc="3 photos"' "$TMP/ui.xml"; then SHOWN=1; break; fi
 done
-# The bubbles themselves carry no text (the fixture has no captions), and an
-# image that cannot be decoded has no semantics node to count, so the assertion
-# is that the conversation opened without the old "not displayed" notice.
-[[ "$SHOWN" == 1 ]] && pass "the conversation shows the pictures without the notice" \
-    || fail "the conversation still says some attachments are not displayed"
+[[ "$SHOWN" == 1 ]] && pass "the conversation draws the pictures as one album" \
+    || fail "the conversation does not draw the pictures as one album"
+if [[ "$SHOWN" == 1 ]]; then
+    if ! grep -Fq 'additional/unsupported attachment' "$TMP/ui.xml"; then
+        pass "the conversation no longer says some attachments are not displayed"
+    else
+        fail "the conversation still says some attachments are not displayed"
+    fi
+    PHOTO_NODES=$( (grep -o 'content-desc="Photo"' "$TMP/ui.xml" || true) | wc -l | tr -d ' ' )
+    [[ "$PHOTO_NODES" == 0 ]] && pass "no picture is a message of its own" \
+        || fail "no picture is a message of its own (found $PHOTO_NODES lone photo bubbles)"
+else
+    # Without a dump the two checks above would pass on an empty file, which is
+    # exactly how a broken build slips through.
+    fail "the conversation no longer says some attachments are not displayed"
+    fail "no picture is a message of its own"
+fi
 
 # Diagnostics has to carry the same story, because that is what a report
 # attaches: what we stored, and what the provider actually holds (#398).
+open_diagnostics() {
+    local i
+    for i in $(seq 1 12); do
+        dump_ui >/dev/null 2>&1 || { sleep 1; continue; }
+        if grep -qF 'text="Diagnostics"' "$TMP/ui.xml"; then
+            tap_text "Diagnostics" >/dev/null 2>&1 && return 0
+        elif grep -qF 'text="Advanced settings"' "$TMP/ui.xml"; then
+            tap_text "Advanced settings" >/dev/null 2>&1 || true
+            sleep 2
+        else
+            adb_ shell input swipe 540 1800 540 800 300 >/dev/null
+        fi
+        sleep 1
+    done
+    return 1
+}
 adb_ shell am force-stop "$PKG" >/dev/null
 sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null
-sleep 4
-for _ in 1 2; do adb_ shell input swipe 500 1900 500 700 300 >/dev/null; sleep 0.5; done
-tap_text "Advanced settings" >/dev/null 2>&1 || true
-sleep 2
-for _ in 1 2 3; do adb_ shell input swipe 540 1700 540 900 250 >/dev/null; sleep 0.4; done
-if tap_text "Diagnostics" >/dev/null 2>&1; then
+sleep 6
+if open_diagnostics; then
     sleep 3
     dump_ui >/dev/null 2>&1 || true
     if grep -qE 'Imported: [0-9]+ row\(s\), [1-9][0-9]* from multi-part MMS \(max [2-9]' "$TMP/ui.decoded.xml"; then
