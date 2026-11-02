@@ -5,6 +5,44 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## An open bubble survived the screen lock (#354 round 6, 2026-11-02)
+
+Reporter (comment 6563628919): "thank so much better now … the unlock is per
+bubble which is great (am i right?) the bubble of a conversation, when it opens
+once, won't get locked on screen lock, thats the issue about it, if i close a
+bubble and open it again, it asks for password which is perfectly good".
+
+- It was **per process**, not per bubble, and that is why the report looks
+  contradictory: `LockSession` is a process-wide flag, and `BubbleChatActivity`
+  runs in its own task, so closing the last window lets the process die and the
+  next bubble genuinely starts locked. An *open* one never saw the lock at all.
+- Root cause: `MessagesApplication` ends the session on `ACTION_SCREEN_OFF`, but
+  a window read it **once**, in `remember { mutableStateOf(...) }` inside
+  `setContent`. An activity that is already built is not rebuilt by a screen
+  lock, so `appUnlocked` stayed `true` and the chat was readable straight after
+  unlock. The same held for the full-screen app behind the keyguard.
+- Fix: the rule is now `AppLockGate.allowsContent(appLockEnabled,
+  sessionUnlocked)` (one place, read twice), and a `LifecycleEventObserver` in
+  the composition re-reads the session on `ON_RESUME`, dropping back into the
+  existing gate and its existing prompt. **Resume, not the screen-off broadcast
+  itself**: flipping the state on the broadcast would raise a `BiometricPrompt`
+  on a stopped activity, whose error path calls `finish()` — it would have
+  closed the bubble on every lock. Nothing changes for a plain background
+  return; the session still only ends with the screen.
+- `appLockEnabled` became Compose state instead of a captured local, because the
+  gate turns the setting off when the device has no credential and the new
+  `--es app_lock_probe enable|disable` hook (debug builds only) has to reach the
+  running window through `onNewIntent`. The probe writes the real setting; it
+  never fakes an authentication.
+- Unit: `AppLockGateTest` (4) + the existing `LockSessionTest` (3). Script
+  `test-app-lock-session.sh` is now 8/0, with two new cases: an open main window
+  re-arms after `KEYCODE_SLEEP`/`WAKEUP` (asserted both from the hierarchy and
+  from the `regate=true` log), and the bubble's own activity class does the same.
+  **5/2 with the `appUnlocked = false` re-check neutered**, so the assertions are
+  not vacuous. `test-notification-bubbles.sh` stays 13/4 on this AVD, and those
+  4 fail identically on the unmodified branch (avatar lookup and the Back case
+  after a data wipe) — not caused by this change.
+
 ## A bubble tapped while the app is on screen opened blank (#354 round 5, 2026-11-01)
 
 Reporter (1.0.31 dev build, comment 6555074162): "i experienced showing
