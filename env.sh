@@ -13,6 +13,13 @@ mkdir -p "$SHOTS_DIR" "$TMP"
 
 adb_() { "$ADB" -s "$ANDROID_SERIAL" "$@"; }
 
+# Magisk's su runs a command only through `sh -c`; a bare `su 0 <cmd>` is
+# silently ignored on emulator-5558 (exit 0, no output), which made every root
+# read look like an empty table. The command is single-quoted for the device
+# shell, so a SQL query keeps its own quotes and stdin still reaches the tool.
+shquote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+adb_su() { adb_ shell "su 0 sh -c $(shquote "$1")"; }
+
 # A wrong serial is indistinguishable from a hung test: every script's first
 # `adb wait-for-device` blocks forever on a device that was never booted, and
 # the run just sits there printing nothing (cost an hour with the stale

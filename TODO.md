@@ -5,6 +5,35 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Play listing screenshots are composited, not captured (2026-11-02)
+
+The Play listing needs 9:16 frames, and the raw captures are 1080x2340 (20:9),
+so Play rejects them. The listing set is now built from the raw captures:
+
+- `take-fdroid-screenshots.sh` writes `screenshots/store-raw/` (git-ignored) and
+  no longer touches the published listing. `FDROID_SHOTS_DIR` overrides it.
+- `make-store-screenshots.py` frames each raw capture at 1080x1920 through
+  `photocraft-cli`: seeded gradient backdrop, white headline + subhead, phone
+  mockup with side buttons, screenshot clipped to the rounded screen. Colours
+  are mixed from the seed parsed out of `Theme.kt`, so the listing cannot drift
+  from the app's palette.
+- `test-store-screenshots.sh` asserts the pixels: dimensions, backdrop blue and
+  its gradient direction, white headline pixels, and that the phone is inset
+  and reaches the bottom edge. `StoreScreenshotTest` (JUnit) holds the same
+  1080x1920 contract at build time.
+
+Two capture bugs surfaced and are fixed:
+
+- **`su 0 <cmd>` is silently ignored on emulator-5558** (exit 0, no output), so
+  `insert-demo-contacts.sh` seeded nothing: every avatar fell back to the
+  silhouette and every root read looked like an empty table. Magisk needs
+  `su 0 sh -c '<cmd>'`; that now lives once as `adb_su` in `env.sh`, and all ten
+  call sites use it. `seed-demo-conversations.sh`'s system-SMS wipe had been a
+  no-op for the same reason.
+- The voice-message coach mark opens with the first chat of a session and
+  covers the composer, so every chat shot after it was unusable. `open_chat`
+  now dismisses it (`Got it`, alongside the existing `Not now`/`ALLOW` taps).
+
 ## An open bubble survived the screen lock (#354 round 6, 2026-11-02)
 
 Reporter (comment 6563628919): "thank so much better now … the unlock is per

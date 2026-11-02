@@ -33,7 +33,7 @@ grant_perms() {
 }
 
 raw_id() {
-    adb_ shell "su 0 sqlite3 $CONTACTS_DB \"select _id from raw_contacts where sourceid='$SID' limit 1;\" 2>/dev/null" | tr -d '\r' | head -1
+    adb_su "sqlite3 $CONTACTS_DB \"select _id from raw_contacts where sourceid='$SID' limit 1;\"" 2>/dev/null | tr -d '\r' | head -1
 }
 
 seed_contact() {
