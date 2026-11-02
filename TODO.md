@@ -5,6 +5,39 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Persian (fa) ships, and every locale is verified complete (2026-11-02)
+
+#345's follow-ups kept landing on a Persian-locale phone while the app had no
+`values-fa` at all, so every window was RTL and the copy inside it English. The
+Crowdin project already has Persian as a target language — `/project/git-messages/fa`
+resolves exactly like the twelve shipped ones while `he`/`tr`/`it` are 404 — the
+repo was the only thing missing it.
+
+- `values-fa/` (the same ten `strings_*.xml` files, 584 strings) written
+  complete, generated from the base files so key order, comments and
+  indentation match by construction.
+- `xml/locales_config.xml` declares `fa`, so Android offers it under Per-app
+  language, and `crowdin.yml` pins `fa: fa` — the default resolution exports
+  `values-fa-rIR` and leaves the shipped directory empty, exactly the trap that
+  once produced the empty `values-ar-rZA` trees.
+- The twelve other locales were audited: all 13 directories carry 584/584 keys.
+  The handful of values identical to English are proper nouns (`font_*`,
+  `Dragon Studio`, `Amoled`, `SMS`) or CLDR patterns, so no leftover English.
+
+Tests: `PersianLocaleTest` (JUnit) asserts the locale is declared, matches the
+base key-for-key, has no English sentence left in it (an 11-key allowlist covers
+what stays Latin on purpose) and that every Persian sentence resolves RTL through
+`BidiText.direction` — the same function the bubbles use, not a second rule.
+`scripts/test-persian-locale.sh` reports all 13 locales at 584/584, checks the
+APK's resource table really carries `(fa)` entries, then switches the AVD to
+`fa-IR` (Android 12 has no per-app locale; `cmd locale` does not exist there, so
+`persist.sys.locale` + a zygote restart is the only lever) and asserts the
+configuration is `fa-rIR … ldrtl` and the app paints `پیام‌ها`, `جستجو`,
+`بایگانی‌شده`. The original locale is restored on exit, interrupted or not.
+Verified both ways: with `values-fa/` moved away, rebuilt and reinstalled the
+script reports 5 FAIL (source, four APK strings, three on-screen labels); with it
+back, 9 PASS. `:app:testDebugUnitTest` is 1209 tests green.
+
 ## Play listing screenshots are composited, not captured (2026-11-02)
 
 The Play listing needs 9:16 frames, and the raw captures are 1080x2340 (20:9),
