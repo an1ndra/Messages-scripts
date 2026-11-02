@@ -5,6 +5,39 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #354's avatar and Back fixes reach the bubble branch (2026-11-03)
+
+Two follow-ups the reporter asked for were implemented on
+`fix/345-bidi-dupes-badge` but never cherry-picked onto the bubble branch, even
+though this repo's `test-notification-bubbles.sh` already asserted them — so it
+sat at 13/4 on a branch that could never pass:
+
+- `bf42b0f` — the chat's own picture. `ConversationAvatar` resolves the contact
+  photo, else the same silhouette on the same palette colour the list uses, and
+  the notification, shortcut and bubble metadata all take it. Photo-less senders
+  log `source=AVATAR shade=#…` under `BubbleIcon`.
+- `fbe2400` — Back no longer closes a bubble unless "Close bubble with Back"
+  (default off) is on. The cherry-pick conflicted only on `MainActivity`'s
+  `open`-class change and on the notification-icon wiring; both resolved by
+  keeping this branch's `BubbleChatActivity` task and the avatar path. The two
+  new strings gained `values-fa/` translations in the same commit, or
+  `TranslationParityTest` would fail on the newly shipped locale.
+
+`test-bubble-foreground.sh`'s Back case asserted the old "Back retires the
+task" behaviour; it now asserts the task and notification survive Back by
+default. The setting-on path stays in `test-notification-bubbles.sh`, which
+already drives both.
+
+Verified on `emulator-5558` with the rebuilt APK: `test-notification-bubbles`
+**17/0** (was 13/4), `test-bubble-foreground` **11/0**, `test-app-lock-session`
+**8/0**, `test-bubble-fullchat` **8/0**, `test-settings-bubbles` **6/0**,
+`test-translations` **4/0** (13 locales, 586 keys), and `:app:testDebugUnitTest`
+**1215/0** (including `ConversationAvatarWiringTest`, `BubbleBackTest` and the
+Persian parity tests). One `test-app-lock-session` run reported 2/6 because the
+emulator guest crashed mid-run (`activity` service gone, no FATAL EXCEPTION);
+after restarting the AVD the same APK was 8/0, so that was the host, not the
+fix.
+
 ## Persian (fa) ships, and every locale is verified complete (2026-11-02)
 
 #345's follow-ups kept landing on a Persian-locale phone while the app had no

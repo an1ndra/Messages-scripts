@@ -197,13 +197,22 @@ else
     bad "opening the bubble dropped its notification"
 fi
 
-info "Back inside the bubble retires it"
+# #354 follow-up: "Pressing back button shouldn't close the bubble" unless the
+# user opts in. Back now shows the chat list inside the bubble and leaves it
+# collapsed to its icon; the setting-on path is covered by
+# test-notification-bubbles.sh.
+info "Back inside the bubble leaves it on screen by default"
 adb_ shell input keyevent KEYCODE_BACK
 sleep 4
-if app_tasks | grep -q "mode=multi-window"; then
-    bad "Back left the bubble task behind"
+if record_is_bubble; then
+    ok "Back leaves the bubble's notification in place"
 else
-    ok "Back closed the bubble's task"
+    bad "Back dismissed the bubble's notification even though the setting is off"
+fi
+if app_tasks | grep -q "mode=multi-window"; then
+    ok "Back keeps the bubble's task (collapsed to its icon)"
+else
+    bad "Back closed the bubble's task even though the setting is off"
 fi
 
 # The bubble is a second activity, and the app-lock prompt used to run once per
