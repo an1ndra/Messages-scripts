@@ -58,6 +58,309 @@ LTR on the 1.0.31 dev build:
   shapes) seeded into a single conversation, scrolled once, asserted from
   `BubbleDirection`/`BubbleBidi` and the `uiautomator` dump: 31/31.
 
+## #364 done: voice messages, sent and played (2026-11-01)
+
+Reported: "be able to do voice messages … by default, if we do not have written
+anything in the text bar, the send icon could be a voice message icon".
+
+- Composer: an empty draft (and nothing staged) turns the 48dp send circle into
+  an outlined mic. Press-and-hold records, sliding left/up past 72dp arms the
+  cancel, releasing does one of the two. A recording bar replaces the field:
+  red dot, `m:ss` timer, "Slide to cancel" (the string Google Messages uses).
+- Recording stops on its own at the carrier's MMS size budget, read from the
+  same `MmsFacade` profile the send path enforces (`VoiceNotePolicy`), so a note
+  never reaches the radio oversized.
+- Format: AAC-LC mono 32 kbps in MPEG-4, declared `audio/mp4` (Android's own
+  alias `audio/mp4a-latm` is normalised). The `:mms` stack already had
+  `SmilBuilder`/`ContentTypes` support; only the app refused to build one.
+- Sending: `sendMediaMessage` no longer hardcodes `"image"`, `MmsSender`
+  adopts the provider's part for audio as well as images (`adoptProviderMedia`),
+  retry and forward handle audio, and `SmsSupport.sendMms` takes an explicit
+  MIME.
+- Receiving: `MmsSupport.content()` extracts an audio part instead of counting
+  it as unsupported, the row imports as `media_type='audio'`, and the bubble
+  decodes the note's own amplitude envelope for its waveform
+  (`VoiceWaveform`) with play/pause and the length. Notifications label a
+  voice-only MMS "Voice message" like they label a photo-only one "Photo".
+- UI reference: Google Messages (`prefer GM`). Its composer here cannot be
+  exercised live — the AVD's modem is down — so the interaction and wording
+  come from GM's own `resources.arsc` ("Touch and hold to record audio",
+  "Slide to cancel", "Swipe up to lock recording", "Audio waveform playback
+  slider"). Fossify Messages 1.10.2 was checked too: it has no composer mic at
+  all (recording lives in its attach sheet), so nothing there was copied.
+- Composer geometry now matches GM's: one 48dp-tall pill with a 24dp corner,
+  the same height as the 48dp circle beside it. The Material `TextField`'s 56dp
+  minimum was what made the field taller than the button.
+- Tests: `VoiceNotePolicyTest`, `VoiceWaveformTest`, `MmsSupportTest` (audio
+  part, kind, alias, SMIL name), `ComposerSendTest` (mic/send swap),
+  `NotificationHistoryTest` (audio line survives a blank body),
+  `ForwardPlanTest`, `ComposerShapeTest` (corner = half the height). Full suite
+  green.
+- **First-run guide** (`VoiceGuideCard`, once per install, flag
+  `voice_guide_seen` in `SettingsStore`): a card above the composer with the
+  three gestures — hold to record, slide left to cancel, swipe up to lock — and
+  a "Got it". A hold-to-record button with two hidden exits is not discoverable
+  from its icon; the card is gated on the device actually having a microphone.
+- The lock hint is WhatsApp's **stalk**: a light rounded column rising out of the
+  record button, padlock at its top, chevron under it, in inverse ink — and it
+  only exists while a note is running. Inside the pill it read as one more label
+  in a row that already says "Slide to cancel". The bar keeps just
+  `‹ Slide to cancel`. Two Compose traps on the way: a fixed 56dp slot coerces a
+  plain `height()`, so the stalk needs `requiredHeight()`; and a child taller than
+  its slot is measured anyway, so the offset (`-(height - overlap)`) is tuned
+  against the drawn result (`overlap = 40dp`) rather than the arithmetic.
+- **Motion**: the record/send swap cross-fades, scales 0.7→1 and turns ±45°
+  (`AnimatedContent` plus the content scope's own `transition` — Compose 1.8.3
+  has no `rotateIn`/`rotateOut`). While recording, a translucent red ring behind
+  the disc breathes and also grows with the microphone level
+  (`VoiceRecorder.level()` polled at ~12 Hz), so a quiet room still shows motion.
+- Two exits from the recording, as in Google Messages: slide left to drop it
+  (the hint says "Slide to cancel"), or swipe up to **lock** it and keep
+  recording with the finger lifted. Locked, the bar's only control is a bin
+  ("Cancel recording") and the circle becomes Send; while unlocked the bin is
+  not drawn at all, because nothing can press it under a held finger. The arm
+  decision is pure (`VoiceGesture.armFor`: a diagonal up-left counts as the
+  cancel, since throwing a note away must be the easier accident).
+- Palette measured off Google Messages' own composer, not guessed: idle the
+  disc is the **pill's own fill** (#1A2025) with a #C0C7CD glyph, and recording
+  repaints it **#DC362E** with white ink (`ColorScheme.recordActive` in
+  `Theme.kt` — `error` in a dark M3 scheme is a pale salmon meant for text and
+  read as a disabled button). The bar is GM's: a steady 12dp white dot, the
+  `mm:ss` counter, the bin, a left chevron and "Slide to cancel" centred in the
+  space that is left. The disc does **not** swell while recording — that painted a
+  lighter arc over the pill's edge and read as a ripple around the button.
+- The record button is a level-meter glyph (`ic_voice_wave`, six round-capped
+  bars) rather than a microphone: the composer is asking for a voice note, not
+  for microphone settings, and the same shape carries the bubble's waveform.
+  The small button at the end of the recording bar uses it too.
+- The recording bar is drawn *over* the composer instead of replacing the text
+  field: taking the field out of the composition dropped its focus, so the IME
+  closed under the finger that had just started recording. The overlay swallows
+  taps, so the field cannot be edited mid-recording either.
+- `scripts/test-voice-message.sh` (21 checks, incl. the keyboard): preflight
+  refuses a `-no-audio`
+  emulator, then records for real, asserts the bubble with its length, the
+  `bytes=… mime=audio/mp4` log line, slide-to-cancel leaving no message,
+  playback starting, and Diagnostics reporting `Voice note: audio/mp4 …` plus
+  `Last voice note: N B`. Verified failing on a build with the mic swap
+  disabled (3 failures: conversation could not open, composer showed Send,
+  no voice button), passing after.
+
+### #364 follow-up: the three things the reporter found (2026-11-01)
+
+Grise3 verified a note arrives and sounds right, then reported:
+"Save image" on a voice note fails, "slide to cancel" does nothing once the
+note is locked, and hands-free recording is not obvious.
+
+- **Save was the wrong action, not a broken write.** The overflow offered
+  `chat_save_image` for any selected message with a `mediaUri`, and
+  `saveMessageImage` always inserted into `MediaStore.Images` — an `audio/mp4`
+  insert there throws, and `DownloadsStore` swallowed the exception, which is
+  why logcat was silent. Even a successful insert would have named the file
+  `.jpg`: `MmsSupport.EXTENSIONS` only knew pictures. Now
+  `MmsSupport.saveTargetFor(mediaType)` is the one decision, read by the menu
+  (`SelectionToolbar.saveLabelRes` → "Save voice message") and by
+  `DownloadsStore.writeMedia`, which picks Images (`Pictures/Messages`),
+  Audio (`Music/Messages`) or Downloads. Audio extensions were added, and the
+  outcome is logged as `AttachmentSave: target=… mime=… name=… ok=…` so a
+  script can tell success from failure.
+- **The locked bar was describing a gesture nobody could make.** Its copy came
+  from `arm` alone, so once `locked` the finger was gone but the bar still said
+  "Slide to cancel" with a chevron. `VoiceBar.modeFor(locked, arm)` is now one
+  value (`HOLD` / `CANCEL` / `LOCKED`) driving the hint, the chevron-vs-lock
+  icon, whether the bin is a button, and a pulsing dot; locked reads
+  "Recording hands-free". The bar's contents also follow the slide, so the
+  gesture visibly does something.
+- **Two gestures were too easy to trigger.** A tap on the mic opened
+  `MediaRecorder` and left a note behind — the recorder now only starts after
+  `VoiceGesture.HOLD_DELAY_MS` (260 ms) of held press, so a tap records
+  nothing. Locking armed at a distance (72dp, then 1.75× that), so a hand
+  drifting up mid-sentence dropped into hands-free no matter where it stopped;
+  the maintainer's wording was "the hand should move from the record button
+  till the lock icon", and that is now literal: `VoiceLockTab.reached()` hit
+  tests the padlock, and the lock also needs `LOCK_DWELL_MS` (300 ms) resting
+  on it, so a fast swipe that merely passes over the icon still sends. Crossing
+  a distance never locks.
+- **The target is measured, not derived.** The first positional version computed
+  the icon from the button's position, and because the drawn stalk sat ~12dp
+  higher than that arithmetic, the hit area still reached down into the button —
+  the maintainer felt it as "still sensitive". `onGloballyPositioned` on the
+  stalk feeds `VoiceLockTab.reached()` and the app logs the rectangle
+  (`VoiceLock: icon=[x1,y1][x2,y2]`, from the same `iconBounds()` the gesture
+  uses). `scripts/test-voice-message.sh` drags to exactly that rectangle, so it
+  cannot pass while aiming somewhere a finger could not lock from — the repo's
+  rule that a value only visible as pixels has to report itself as text.
+- The stalk is **1.5× taller** (154dp, 114dp visible) at the maintainer's
+  request, which also puts the padlock further from the button; the 0.5×
+  misreading briefly tried the opposite and made the drift case worse.
+- **The tall tab floated free of the disc.** A 2x zoom of the composer showed a
+  24px dark seam between the tab's bottom and the disc: the tab's bottom sat
+  *above* the button, so the "stalk" read as a white slab pasted over the chat.
+  Three separate Compose traps produced that, all measured rather than guessed
+  (`VoiceLockGeom: tabTop=… tabH=… micTop=…` on the device):
+  1. `height()` is coerced to the parent's 56dp box, so the tab came out 38dp
+     tall and lost its chevron; `requiredHeight()` is what keeps the length.
+  2. `padding(top = …)` on the tab shifted everything `onGloballyPositioned`
+     and the hit area saw, so the icon log and the button did not agree — it is
+     a `Spacer` inside the column now.
+  3. A `Box` **centres a child larger than itself**, so `.align(TopCenter)` plus
+     `offset(y = -VISIBLE)` landed the tab 43dp too high; `OFFSET_DP` now
+     subtracts `(BUTTON - HEIGHT) / 2` and a unit test pins that the tab's top
+     is `VISIBLE_DP` above the button and its bottom `TUCK_DP` behind the disc.
+  The visible height is 114dp (1.5x the original 76dp) and the bottom tucks
+  28dp behind the disc, so the tab reads as rising out of the record button.
+- **The disc lied before anything locked.** Screenshots at 140/220/300px of lift
+  showed the record disc already wearing a padlock (the old `lockHint` fired at
+  35% of the slide) while the bar still said "Slide to cancel" and nothing had
+  locked — the "still sensitive" report was this, not the hit area. The glyph
+  and the stalk's highlight now follow `arm == LOCK`, i.e. the finger actually
+  being on the padlock; a lift short of it changes nothing on screen. The armed
+  state has no text equivalent, so the app logs `VoiceLock: arm=…` on every
+  recording, and the script asserts a 100px lift reports `arm=NONE` and never
+  `arm=LOCK`.
+- The dwell is committed by its own effect, not the drag loop: a finger that
+  stops moving stops producing pointer events, which is exactly the case the
+  dwell is waiting for.
+- Trap worth remembering: `holding` was already taken by the send circle's
+  schedule-hold further down `InputBar`, so assigning to it from the record
+  gesture silently rebound to the other variable and the delayed start never
+  fired. The mic's state is `micHeld` for that reason.
+- Tests: `SelectionToolbarTest` (audio is never "Save image", text/files offer
+  no save), `MmsSupportTest` (`.m4a` name and audio fallback MIME),
+  `VoiceGestureTest` (drift does not lock, sideways swipe does not lock, lock
+  costs more than cancel, hold delay ≥ 200 ms), `VoiceBarTest` (one hint per
+  mode, chevron/lock swap, bin only pressable when locked, slide offset
+  clamped).
+- `scripts/test-voice-message.sh` grew from 21 to **48 checks**: a tap records
+  and sends nothing, a drift up does not lock, a dwelled swipe does, the locked
+  bar says "Recording hands-free" and drops the slide hint, and a long-pressed
+  voice note offers "Save voice message" (not "Save image"), saving with
+  `target=AUDIO … ok=true`, a `.m4a` name and a row in the audio collection.
+  Verified against the shipped build first: 9 of the new assertions failed
+  (menu said "Save image", no `AttachmentSave` line, no audio row) while the
+  liveness ones passed, as expected; 48/48 after.
+- Two script traps found here: `input swipe x y x y` is a **tap**, not a hold
+  (the old build recorded on it, which is exactly the "starts recording too
+  easily" report), so holds and dwells use `input motionevent DOWN/MOVE/UP`;
+  and both readings of a "did this send anything?" comparison have to be taken
+  in the same section, because a stale dump from the previous one misses the
+  bubble it just sent. The selection toolbar's overflow also has to be awaited
+  — it fades in, and a tap a frame early hits the chat's own "More options".
+
+## #398 follow-up done: a multi-picture MMS is one message again (2026-11-02)
+
+Reported (with a screenshot of three pictures and the notice between them): the
+fix shipped every picture, but "as if they were separate messages (even though
+there is only one message containing the images)", and the conversation still
+printed `[MMS: 2 additional/unsupported attachment(s) not displayed]` "but they
+are all displayed".
+
+- **One bubble, picture grid.** The rows were never grouped: `Message` had no
+  `sys_id`, so the chat drew each attachment as its own message with its own
+  timestamp, long-press and delete. `Message.sysId` is read now, and
+  `ChatRow.foldAlbums` folds consecutive picture rows of one provider MMS into
+  `ChatRow.Album`, which `ChatBubble` draws through the new `AlbumGrid` — two
+  tiles per row, at most four, the last one a "+N" scrim. A lone picture stays a
+  plain `ChatRow.Sent`, so an ordinary photo MMS renders exactly as before.
+- The album is one message for everything else too: long-press or tap selects
+  every row it holds (delete, star, lock, forward act on all of them), it has
+  one timestamp/status line, and the caption stays under the grid. Reactions
+  stay on single messages, since a reaction is sent per message.
+- **The stale notice.** A picture-only MMS has an empty body, so the notice an
+  old import wrote is not "overwritten" by the current import — it is the only
+  thing in the body. The provider is now the authority: a re-scan rewrites the
+  first row's body from `MmsSupport.content()` (`refreshedBody`), keeping the
+  stored text only when the provider row yields nothing at all (its parts were
+  deleted after import).
+- The one-time backfill became a **version** (`SettingsStore.mmsImportVersion`
+  against `MmsSupport.MMS_IMPORT_VERSION = 2`): 1 filled in the extra pictures,
+  2 also rewrites the bodies. An install already on 1 pays for exactly one more
+  pass over the provider, not two.
+- Message ordering is now `ORDER BY timestamp DESC, id DESC`, so an album's
+  pictures keep provider order instead of relying on SQLite's tie-breaking.
+- Tests: `ChatAlbumTest` (fold, two albums, singleton, SMS/audio never fold, a
+  message between pictures breaks the album, a scheduled row breaks it, grid
+  counts, ids), `MmsSupportTest` (a notice-only body is cleared, a caption
+  survives, a still-true video notice is kept, an emptied provider row keeps
+  its text). `scripts/test-mms-multi-image.sh` (13) now also puts the old notice
+  back on an imported row, rolls the version back, asserts the re-scan clears
+  it, and asserts the conversation has one `content-desc="3 photos"` album and
+  no lone "Photo" bubble. Verified 9 failures before the change (album and
+  notice both missing), 13/13 after.
+
+## #398 done: a multi-picture MMS shows every picture (2026-11-01)
+
+Reported: a received MMS with several pictures showed one and
+`[MMS: 2 additional/unsupported attachment(s) not displayed]`. The reporter's
+Diagnostics showed the import taking one `imageUri` per provider row, so the
+pictures were being dropped at import, not lost on the way to the screen.
+
+- **One message row per attachment.** `MmsSupport.content()` now collects every
+  image part (`imageId` + `extraImageIds`) and exposes `mediaRows()`; `omitted`
+  counts only media the app cannot show at all (video, documents, a second
+  voice note). The import writes a row per part, all with the same `sys_id`, so
+  they group as one MMS in the conversation. The caption stays on the first row.
+- **Schema.** `messages` was unique on `(transport, sys_id)`, which forbade a
+  second row for the same provider message. DB v31 drops that index and
+  recreates it as `(transport, sys_id, media_uri)`; the legacy `dedupeSysIds()`
+  migration had to change too — grouping by `sys_id` alone would have deleted
+  every picture but the first on upgrade.
+- **Backfill.** MMS imported before this change would otherwise stay
+  single-picture forever, so one re-scan runs once per install
+  (`SettingsStore.mmsPartsBackfillDone`, now the versioned
+  `mmsImportVersion` — see the follow-up above): every provider row is
+  re-examined and the missing parts are inserted. No notifications fire for them
+  — they are old messages.
+- **Diagnostics** (added at the maintainer's request, so the next report carries
+  the answer): an `--- MMS ---` block with
+  `Imported: N row(s), K from multi-part MMS (max P row(s))` and
+  `Provider MMS: newest multi-part #id, N part(s)` plus one `seq=… mime` line
+  per part, read from the store and from `content://mms` respectively; and
+  `Voice messages: N sent, M received`, `Voice playback: idle|playing|paused`
+  and `Voice waveform: none|decoded|placeholder`.
+- Tests: `MmsSupportTest` (three pictures → one row + two extras, no notice;
+  media order; text-only MMS has no media rows; picture + voice note now keeps
+  both), `DiagnosticsReportTest` (store/provider wording, voice lines).
+- `scripts/test-mms-multi-image.sh` (7): seeds one MMS with three image parts
+  into the provider, then asserts three imported rows, three distinct part URIs,
+  no notice, idempotent re-sync, a conversation without the notice, and the two
+  Diagnostics lines. Verified **6 failures on the shipped build, 7/7 after**
+  (the app has to be reinstalled fresh: a downgrade from DB v31 is rejected).
+- Trap: provider `pdu._id`s are reused after a delete, so an app row left behind
+  from an earlier run can be counted as one of the fixture's parts — the script
+  deletes app rows for that `sys_id` before importing.
+
+## #339 done: the app no longer keeps a notification tone of its own (2026-11-01)
+
+Reporter asked for the in-app sound setting to go, so a chat's tone can only
+come from its notification channel. Done in full: the picker is gone, and the
+three category channels are the only ids a category can own now.
+
+- What was wrong: the tone lived in `SettingsStore` and in the channel id
+  (`messages_direct_dragon`). Changing it minted a new channel and deleted the
+  old one, so the user's importance, vibration and pop-on-screen tuning went
+  with it. If the tone was changed in Android instead, the picker kept showing
+  the stored value — two sources of truth for one sound.
+- Now: `messages_<category>_default` while receive sound is on,
+  `messages_<category>_silent` while it is off, and the tone is set once at
+  creation from the system default. The retired per-tone ids (`_app`,
+  `_dragon`, `_uf09`, `_uf062`) are swept on every launch. The row that remains
+  is **Manage in system settings**, which opens Android's channel page — the
+  same hand-off the per-chat switch already used.
+- Removed: `notificationSound`, `notificationSoundFor`/`setNotificationSoundFor`
+  and `hasNotificationSoundOverride` from `SettingsStore`, the picker in both
+  settings trees, `NotificationHelper.previewNotificationSound`, four bundled
+  tone files (`dragon_studio`, `universfield_09`, `universfield_062`; the send
+  sound keeps `notification_sound.mp3` and the silent channel keeps
+  `silent.wav`), and 8 string keys × 13 locales.
+- Verified: `./gradlew testDebugUnitTest` green (1185 tests);
+  `scripts/test-notification-sound.sh` rewritten — **4 failures on the pre-change
+  APK** (picker present, `messages_direct_dragon` minted from the stored pref,
+  `messages_direct_default` deleted, channel sound changed), **22 passed / 0
+  failed** after. The heads-up half of that script skipped on this run because
+  the AVD's modem is down (`Unable to connect character device modem`,
+  `gsm.sim.state=NOT_READY`); the silent-clip assertion still ran and passed.
+
 ## #395 verified fixed: a grouped amount in an RTL message (2026-10-31)
 
 Reporter (1.0.30, F-Droid): "20,980.01" in an RTL message paints as
