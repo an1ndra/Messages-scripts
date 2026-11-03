@@ -335,6 +335,21 @@ maintainer then selected it together with the MMS import refactor.
     before any row is linked to the provider, so the `sys_id` status cascade has
     nothing to follow; the hand-off itself (`handOff(rowIds, …)`) settles them
     and the forwarded album's caption also goes through `hideLinks`.
+- **The stale notice survived the gate's removal.** A row backfilled with every
+  picture is *complete*, so the per-part skip stopped re-reading it — and the
+  notice an older import wrote (`[MMS: 2 additional/unsupported attachment(s)
+  not displayed]`) stayed under the album forever. The reporter's 2026-11-03
+  screenshot showed the grid fixed but the notice still there, because they
+  upgraded from a build before the one-shot re-scan straight to the no-gate
+  import. `MmsSupport.skippableMmsIds` now subtracts every `sys_id` whose stored
+  body still carries the notice, so those rows are read again and
+  `refreshedBody` rewrites them; a genuinely unsupported part (a video)
+  reproduces the same notice and is left alone. Tests: `MmsSupportTest` (a
+  complete MMS with the notice is read again; the notice body is recognisable),
+  **new** `scripts/test-mms-legacy-notice.sh` **4/4** (fail-before: **3/4**, the
+  notice assertion red). Re-ran `test-mms-import.sh` **5/5** and
+  `test-mms-multi-image.sh`, whose import/notice assertions stayed green; its
+  Save/Diagnostics taps were flaky while another agent was using the emulator.
 - Tests: `SendReqBuilderTest` (part count, one slide and one part name per
   picture, every SMIL src resolves), `MmsFacadeTest` (three attachments share
   the split budget and reach the transport in one PDU; one bad attachment sends
