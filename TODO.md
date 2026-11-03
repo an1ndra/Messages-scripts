@@ -5,6 +5,68 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #354 round 7: the blank unlock, a lock without a resume, and the bubble's own list (2026-11-03)
+
+Three reports from the Nov 3 comment, all in the bubble/app-lock path:
+
+1. "when i open a conversation [in a bubble], lock the phone, unlock it, open
+   the app, unlock it, the conversation is blank" — reported for every chat.
+2. "sometimes the conversation asks for the lock, sometimes it doesn't" after
+   the same screen lock.
+3. "in the bubble, press Back, the conversation list opens inside the bubble;
+   tapping a chat there closes the bubble".
+
+- **Blank conversation.** The lock gate re-locks a window by returning before
+  the content composition (`return@setContent`). That discards every `remember`
+  inside it — but `navRoute` lives on the Activity and survived, so unlocking
+  recomposed on `"chat"` with `chatId == -1L` and rendered an empty thread. The
+  destination's own state (`chatId`, `chatSearchQuery`, `detailsId`,
+  `addPeopleReturn`) now lives beside `navRoute` at Activity scope, so it
+  outlives the gate the same way the route does. `LockGateNavigationTest` pins
+  the declarations; a `remember`-ed `chatId` fails it.
+- **Intermittent re-lock.** Round 6 re-read the session on `ON_RESUME`. That
+  misses a lock delivered while the window is *already* resumed — a delayed
+  screen-off broadcast, or a bubble the platform keeps resumed — because no
+  resume event follows it. `LockSession` now keeps an observer set
+  (`addObserver`/`removeObserver`, notified by `unlock()`/`lock()`), and
+  `MainActivity` observes the session instead of the lifecycle. The prompt only
+  runs under `repeatOnLifecycle(RESUMED)`, preserving round 6's reason for
+  waiting: a `BiometricPrompt` on a stopped activity finishes on error and takes
+  a bubble down with it.
+- **Bubble closed from its own list.** `onOpenConversation` always called
+  `retireBubbleForFullChat`, which cancels the notification that hosts the
+  bubble window. Inside a bubble that list *is* the window, so selecting a chat
+  closed it under the user. `retiresBubbleForChatSelection(bubbleMode)` now
+  gates both call sites (new and legacy conversations screens): a full-screen
+  open still retires the duplicate bubble, a bubble's own list does not.
+
+Tests, all on the debug APK built from this branch on `emulator-5558`:
+
+- `test-app-lock-session.sh` **14/0**, now including: a conversation opened,
+  locked by screen-off and unlocked comes back with its message rather than
+  blank (round 7 case 1), and a session ended by the debug-only
+  `com.anindra.messages.DEBUG_LOCK_SESSION` broadcast — no activity transition
+  at all — still re-arms the open window (case 2). The broadcast hook is
+  debug-gated in `MessagesApplication` and can only end a session, never grant
+  access. **11/3 on the un-fixed APK**, failing exactly those three assertions.
+- `test-notification-bubbles.sh` **18/0**, including: Back out of a bubble to
+  the chat list, tap the conversation, and the bubble's notification is still
+  listed. **17/1 on the fixed tree with the guard reverted** (the new case is
+  the failure), so the assertion is not vacuous.
+- Collateral: `test-bubble-foreground` **11/0**, `test-bubble-fullchat` **8/0**,
+  `test-settings-bubbles` **6/0**, `test-chat-open-stability` **4/0** (one run
+  reported the newest-message case — the documented mid-run `uiautomator`
+  flake; a clean re-run passed 4/0).
+- Unit: `:app:testDebugUnitTest` **1231/0**, including new observer cases in
+  `LockSessionTest`, the source rules in `AppLockGateTest` and
+  `LockGateNavigationTest`, and `BubbleBackTest`'s bubble-list cases.
+
+`test-app-lock-verification.sh` still fails 4/4 ("could not reach the App lock
+row"): it opens **Advanced settings** looking for the row, which this branch's
+new Settings UI moved to the main Settings screen (`ui/SettingsScreen.kt`; the
+legacy screen still has it). Pre-existing and unrelated to this change — not
+touched here.
+
 ## #362 fixed properly: the base direction is per line, not per message (2026-11-01)
 
 Second follow-up on the issue, with two more real bodies that still came out

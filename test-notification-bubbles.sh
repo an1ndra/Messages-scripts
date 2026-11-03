@@ -12,7 +12,9 @@
 #   * opening the bubble's launch intent keeps the notification alive while the
 #     bubble is on screen,
 #   * Back inside a bubble leaves the bubble up (#354 follow-up) unless the
-#     "Close bubble with Back" setting is turned on, in which case it closes.
+#     "Close bubble with Back" setting is turned on, in which case it closes,
+#   * choosing a conversation from the bubble's own chat list keeps the bubble
+#     (#354 round 7) — that list renders inside the bubble window.
 #
 # Run: scripts/test-notification-bubbles.sh
 source "$(dirname "$0")/env.sh"
@@ -194,6 +196,21 @@ if adb_ shell dumpsys window windows 2>/dev/null | tr -d '\r' | grep -q "Bubbles
     ok "the bubble still exists after Back (collapsed to its icon)"
 else
     bad "Back removed the bubble surface entirely"
+fi
+
+# Back shows the chat list *inside* the bubble window. Choosing the conversation
+# from that list used to retire the notification that hosts the very window
+# being used, so the bubble closed under the user (#354 round 7).
+if layout_has "$TEXT"; then
+    tap_layout "$TEXT" >/dev/null 2>&1
+    sleep 3
+    if adb_ shell cmd notification list 2>/dev/null | tr -d '\r' | grep -q "|$PKG|"; then
+        ok "choosing a chat from the bubble's own list keeps the bubble"
+    else
+        bad "choosing a chat from the bubble's list closed the bubble (#354)"
+    fi
+else
+    bad "the bubble's chat list did not show the conversation"
 fi
 
 info "With 'Close bubble with Back' on, Back closes it"
