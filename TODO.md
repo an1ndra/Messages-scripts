@@ -303,6 +303,28 @@ telephony provider, so a `starred` column must survive re-import — key it to
 coverage of star → import → delete, and a `test-starred-messages.sh` (star → chip
 appears → Search → Starred lists it with its chat and time → unstar → gone).
 
+**Shipped, then the reporter's badge follow-up (2026-11-03).** Star/unstar is in
+the selection toolbar, the Starred scope in home search lists message + chat +
+time, and unstarring clears the flag (commit `2ca1a8a`). The reporter then said
+the marker should be a badge, not the bare 14.dp star glyph. `StarBadge()` in
+`ChatScreen.kt` now draws a 20.dp framed circle — surface fill, 1.dp
+`outlineVariant` border, 2.dp shadow, 12.dp star — with the content description
+on the Surface, so accessibility reports the badge's own size. It is drawn for
+media bubbles too, not only text ones. `StarBadgeTest` pins the source shape;
+`test-starred-messages.sh` asserts the "Starred message" node is at least 48px
+wide (the old glyph was 39px on this 440dpi AVD) and still covers star → search
+→ unstar. The notification star action stays skipped, as above.
+
+Two harness bugs surfaced while proving the regression on `emulator-5558`:
+`dump_ui` piped `uiautomator dump` into `grep -q`, whose early exit killed the
+remote process before it released its UiAutomation registration, so every later
+dump died with "already registered" until a reboot; and this script mixed the
+`android` CLI's `layout_json` — which leaves
+`com.android.cli.interact.instrumentation` holding the same registration — with
+uiautomator. `dump_ui` now captures the output before grepping (`grep -c`), and
+the script is uiautomator-only. UI sequences also retry the long-press: the
+first touch after a cold launch used to land while the chat was still settling.
+
 ## #339 follow-up 3: per-chat channels became opt-in (2026-10-31)
 
 The reporter's last comment asked for the opposite of what shipped: create a

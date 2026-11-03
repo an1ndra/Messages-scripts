@@ -48,10 +48,16 @@ type_text() {
 # naive pull reads the previous screen. Delete the file first, confirm the dump
 # actually succeeded, and retry.
 dump_ui() {
-    local try
+    local try out
     for try in 1 2 3; do
         adb_ shell rm -f /sdcard/ui.xml >/dev/null 2>&1
-        if adb_ shell uiautomator dump /sdcard/ui.xml 2>/dev/null | grep -q "dumped to"; then
+        # Capture first, then grep the variable. Piping straight into `grep -q`
+        # makes grep exit on the first match and closes the pipe, which kills
+        # the remote uiautomator before it releases its UiAutomation
+        # registration; every later dump then dies with "UiAutomationService
+        # ... already registered!" until the device is rebooted.
+        out=$(adb_ shell uiautomator dump /sdcard/ui.xml 2>&1)
+        if printf '%s' "$out" | grep -c "dumped to" >/dev/null 2>&1; then
             rm -f "$TMP/ui.xml"
             adb_ pull /sdcard/ui.xml "$TMP/ui.xml" >/dev/null 2>&1
             [ -s "$TMP/ui.xml" ] || continue
