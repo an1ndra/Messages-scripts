@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# Regression for #398: an MMS carrying several pictures must show all of them,
+# as one message.
+#
+# The app used to import one picture per provider MMS and print
+# "[MMS: N additional/unsupported attachment(s) not displayed]" over the rest.
+# Each picture part now becomes its own message row under the same provider id,
+# and the chat folds those rows into one bubble showing every picture as a grid.
+#
+# The fixture is written straight into the provider database (the emulator is
+# rooted): one MMS, three image parts, no text. Asserted on both sides — the
+# provider really holds three parts, the app really stores three rows — and
+# again after a restart, because the import is what a second sync re-runs. The
+# last checks put back the notice an old import wrote and prove the versioned
+# re-scan clears it and the chat draws one album instead of three messages.
+source "$(dirname "$0")/env.sh"
+set -euo pipefail
+
+PASS=0
+FAIL=0
+pass() { printf '[PASS] %s\n' "$1"; PASS=$((PASS + 1)); }
+fail() { printf '[FAIL] %s\n' "$1"; FAIL=$((FAIL + 1)); }
+
+command -v sqlite3 >/dev/null 2>&1 || true
+[[ "$ANDROID_SERIAL" == emulator-* ]] || { printf 'Requires a disposable emulator.\n'; exit 1; }
+[[ "$(adb_ shell id -u | tr -d '\r')" == 0 ]] || { printf 'Run adb root on the test emulator first.\n'; exit 1; }
+
+PROVDB="${PROVDB:-/data/data/com.android.providers.telephony/databases/mmssms.db}"
+MARKER="mms398_$(date +%s)_$$"
+ADDRESS="+1555$(date +%s | tail -c 8)"
+STAMP=$(date +%s)
+provider() { adb_ shell "sqlite3 '$PROVDB' \"$1\"" | tr -d '\r'; }
+# A fresh install has no database until the app has opened once, and sqlite3
+# writes an error to stderr for that; an empty answer reads as "no rows".
+local_query() { adb_ shell "run-as '$PKG' sqlite3 databases/messages.db \"$1\" 2>/dev/null" | tr -d '\r'; }
+
+[[ "$(provider "SELECT COUNT(*) FROM canonical_addresses WHERE address='$ADDRESS';")" == 0 ]] || exit 1
+LOCAL_ROWS=$(local_query "SELECT COUNT(*) FROM conversations WHERE address='$ADDRESS';" || true)
+[[ -z "$LOCAL_ROWS" || "$LOCAL_ROWS" == 0 ]] || exit 1
+cleanup() {
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
+    provider "DELETE FROM pdu WHERE tr_id='$MARKER'; DELETE FROM threads WHERE recipient_ids IN (SELECT CAST(_id AS TEXT) FROM canonical_addresses WHERE address='$ADDRESS'); DELETE FROM canonical_addresses WHERE address='$ADDRESS';" >/dev/null || true
+    local_query "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$ADDRESS'); DELETE FROM conversations WHERE address='$ADDRESS'; DELETE FROM participants WHERE normalized_destination='$ADDRESS';" >/dev/null || true
+}
+trap cleanup EXIT
+
+provider "BEGIN; INSERT INTO canonical_addresses(address) VALUES('$ADDRESS'); INSERT INTO threads(recipient_ids,date) VALUES(CAST(last_insert_rowid() AS TEXT),${STAMP}000); INSERT INTO pdu(thread_id,date,msg_box,m_type,read,sub_id,tr_id) VALUES(last_insert_rowid(),$STAMP,1,132,1,-1,'$MARKER'); INSERT INTO addr(msg_id,address,type,charset) SELECT _id,'$ADDRESS',137,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/jpeg',1,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/png',2,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/webp',3,106 FROM pdu WHERE tr_id='$MARKER'; COMMIT;" >/dev/null
+
+PDU=$(provider "SELECT _id FROM pdu WHERE tr_id='$MARKER';")
+# Provider ids are reused after a delete, and an app row left behind with the
+# same sys_id would be counted as one of ours. Start from a clean slate for this
+# id only.
+local_query "DELETE FROM messages WHERE sys_id=$PDU;" >/dev/null 2>&1 || true
+PARTS=$(provider "SELECT COUNT(*) FROM part WHERE mid=$PDU AND ct LIKE 'image/%';")
+[[ "$PARTS" == 3 ]] && pass "the provider fixture carries three picture parts" \
+    || { fail "the provider fixture carries three picture parts (got $PARTS)"; exit 1; }
+
+restart() {
+    adb_ shell am force-stop "$PKG" >/dev/null
+    adb_ shell am start -n "$ACT" >/dev/null
+    sleep 5
+    if dump_ui && grep -Fq 'Set as default SMS app?' "$TMP/ui.xml"; then
+        tap_text 'Not now' || true
+        sleep 2
+    fi
+}
+
+imported_rows() { local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND transport='mms';" || true; }
+
+restart
+for _ in 1 2 3 4 5 6; do
+    [[ "$(imported_rows)" == 3 ]] && break
+    sleep 2
+done
+ROWS=$(imported_rows)
+[[ "$ROWS" == 3 ]] && pass "all three pictures were imported as separate rows" \
+    || { fail "all three pictures were imported as separate rows (got $ROWS)"; exit 1; }
+
+DISTINCT=$(local_query "SELECT COUNT(DISTINCT media_uri) FROM messages WHERE sys_id=$PDU;")
+[[ "$DISTINCT" == 3 ]] && pass "the three rows point at three different parts" \
+    || fail "the three rows point at three different parts (got $DISTINCT)"
+
+MEDIA=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND media_type='image';")
+[[ "$MEDIA" == 3 ]] && pass "every imported row is a picture" \
+    || fail "every imported row is a picture (got $MEDIA)"
+
+# The old build hid the extras behind this notice; it must not appear any more.
+NOTICE=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
+[[ "$NOTICE" == 0 ]] && pass "the 'unsupported attachment' notice is gone" \
+    || fail "the 'unsupported attachment' notice is gone (got $NOTICE)"
+
+restart
+sleep 3
+ROWS=$(imported_rows)
+[[ "$ROWS" == 3 ]] && pass "a second sync does not duplicate the pictures" \
+    || fail "a second sync does not duplicate the pictures (got $ROWS)"
+
+# A row imported before the multi-picture fix carried the notice in its body even
+# though every picture is on screen. Put that row back as the old import left it,
+# roll the one-time re-scan back, and let the next start rewrite it.
+adb_ shell am force-stop "$PKG" >/dev/null
+sleep 2
+local_query "UPDATE messages SET body='[MMS: 2 additional/unsupported attachment(s) not displayed]' WHERE sys_id=$PDU AND media_uri=(SELECT MIN(media_uri) FROM messages WHERE sys_id=$PDU);" >/dev/null
+NOTICE_SET=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
+[[ "$NOTICE_SET" == 1 ]] && pass "the fixture carries the notice an old import wrote" \
+    || fail "the fixture carries the notice an old import wrote (got $NOTICE_SET)"
+adb_ shell "run-as $PKG sed -i '/mms_import_version/ s/value=\"[0-9]*\"/value=\"0\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1 || true
+adb_ shell am start -n "$ACT" >/dev/null
+for _ in $(seq 1 20); do
+    NOTICE_LEFT=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
+    [[ "$NOTICE_LEFT" == 0 ]] && break
+    sleep 2
+done
+NOTICE_LEFT=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
+[[ "$NOTICE_LEFT" == 0 ]] && pass "the re-scan clears the notice over pictures it now shows" \
+    || fail "the re-scan clears the notice over pictures it now shows (got $NOTICE_LEFT)"
+
+# The three pictures share one provider MMS, so they must share one bubble: the
+# album names itself "3 photos" for a screen reader, and no picture renders as a
+# lone "Photo" bubble of its own.
+adb_ shell am force-stop "$PKG" >/dev/null
+sleep 1
+adb_ shell am start -n "$ACT" --es open_conversation_address "$ADDRESS" >/dev/null
+SHOWN=0
+for _ in 1 2 3 4 5; do
+    sleep 2
+    dump_ui >/dev/null 2>&1 || continue
+    # The composer's mic means a conversation is open; the address renders
+    # grouped ("(555) 933-0002") rather than as stored, so it cannot be grepped.
+    if grep -Fq 'content-desc="Record voice message"' "$TMP/ui.xml" &&
+       grep -Fq 'content-desc="3 photos"' "$TMP/ui.xml"; then SHOWN=1; break; fi
+done
+[[ "$SHOWN" == 1 ]] && pass "the conversation draws the pictures as one album" \
+    || fail "the conversation does not draw the pictures as one album"
+if [[ "$SHOWN" == 1 ]]; then
+    if ! grep -Fq 'additional/unsupported attachment' "$TMP/ui.xml"; then
+        pass "the conversation no longer says some attachments are not displayed"
+    else
+        fail "the conversation still says some attachments are not displayed"
+    fi
+    PHOTO_NODES=$( (grep -o 'content-desc="Photo"' "$TMP/ui.xml" || true) | wc -l | tr -d ' ' )
+    [[ "$PHOTO_NODES" == 0 ]] && pass "no picture is a message of its own" \
+        || fail "no picture is a message of its own (found $PHOTO_NODES lone photo bubbles)"
+else
+    # Without a dump the two checks above would pass on an empty file, which is
+    # exactly how a broken build slips through.
+    fail "the conversation no longer says some attachments are not displayed"
+    fail "no picture is a message of its own"
+fi
+
+# Diagnostics has to carry the same story, because that is what a report
+# attaches: what we stored, and what the provider actually holds (#398).
+open_diagnostics() {
+    local i
+    for i in $(seq 1 12); do
+        dump_ui >/dev/null 2>&1 || { sleep 1; continue; }
+        if grep -qF 'text="Diagnostics"' "$TMP/ui.xml"; then
+            tap_text "Diagnostics" >/dev/null 2>&1 && return 0
+        elif grep -qF 'text="Advanced settings"' "$TMP/ui.xml"; then
+            tap_text "Advanced settings" >/dev/null 2>&1 || true
+            sleep 2
+        else
+            adb_ shell input swipe 540 1800 540 800 300 >/dev/null
+        fi
+        sleep 1
+    done
+    return 1
+}
+adb_ shell am force-stop "$PKG" >/dev/null
+sleep 1
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null
+sleep 6
+if open_diagnostics; then
+    sleep 3
+    dump_ui >/dev/null 2>&1 || true
+    if grep -qE 'Imported: [0-9]+ row\(s\), [1-9][0-9]* from multi-part MMS \(max [2-9]' "$TMP/ui.decoded.xml"; then
+        pass "Diagnostics counts the multi-part MMS in the store"
+    else
+        fail "Diagnostics does not count the multi-part MMS in the store"
+    fi
+    if grep -qF "Provider MMS: newest multi-part" "$TMP/ui.decoded.xml"; then
+        pass "Diagnostics lists the newest multi-part provider MMS"
+    else
+        fail "Diagnostics does not list the provider's multi-part MMS"
+    fi
+else
+    fail "could not reach Diagnostics"
+    fail "could not reach Diagnostics"
+fi
+
+printf 'PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
+exit $((FAIL > 0))
