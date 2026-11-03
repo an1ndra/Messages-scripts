@@ -5,6 +5,216 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #354's avatar and Back fixes reach the bubble branch (2026-11-03)
+
+Two follow-ups the reporter asked for were implemented on
+`fix/345-bidi-dupes-badge` but never cherry-picked onto the bubble branch, even
+though this repo's `test-notification-bubbles.sh` already asserted them — so it
+sat at 13/4 on a branch that could never pass:
+
+- `bf42b0f` — the chat's own picture. `ConversationAvatar` resolves the contact
+  photo, else the same silhouette on the same palette colour the list uses, and
+  the notification, shortcut and bubble metadata all take it. Photo-less senders
+  log `source=AVATAR shade=#…` under `BubbleIcon`.
+- `fbe2400` — Back no longer closes a bubble unless "Close bubble with Back"
+  (default off) is on. The cherry-pick conflicted only on `MainActivity`'s
+  `open`-class change and on the notification-icon wiring; both resolved by
+  keeping this branch's `BubbleChatActivity` task and the avatar path. The two
+  new strings gained `values-fa/` translations in the same commit, or
+  `TranslationParityTest` would fail on the newly shipped locale.
+
+`test-bubble-foreground.sh`'s Back case asserted the old "Back retires the
+task" behaviour; it now asserts the task and notification survive Back by
+default. The setting-on path stays in `test-notification-bubbles.sh`, which
+already drives both.
+
+Verified on `emulator-5558` with the rebuilt APK: `test-notification-bubbles`
+**17/0** (was 13/4), `test-bubble-foreground` **11/0**, `test-app-lock-session`
+**8/0**, `test-bubble-fullchat` **8/0**, `test-settings-bubbles` **6/0**,
+`test-translations` **4/0** (13 locales, 586 keys), and `:app:testDebugUnitTest`
+**1215/0** (including `ConversationAvatarWiringTest`, `BubbleBackTest` and the
+Persian parity tests). One `test-app-lock-session` run reported 2/6 because the
+emulator guest crashed mid-run (`activity` service gone, no FATAL EXCEPTION);
+after restarting the AVD the same APK was 8/0, so that was the host, not the
+fix.
+
+## Persian (fa) ships, and every locale is verified complete (2026-11-02)
+
+#345's follow-ups kept landing on a Persian-locale phone while the app had no
+`values-fa` at all, so every window was RTL and the copy inside it English. The
+Crowdin project already has Persian as a target language — `/project/git-messages/fa`
+resolves exactly like the twelve shipped ones while `he`/`tr`/`it` are 404 — the
+repo was the only thing missing it.
+
+- `values-fa/` (the same ten `strings_*.xml` files, 584 strings) written
+  complete, generated from the base files so key order, comments and
+  indentation match by construction.
+- `xml/locales_config.xml` declares `fa`, so Android offers it under Per-app
+  language, and `crowdin.yml` pins `fa: fa` — the default resolution exports
+  `values-fa-rIR` and leaves the shipped directory empty, exactly the trap that
+  once produced the empty `values-ar-rZA` trees.
+- The twelve other locales were audited: all 13 directories carry 584/584 keys.
+  The handful of values identical to English are proper nouns (`font_*`,
+  `Dragon Studio`, `Amoled`, `SMS`) or CLDR patterns, so no leftover English.
+
+Tests: `PersianLocaleTest` (JUnit) asserts the locale is declared, matches the
+base key-for-key, has no English sentence left in it (an 11-key allowlist covers
+what stays Latin on purpose) and that every Persian sentence resolves RTL through
+`BidiText.direction` — the same function the bubbles use, not a second rule.
+`scripts/test-persian-locale.sh` reports all 13 locales at 584/584, checks the
+APK's resource table really carries `(fa)` entries, then switches the AVD to
+`fa-IR` (Android 12 has no per-app locale; `cmd locale` does not exist there, so
+`persist.sys.locale` + a zygote restart is the only lever) and asserts the
+configuration is `fa-rIR … ldrtl` and the app paints `پیام‌ها`, `جستجو`,
+`بایگانی‌شده`. The original locale is restored on exit, interrupted or not.
+Verified both ways: with `values-fa/` moved away, rebuilt and reinstalled the
+script reports 5 FAIL (source, four APK strings, three on-screen labels); with it
+back, 9 PASS. `:app:testDebugUnitTest` is 1209 tests green.
+
+## Play listing screenshots are composited, not captured (2026-11-02)
+
+The Play listing needs 9:16 frames, and the raw captures are 1080x2340 (20:9),
+so Play rejects them. The listing set is now built from the raw captures:
+
+- `take-fdroid-screenshots.sh` writes `screenshots/store-raw/` (git-ignored) and
+  no longer touches the published listing. `FDROID_SHOTS_DIR` overrides it.
+- `make-store-screenshots.py` frames each raw capture at 1080x1920 through
+  `photocraft-cli`: seeded gradient backdrop, white headline + subhead, phone
+  mockup with side buttons, screenshot clipped to the rounded screen. Colours
+  are mixed from the seed parsed out of `Theme.kt`, so the listing cannot drift
+  from the app's palette.
+- `test-store-screenshots.sh` asserts the pixels: dimensions, backdrop blue and
+  its gradient direction, white headline pixels, and that the phone is inset
+  and reaches the bottom edge. `StoreScreenshotTest` (JUnit) holds the same
+  1080x1920 contract at build time.
+
+Two capture bugs surfaced and are fixed:
+
+- **`su 0 <cmd>` is silently ignored on emulator-5558** (exit 0, no output), so
+  `insert-demo-contacts.sh` seeded nothing: every avatar fell back to the
+  silhouette and every root read looked like an empty table. Magisk needs
+  `su 0 sh -c '<cmd>'`; that now lives once as `adb_su` in `env.sh`, and all ten
+  call sites use it. `seed-demo-conversations.sh`'s system-SMS wipe had been a
+  no-op for the same reason.
+- The voice-message coach mark opens with the first chat of a session and
+  covers the composer, so every chat shot after it was unusable. `open_chat`
+  now dismisses it (`Got it`, alongside the existing `Not now`/`ALLOW` taps).
+
+## An open bubble survived the screen lock (#354 round 6, 2026-11-02)
+
+Reporter (comment 6563628919): "thank so much better now … the unlock is per
+bubble which is great (am i right?) the bubble of a conversation, when it opens
+once, won't get locked on screen lock, thats the issue about it, if i close a
+bubble and open it again, it asks for password which is perfectly good".
+
+- It was **per process**, not per bubble, and that is why the report looks
+  contradictory: `LockSession` is a process-wide flag, and `BubbleChatActivity`
+  runs in its own task, so closing the last window lets the process die and the
+  next bubble genuinely starts locked. An *open* one never saw the lock at all.
+- Root cause: `MessagesApplication` ends the session on `ACTION_SCREEN_OFF`, but
+  a window read it **once**, in `remember { mutableStateOf(...) }` inside
+  `setContent`. An activity that is already built is not rebuilt by a screen
+  lock, so `appUnlocked` stayed `true` and the chat was readable straight after
+  unlock. The same held for the full-screen app behind the keyguard.
+- Fix: the rule is now `AppLockGate.allowsContent(appLockEnabled,
+  sessionUnlocked)` (one place, read twice), and a `LifecycleEventObserver` in
+  the composition re-reads the session on `ON_RESUME`, dropping back into the
+  existing gate and its existing prompt. **Resume, not the screen-off broadcast
+  itself**: flipping the state on the broadcast would raise a `BiometricPrompt`
+  on a stopped activity, whose error path calls `finish()` — it would have
+  closed the bubble on every lock. Nothing changes for a plain background
+  return; the session still only ends with the screen.
+- `appLockEnabled` became Compose state instead of a captured local, because the
+  gate turns the setting off when the device has no credential and the new
+  `--es app_lock_probe enable|disable` hook (debug builds only) has to reach the
+  running window through `onNewIntent`. The probe writes the real setting; it
+  never fakes an authentication.
+- Unit: `AppLockGateTest` (4) + the existing `LockSessionTest` (3). Script
+  `test-app-lock-session.sh` is now 8/0, with two new cases: an open main window
+  re-arms after `KEYCODE_SLEEP`/`WAKEUP` (asserted both from the hierarchy and
+  from the `regate=true` log), and the bubble's own activity class does the same.
+  **5/2 with the `appUnlocked = false` re-check neutered**, so the assertions are
+  not vacuous. `test-notification-bubbles.sh` stays 13/4 on this AVD, and those
+  4 fail identically on the unmodified branch (avatar lookup and the Back case
+  after a data wipe) — not caused by this change.
+
+## A bubble tapped while the app is on screen opened blank (#354 round 5, 2026-11-01)
+
+Reporter (1.0.31 dev build, comment 6555074162): "i experienced showing
+buuble for a chat while i was in the app, i clicked the bubble, bubble opens
+blank, but the app goes to that conversation."
+
+- Bubbles floating over the app is **platform-standard**: Google Messages
+  `20260827_01_RC03` floats the same collapsed bubble in the same place
+  (`SkRegion((-41,335,190,566))`, notification flags `0x1010`) while its own
+  conversation list is foreground. Fossify `1.10.2` has no bubbles at all
+  (notification flags `0x10`, no `Bubbles!` window) — the two ends of the
+  range, so the bug is ours, not the platform's.
+- Root cause: the bubble `PendingIntent` targeted `MainActivity`, which is
+  `singleTop`. With the app resumed the launch was delivered to the running
+  instance (`onNewIntent` → `navRoute = "opening"`), so no task existed for
+  the bubble host: the app navigated and the expanded bubble had nothing to
+  render. Reproduced from `dumpsys`: `START … cmp=…/.MainActivity` and a single
+  `Task … mode=fullscreen`. GM, same tap, creates a second
+  `Task … mode=multi-window` hosting the chat and leaves its own task alone.
+- `FLAG_ACTIVITY_MULTIPLE_TASK | FLAG_ACTIVITY_NEW_DOCUMENT` alone did **not**
+  fix it (the flags reached the launch — `flg=0x18080000` — and the task was
+  still reused), and an `<activity-alias>` cannot help either: `launchMode`
+  and `taskAffinity` are not alias attributes, so it inherits `singleTop`.
+- Fix: `BubbleChatActivity : MainActivity` as its own declared activity with
+  `launchMode="standard"`, `taskAffinity="com.anindra.messages.bubble"` and
+  `excludeFromRecents`, and the bubble/shortcut intent targets it. MainActivity
+  is `open` for the subclass; no UI code changed.
+- Also fixed: `ForegroundTracker` held one open address. With the app window
+  and a bubble open on different chats, closing either cleared the other, so
+  the next message could notify for a chat still on screen. It now counts
+  registrations per address (`openConversation`/`closeConversation`).
+- Unit: `ForegroundTrackerTest` (6), `NotificationBubbleWiringTest`
+  (`theBubbleLaunchOwnsItsOwnTask`, `theBubbleActivityIsItsOwnTask`). Suite
+  green.
+- `scripts/test-bubble-foreground.sh` (7): app foreground on its list → SMS →
+  BUBBLE flag → tap collapsed bubble → asserts a `mode=multi-window` bubble
+  task **and** the app's task still fullscreen, the chat rendered rather than a
+  blank window, the notification alive, and Back retiring the task.
+- AVD note: this host's emulator could not reach its modem simulator
+  (`qemu: Unable to connect character device modem … ::1:34709`), because qemu
+  resolves `::1` with `AI_ADDRCONFIG` and glibc refuses that on a host with no
+  global IPv6. Fixed with an `LD_PRELOAD` shim
+  (`~/.local/lib/no-addrconfig.so`, recipe in the app repo's `AGENTS.md`):
+  `gsm.sim.state` is now `LOADED` and `adb emu sms send` delivers again. The
+  script still falls back to `scripts/lib/inject-sms/` (a GSM-7 PDU +
+  `InjectSms` dex run through `app_process` as root, broadcasting a real
+  `SMS_DELIVER`) for hosts without the shim.
+- Verified on `emulator-5558`: 7/0 with the fix; reverting only the intent
+  target (keeping the activity declared) gives 6/1, failing exactly
+  "the bubble has no task of its own".
+
+### Follow-up: the bubble asked for the app lock again (2026-11-01)
+
+Reporter (6557380328, on the build with the fix): "unlock dialog appear when
+I'm in the app, app is onced unlocked but opening that bubble asks for it
+again". Correct — and caused by the fix above, not by the platform: the prompt
+sat in `setContent` behind `remember { mutableStateOf(!appLockEnabled) }`, so
+it was per activity, and a bubble is now always a second activity. Google
+Messages does not re-ask.
+
+`eff7cf5` ("one app-lock prompt per session, ended by the screen") already
+existed on `fix/345-bidi-dupes-badge` and was never on `Develop`; it is
+cherry-picked onto the bubble branch. `LockSession` holds the unlock for the
+process, the gate skips the prompt when it is open, and a screen-off receiver
+ends it (nothing persisted, so a restart asks again).
+
+- Units: `LockSessionTest`. `scripts/test-app-lock-session.sh` 4/0
+  (starts locked, survives a new activity, ends on screen off, never persisted).
+- `scripts/test-bubble-foreground.sh` grew two cases: with the app lock on and
+  the session unlocked, opening a bubble must not log `prompt=shown` (it fails
+  on a build whose `isUnlocked()` is stubbed to false: 9/1), and the bubble must
+  still open. 10/0 now.
+- Verified end to end on `emulator-5558`: session unlocked → tap bubble →
+  `BubbleChatActivity` in task `A=10122:com.anindra.messages.bubble`
+  (`mode=multi-window`), no prompt, chat rendered; session locked → the same
+  tap logs `prompt=shown` and shows the lock gate.
+
 ## #364 done: voice messages, sent and played (2026-11-01)
 
 Reported: "be able to do voice messages … by default, if we do not have written
@@ -599,6 +809,28 @@ telephony provider, so a `starred` column must survive re-import — key it to
 `message_provider_ids`, or a re-sync silently drops people's stars. Needs JUnit
 coverage of star → import → delete, and a `test-starred-messages.sh` (star → chip
 appears → Search → Starred lists it with its chat and time → unstar → gone).
+
+**Shipped, then the reporter's badge follow-up (2026-11-03).** Star/unstar is in
+the selection toolbar, the Starred scope in home search lists message + chat +
+time, and unstarring clears the flag (commit `2ca1a8a`). The reporter then said
+the marker should be a badge, not the bare 14.dp star glyph. `StarBadge()` in
+`ChatScreen.kt` now draws a 20.dp framed circle — surface fill, 1.dp
+`outlineVariant` border, 2.dp shadow, 12.dp star — with the content description
+on the Surface, so accessibility reports the badge's own size. It is drawn for
+media bubbles too, not only text ones. `StarBadgeTest` pins the source shape;
+`test-starred-messages.sh` asserts the "Starred message" node is at least 48px
+wide (the old glyph was 39px on this 440dpi AVD) and still covers star → search
+→ unstar. The notification star action stays skipped, as above.
+
+Two harness bugs surfaced while proving the regression on `emulator-5558`:
+`dump_ui` piped `uiautomator dump` into `grep -q`, whose early exit killed the
+remote process before it released its UiAutomation registration, so every later
+dump died with "already registered" until a reboot; and this script mixed the
+`android` CLI's `layout_json` — which leaves
+`com.android.cli.interact.instrumentation` holding the same registration — with
+uiautomator. `dump_ui` now captures the output before grepping (`grep -c`), and
+the script is uiautomator-only. UI sequences also retry the long-press: the
+first touch after a cold launch used to land while the chat was still settling.
 
 ## #339 follow-up 3: per-chat channels became opt-in (2026-10-31)
 

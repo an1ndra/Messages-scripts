@@ -23,7 +23,7 @@ DB=$PROVIDER_DIR/databases/contacts2.db
 AVATAR_DIR="${AVATAR_DIR:-/tmp/opencode/messages-demo-avatars}"
 PROVIDER_UID=$(adb_ shell "pm list packages -U $PROVIDER_PKG" | tr -d '\r' | sed -E 's/.*uid:([0-9]+)/\1/')
 
-dbq() { adb_ shell "su 0 sqlite3 $DB" 2>/dev/null | tr -d '\r'; }
+dbq() { adb_su "sqlite3 $DB" 2>/dev/null | tr -d '\r'; }
 sq() { printf '%s' "$1" | dbq; }
 mime_id() { sq "SELECT _id FROM mimetypes WHERE mimetype='$1';"; }
 

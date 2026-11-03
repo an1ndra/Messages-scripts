@@ -11,6 +11,12 @@
 # `uiautomator` dump: the badge is a "Starred message" content description, the
 # search row is the message body, the chip is its label. No screenshots.
 #
+# The badge's *shape* is still a pixel, so it is asserted through its bounds:
+# the marker used to be a bare 14.dp glyph (~38px on this 440dpi screen) and is
+# now a 20.dp framed circle (~55px), so a width below 48px means the old bare
+# icon is back. The node is the Surface, not the icon inside it, which is why
+# the content description is set on the Surface in ChatScreen.kt.
+#
 # Run: scripts/test-starred-messages.sh
 set -uo pipefail
 source "$(dirname "$0")/env.sh"
@@ -24,8 +30,39 @@ BODY="starred probe $(date +%s)"
 ADDR="$NUM"   # the app re-derives the display name when no contact exists
 
 sql() { adb_ shell "run-as $PKG sqlite3 databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r'; }
-has() { dump_ui >/dev/null 2>&1 && ui_tags | grep -qF -- "$1"; }
+# `grep -c`, not `grep -q`: this script runs under `pipefail`, and `-q` exits on
+# the first match, killing `ui_tags` with SIGPIPE and turning a per-line grep
+# into a false negative on a dump this large.
+has() { dump_ui >/dev/null 2>&1 && ui_tags | grep -cF -- "$1" >/dev/null 2>&1; }
+
+# Pixel width of the first node whose content-desc is exactly $1.
+node_width() {
+    dump_ui >/dev/null 2>&1 || return 1
+    local b
+    b=$(grep -oE "content-desc=\"$1\"[^>]*bounds=\"\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]\"" \
+            "$TMP/ui.decoded.xml" 2>/dev/null | head -1 | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]')
+    [ -z "$b" ] && return 1
+    local x1 x2
+    x1=$(sed -E 's/\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]/\1/' <<< "$b")
+    x2=$(sed -E 's/\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]/\3/' <<< "$b")
+    echo $((x2 - x1))
+}
+
 long_press() { adb_ shell input swipe "$1" "$2" "$1" "$2" 800; sleep 2; }
+
+# Long-press the seeded bubble until the toolbar shows $1. The first touch after
+# a cold launch can land while the chat is still settling, which is how this
+# script used to fail with a spurious "bubble was not found".
+select_message() {
+    local i c
+    for i in 1 2 3; do
+        c=$(center_of_contains "$BODY" 2>/dev/null || true)
+        [ -n "${c:-}" ] || { sleep 2; continue; }
+        long_press $c
+        has "content-desc=\"$1\"" && return 0
+    done
+    return 1
+}
 
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
@@ -53,18 +90,10 @@ adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 # sometimes lands on the row under the finger.
 adb_ shell am start -a android.intent.action.SENDTO -d "sms:$NUM" >/dev/null 2>&1
 sleep 6
-wait_layout_has "Message" 10 >/dev/null 2>&1 || true
+wait_for_text "Message" 10 >/dev/null 2>&1 || true
 
 # 1 + 2. long-press the bubble, star it from the toolbar
-C=$(center_of_contains "$BODY" 2>/dev/null || true)
-[ -n "${C:-}" ] || { sleep 2; C=$(center_of_contains "$BODY" 2>/dev/null || true); }
-if [ -z "${C:-}" ]; then
-    fail "chat: the bubble was not found"
-    printf '\n[RESULT] %d passed, %d failed\n' "$PASS" "$FAIL"; exit $((FAIL > 0))
-fi
-# shellcheck disable=SC2086
-long_press $C
-if has 'content-desc="Star"'; then
+if select_message Star; then
     pass "chat: long-press offers Star"
     tap_contains "Star" >/dev/null 2>&1; sleep 2
 else
@@ -79,6 +108,12 @@ fi
 
 if has 'Starred message'; then
     pass "chat: the bubble carries the star badge"
+    BADGE_W=$(node_width "Starred message" 2>/dev/null || true)
+    if [ -n "${BADGE_W:-}" ] && [ "$BADGE_W" -ge 48 ]; then
+        pass "chat: the marker is a badge, not a bare glyph (${BADGE_W}px wide)"
+    else
+        fail "chat: the marker is a bare glyph (${BADGE_W:-no node}px wide, expected >= 48)"
+    fi
 else
     fail "chat: no star badge on the starred bubble"
 fi
@@ -108,29 +143,21 @@ adb_ shell input keyevent KEYCODE_BACK; sleep 1
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 adb_ shell am start -a android.intent.action.SENDTO -d "sms:$NUM" >/dev/null 2>&1
 sleep 6
-wait_layout_has "Message" 10 >/dev/null 2>&1 || true
-C=$(center_of_contains "$BODY" 2>/dev/null || true)
-[ -n "${C:-}" ] || { sleep 2; C=$(center_of_contains "$BODY" 2>/dev/null || true); }
-if [ -z "${C:-}" ]; then
-    fail "chat: the bubble was not found the second time"
-else
-    # shellcheck disable=SC2086
-    long_press $C
-    if has 'content-desc="Remove star"'; then
-        tap_contains "Remove star" >/dev/null 2>&1; sleep 2
-        if [ "$(sql "SELECT starred FROM messages WHERE id=$MID;")" = "0" ]; then
-            pass "storage: Remove star clears the flag"
-        else
-            fail "storage: the flag survived Remove star"
-        fi
-        if has 'Starred message'; then
-            fail "chat: the badge survived Remove star"
-        else
-            pass "chat: the badge is gone"
-        fi
+wait_for_text "Message" 10 >/dev/null 2>&1 || true
+if select_message "Remove star"; then
+    tap_contains "Remove star" >/dev/null 2>&1; sleep 2
+    if [ "$(sql "SELECT starred FROM messages WHERE id=$MID;")" = "0" ]; then
+        pass "storage: Remove star clears the flag"
     else
-        fail "chat: a starred message offers Remove star"
+        fail "storage: the flag survived Remove star"
     fi
+    if has 'Starred message'; then
+        fail "chat: the badge survived Remove star"
+    else
+        pass "chat: the badge is gone"
+    fi
+else
+    fail "chat: a starred message offers Remove star"
 fi
 
 printf '\n[RESULT] %d passed, %d failed\n' "$PASS" "$FAIL"
