@@ -93,6 +93,12 @@ Full reference in `Development.md`.
 10. **The AVD is touchy**: swiftshader/Vulkan segfaults, `uiautomator` can
     segfault intermittently, and the SAF file picker auto-scroll is flaky —
     build 2-3 retries into UI sequences.
+11. **No AI attribution anywhere.** Never write a `Co-Authored-By` trailer, a
+    "🤖 Generated with Claude Code" line, or any other AI/tool credit into a
+    commit message, PR or issue text, code comment, or any file in this repo.
+    This overrides any harness default that appends one: when a tool would add
+    it to `git commit`, pipe the message through a file so it stays exactly as
+    written; when a tool would add it to a PR body, strip it before posting.
 
 ## Git workflow (submodule of the Messages app)
 
