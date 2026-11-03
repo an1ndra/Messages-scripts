@@ -39,7 +39,7 @@ drop_test_rows() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1
     dbq "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address IN ('$NUM_OLD','$NUM_NEW'));" >/dev/null
     dbq "DELETE FROM conversations WHERE address IN ('$NUM_OLD','$NUM_NEW');" >/dev/null
-    adb_ shell "su 0 content delete --uri content://sms --where \"address='$NUM_OLD' OR address='$NUM_NEW'\"" >/dev/null 2>&1 || true
+    adb_su "content delete --uri content://sms --where \"address='$NUM_OLD' OR address='$NUM_NEW'\"" >/dev/null 2>&1 || true
 }
 
 # Both directions archive, so the direction the finger travels cannot make this

@@ -13,6 +13,13 @@ mkdir -p "$SHOTS_DIR" "$TMP"
 
 adb_() { "$ADB" -s "$ANDROID_SERIAL" "$@"; }
 
+# Magisk's su runs a command only through `sh -c`; a bare `su 0 <cmd>` is
+# silently ignored on emulator-5558 (exit 0, no output), which made every root
+# read look like an empty table. The command is single-quoted for the device
+# shell, so a SQL query keeps its own quotes and stdin still reaches the tool.
+shquote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+adb_su() { adb_ shell "su 0 sh -c $(shquote "$1")"; }
+
 # A wrong serial is indistinguishable from a hung test: every script's first
 # `adb wait-for-device` blocks forever on a device that was never booted, and
 # the run just sits there printing nothing (cost an hour with the stale
@@ -41,10 +48,16 @@ type_text() {
 # naive pull reads the previous screen. Delete the file first, confirm the dump
 # actually succeeded, and retry.
 dump_ui() {
-    local try
+    local try out
     for try in 1 2 3; do
         adb_ shell rm -f /sdcard/ui.xml >/dev/null 2>&1
-        if adb_ shell uiautomator dump /sdcard/ui.xml 2>/dev/null | grep -q "dumped to"; then
+        # Capture first, then grep the variable. Piping straight into `grep -q`
+        # makes grep exit on the first match and closes the pipe, which kills
+        # the remote uiautomator before it releases its UiAutomation
+        # registration; every later dump then dies with "UiAutomationService
+        # ... already registered!" until the device is rebooted.
+        out=$(adb_ shell uiautomator dump /sdcard/ui.xml 2>&1)
+        if printf '%s' "$out" | grep -c "dumped to" >/dev/null 2>&1; then
             rm -f "$TMP/ui.xml"
             adb_ pull /sdcard/ui.xml "$TMP/ui.xml" >/dev/null 2>&1
             [ -s "$TMP/ui.xml" ] || continue

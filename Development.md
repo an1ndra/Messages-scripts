@@ -32,7 +32,9 @@ theme.sh / settings.sh  deep-link navigation (set_theme / open_settings)
 insert-demo-contacts.sh seeds F-Droid demo contacts into the Contacts provider
 seed-google-comparison.sh seeds data for comparing against real Google Messages
 test-*.sh               one regression/verification script per feature
-take-fdroid-screenshots.sh  F-Droid screenshot pipeline
+take-fdroid-screenshots.sh  raw 1080x2340 app captures -> screenshots/store-raw
+make-store-screenshots.py   raw captures -> 1080x1920 Play listing frames
+test-store-screenshots.sh   checks the composited listing set
 ```
 
 All scripts use `env.sh` (`source "$(dirname "$0")/env.sh"`). It exports the
@@ -44,6 +46,7 @@ device/package defaults (`ADB`, `ANDROID_SERIAL`, `PKG`, `ACT`, `SHOTS_DIR`,
 | Helper | Purpose |
 |---|---|
 | `adb_ <cmd>` | `$ADB -s $ANDROID_SERIAL` wrapper |
+| `adb_su <cmd>` | same, as root: `su 0 sh -c '<cmd>'` (a bare `su 0 <cmd>` is silently ignored on emulator-5558) |
 | `shot <name>` | `screencap` → `$SHOTS_DIR/<name>.png` |
 | `type_text <t>` | `input text` with `%s`→space encoding |
 | `dump_ui` / `ui_tags` | uiautomator dump → `$TMP/ui.xml`; `ui_tags` splits nodes |

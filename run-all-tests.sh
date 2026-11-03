@@ -44,5 +44,6 @@ run bash "$S/test-bubble-corners.sh"
 run bash "$S/test-codeql-cleanup.sh"
 run bash "$S/test-codescan-security-cleanup.sh"
 run bash "$S/test-translations.sh"
+run bash "$S/test-persian-locale.sh"
 
 info "ALL DONE — screenshots in $SHOTS_DIR"

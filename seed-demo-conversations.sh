@@ -20,11 +20,11 @@ dbq() { printf '%s' "$1" | adb_ shell "run-as $PKG sqlite3 databases/messages.db
 # has to run as root: the shell uid cannot write to content://sms.
 wipe_system_sms() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1
-    adb_ shell "su 0 content delete --uri content://sms --where '1=1'" >/dev/null 2>&1
-    adb_ shell "su 0 content delete --uri content://mms --where '1=1'" >/dev/null 2>&1
-    adb_ shell "su 0 content delete --uri content://mms/part --where '1=1'" >/dev/null 2>&1
-    adb_ shell "su 0 content delete --uri content://mms-sms/segments --where '1=1'" >/dev/null 2>&1
-    info "System SMS: $(adb_ shell 'su 0 content query --uri content://sms --projection _id' 2>/dev/null | grep -c Row) rows left"
+    adb_su "content delete --uri content://sms --where '1=1'" >/dev/null 2>&1
+    adb_su "content delete --uri content://mms --where '1=1'" >/dev/null 2>&1
+    adb_su "content delete --uri content://mms/part --where '1=1'" >/dev/null 2>&1
+    adb_su "content delete --uri content://mms-sms/segments --where '1=1'" >/dev/null 2>&1
+    info "System SMS: $(adb_su 'content query --uri content://sms --projection _id' 2>/dev/null | grep -c Row) rows left"
 }
 
 NOW=$(($(date +%s) * 1000))
