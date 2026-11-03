@@ -12,7 +12,8 @@
 # provider really holds three parts, the app really stores three rows — and
 # again after a restart, because the import is what a second sync re-runs. The
 # last checks put back the notice an old import wrote and prove the versioned
-# re-scan clears it and the chat draws one album instead of three messages.
+# re-scan clears it and the chat draws one album instead of three messages. A
+# final section adds three more parts and proves the album pages four at a time.
 source "$(dirname "$0")/env.sh"
 set -euo pipefail
 
@@ -186,6 +187,112 @@ if open_diagnostics; then
 else
     fail "could not reach Diagnostics"
     fail "could not reach Diagnostics"
+fi
+
+# A big album is paged four pictures at a time. Add three more parts to the
+# same MMS, let the next launch backfill them, and prove the badge moves to the
+# next page of four and a badge on that page comes back (#398 follow-up).
+info "A large album pages in chunks of four"
+adb_ shell am force-stop "$PKG" >/dev/null
+provider "INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/jpeg',4,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/png',5,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/webp',6,106 FROM pdu WHERE tr_id='$MARKER';" >/dev/null
+adb_ shell am start -n "$ACT" --es open_conversation_address "$ADDRESS" >/dev/null
+PAGED=0
+for _ in $(seq 1 20); do
+    sleep 2
+    [[ "$(imported_rows)" == 6 ]] || continue
+    dump_ui >/dev/null 2>&1 || continue
+    if grep -Fq 'content-desc="6 photos"' "$TMP/ui.xml"; then PAGED=1; break; fi
+done
+[[ "$PAGED" == 1 ]] && pass "six pictures import as one six-photo album" \
+    || fail "six pictures do not import as one six-photo album"
+
+# Page one shows four of the six, so its badge stands for the two on page two.
+NEXT=$(center_of "2 more photos" 2>/dev/null || true)
+[[ -n "$NEXT" ]] && pass "the first page advertises the next two pictures" \
+    || fail "the first page does not advertise the next two pictures"
+if [[ -n "$NEXT" ]]; then
+    adb_ shell input tap $NEXT >/dev/null 2>&1 || true
+    SECOND=0
+    for _ in 1 2 3 4 5; do
+        sleep 0.5
+        dump_ui >/dev/null 2>&1 || continue
+        if ! grep -Fq 'content-desc="2 more photos"' "$TMP/ui.xml" &&
+           grep -Fq 'content-desc="Previous photos"' "$TMP/ui.xml"; then SECOND=1; break; fi
+    done
+    [[ "$SECOND" == 1 ]] && pass "the badge opens the second page of pictures" \
+        || fail "the badge does not open the second page of pictures"
+    PREV=$(center_of "Previous photos" 2>/dev/null || true)
+    [[ -n "$PREV" ]] || PREV=$NEXT
+    adb_ shell input tap $PREV >/dev/null 2>&1 || true
+    BACK=0
+    for _ in 1 2 3 4 5; do
+        sleep 0.5
+        dump_ui >/dev/null 2>&1 || continue
+        if grep -Fq 'content-desc="2 more photos"' "$TMP/ui.xml"; then BACK=1; break; fi
+    done
+    [[ "$BACK" == 1 ]] && pass "the previous-page badge returns to the first page" \
+        || fail "the previous-page badge does not return to the first page"
+else
+    fail "the badge does not open the second page of pictures"
+    fail "the previous-page badge does not return to the first page"
+fi
+
+# Twelve pictures are three pages of four, each badge standing for exactly the
+# next page rather than the whole remainder ("4+4+4").
+provider "INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/jpeg',7,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/png',8,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/webp',9,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/jpeg',10,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/png',11,106 FROM pdu WHERE tr_id='$MARKER'; INSERT INTO part(mid,ct,seq,chset) SELECT _id,'image/webp',12,106 FROM pdu WHERE tr_id='$MARKER';" >/dev/null
+adb_ shell am force-stop "$PKG" >/dev/null
+adb_ shell am start -n "$ACT" --es open_conversation_address "$ADDRESS" >/dev/null
+TWELVE=0
+for _ in $(seq 1 20); do
+    sleep 2
+    [[ "$(imported_rows)" == 12 ]] || continue
+    dump_ui >/dev/null 2>&1 || continue
+    if grep -Fq 'content-desc="12 photos"' "$TMP/ui.xml"; then TWELVE=1; break; fi
+done
+[[ "$TWELVE" == 1 ]] && pass "twelve pictures import as one twelve-photo album" \
+    || fail "twelve pictures do not import as one twelve-photo album"
+
+FIRST=$(center_of "4 more photos" 2>/dev/null || true)
+[[ -n "$FIRST" ]] && pass "the first page of twelve advertises the next four" \
+    || fail "the first page of twelve does not advertise the next four"
+if [[ -n "$FIRST" ]]; then
+    adb_ shell input tap $FIRST >/dev/null 2>&1 || true
+    SECOND=0
+    for _ in 1 2 3 4 5; do
+        sleep 0.5
+        dump_ui >/dev/null 2>&1 || continue
+        if grep -Fq 'content-desc="4 more photos"' "$TMP/ui.xml" &&
+           grep -Fq 'content-desc="Previous photos"' "$TMP/ui.xml"; then SECOND=1; break; fi
+    done
+    [[ "$SECOND" == 1 ]] && pass "the second page of twelve still has four more" \
+        || fail "the second page of twelve does not still have four more"
+    SECOND_CHIP=$(center_of "4 more photos" 2>/dev/null || true)
+    [[ -n "$SECOND_CHIP" ]] || SECOND_CHIP=$FIRST
+    adb_ shell input tap $SECOND_CHIP >/dev/null 2>&1 || true
+    THIRD=0
+    for _ in 1 2 3 4 5; do
+        sleep 0.5
+        dump_ui >/dev/null 2>&1 || continue
+        if ! grep -Fq 'content-desc="4 more photos"' "$TMP/ui.xml" &&
+           grep -Fq 'content-desc="Previous photos"' "$TMP/ui.xml"; then THIRD=1; break; fi
+    done
+    [[ "$THIRD" == 1 ]] && pass "the third page of twelve has no further page" \
+        || fail "the third page of twelve still advertises another page"
+    PREV2=$(center_of "Previous photos" 2>/dev/null || true)
+    [[ -n "$PREV2" ]] || PREV2=$SECOND_CHIP
+    adb_ shell input tap $PREV2 >/dev/null 2>&1 || true
+    BACK2=0
+    for _ in 1 2 3 4 5; do
+        sleep 0.5
+        dump_ui >/dev/null 2>&1 || continue
+        if grep -Fq 'content-desc="4 more photos"' "$TMP/ui.xml"; then BACK2=1; break; fi
+    done
+    [[ "$BACK2" == 1 ]] && pass "the previous-page badge returns to the second page" \
+        || fail "the previous-page badge does not return to the second page"
+else
+    fail "the second page of twelve does not still have four more"
+    fail "the third page of twelve still advertises another page"
+    fail "the previous-page badge does not return to the second page"
 fi
 
 printf 'PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
