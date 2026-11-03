@@ -5,6 +5,120 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #408 and #406 verified against GM/Fossify and fixed (2026-11-04)
+
+Compared on `emulator-5558` with Google Messages 2026.x and Fossify Messages,
+device locale `fa-IR`/`he-IL` (RTL) and `en-US`.
+
+**#408 (RTL layout)**
+
+- Swipe actions ran the mirrored action. Compose's `StartToEnd`/`EndToStart`
+  are layout-relative; the settings' "Swipe left/right" are physical. In RTL a
+  leftward finger settles on `StartToEnd` and ran the action configured for the
+  right. `SwipeToDismissBoxValue.travelsRight(isRtl)` now maps settle values to
+  physical directions for both the enable flags and the action, and
+  `SwipeActionPreview` uses the same physical side instead of logical Start/End
+  (it previously advertised the mirrored action).
+- The long-press reaction bar was placed from `isMe` alone, so in RTL its first
+  three emoji were drawn off the left edge. Now `reactionBarX(isMe, isRtl, …)`
+  keeps the bar inside the bubble's own edge in every combination.
+- The Start-chat pill lost its 16dp end inset whenever the label was squeezed:
+  a spacer collapses to zero under the width animation. It is now
+  `padding(horizontal = 16.dp)`, which leaves exactly the 24dp icon collapsed.
+- Checked and already matched GM: selection-toolbar order, the mirrored forward
+  icon (`AutoMirrored`), and the archive block's edge behaviour.
+
+**#406 (history/search)**
+
+- `AUTO_CAP = 400` dead-ended scrolling in any longer thread. Removed: the pager
+  grows by `AUTO_CHUNK` (40) until `totalCount`, and a `CircularProgressIndicator`
+  sits at the top while a page is in flight.
+- A search hit below the window now loads one direct page
+  (`searchPageLimit` = newer rows + 60 context) instead of walking 200-row steps
+  behind the scroll-up settling delay.
+- Two cancellation races surfaced while testing. Assigning `pageLimit` inside
+  the keyed `LaunchedEffect` relaunched and cancelled the run before its anchor
+  restore and `loadingEarlier = false` (stuck spinner, no further preloads);
+  and marking a request handled before the settling delay let a cancelled run
+  swallow it. The restore is now a separate effect fed by `PendingLoad`, with a
+  2.5 s watchdog, and `handledRequest` is written after the delay.
+
+**Tests**
+
+- JUnit: `RtlSwipeMappingTest` (10), `ReactionBarPlacementTest` (6),
+  `ChatPagingTest` (8); full `:app:testDebugUnitTest` green.
+- Scripts: `test-rtl-swipe-mirror.sh` 5/0 (4 failures on the pre-fix build),
+  `test-rtl-reaction-bar.sh` 3/0 (1 failure pre-fix),
+  `test-chat-history-paging.sh` 5/0 (4 failures with the old cap/stepping).
+  Adjacent behaviour stayed green: `test-in-chat-search.sh` 8/0,
+  `test-chat-search-scroll.sh` 6/0, `test-chat-opens-at-bottom.sh` 6/0.
+- #405 re-run in its reporter configuration (`he-IL`): dialog 10/0, cards 12/0.
+- #339 re-run after the control was folded into one per chat: 21/0. The script
+  still looked for the removed "Custom notifications" switch; it now drives the
+  Notifications switch through `tap_switch_layout` (the toggle has no
+  accessibility node of its own, and the trailing side is physically left in
+  RTL) and asserts the "Customize notifications" row that appears with it.
+
+## #405 fixed: dialog punctuation stays put, a card number cannot wrap (2026-11-03)
+
+Two complaints from the issue's screenshots, both taken on an **RTL window with
+English fallback copy** (the reporter's 1.0.31 predates `values-fa`, so dates are
+Persian while the app's own strings are English):
+
+- "Back up without a PIN?" put its "?" at the start of the title, and the body's
+  sentence-final "." likewise. The default-SMS prompt did the same with "?app".
+- "5022 **29 **** 9227" wrapped mid-card, so the second half appeared on the
+  next line.
+
+Root causes:
+
+- Dialog copy painted with plain `Text` inherits the window direction; an
+  English sentence in an RTL paragraph moves its trailing neutral punctuation to
+  the visual start. Only the mark-read dialog had been treated before, and the
+  backup warning had no treatment at all.
+- An isolate fixes *order* only: LRI/PDI are formatting characters, not glue, so
+  the spaces and hyphens inside a number run stayed ordinary break
+  opportunities.
+
+Fix:
+
+- `DialogText` in `Components.kt` paints a string in the direction of its own
+  first strong character (the same rule bubbles use) and logs `DialogBidi`.
+  Every punctuated AlertDialog title/body in the new and legacy settings UIs,
+  About's custom dialogs and `CrashReportDialog` now goes through it.
+  `DialogDirectionTest.everyPunctuatedAlertDialogSlotPaintsDirectionally` fails
+  the build when a new punctuated slot forgets it.
+- `BidiText.isolateNumberRuns` paints a space inside a transformed run as
+  U+00A0 and a hyphen as U+2011 — one character for one, so `remap()` and every
+  span keep their offsets. `MessageSearch` folds both back, so a query typed
+  with ordinary characters still matches a painted bubble.
+
+Verified in the reporter's exact configuration — system locale `he-IL`
+(untranslated → English copy, RTL layout) on `emulator-5558`:
+`test-dialog-rtl-punctuation.sh` 10/10.
+
+Tests:
+
+- JUnit: `BidiTextTest` (#405 card cannot break; NBSP/U+2011 expectations),
+  `MessageSearchTest` (ranges across NBSP), `DialogDirectionTest` (source sweep).
+  Full `:app:testDebugUnitTest` green.
+- Scripts: `test-bidi-card-numbers.sh` 12/12 (adds the #405 spaced-star card),
+  `test-dialog-rtl-punctuation.sh` 10/10 (both UIs + default-SMS prompt + the
+  backup warning), and updated expectations in `test-bidi-bank-time.sh`,
+  `test-bidi-within-number.sh`, `test-persian-numbers.sh`,
+  `test-bidi-persian-amount.sh` — all green.
+- Both new script checks were seen failing on a build with the fix reverted
+  (card: 8 FAILs, dialog: 2 FAILs), then passing after restoring it.
+
+Script fixes the run exposed: `tap_layout_exact "Save"` (a contains-match hit
+the "Save to" row behind the dialog and opened the SAF picker instead of
+confirming the PIN), `close_documents_ui` before the backup case, a
+`READ_PHONE_STATE` grant (its first-run dialog hid the default-SMS prompt), and
+re-granting the runtime permissions after the SMS role is handed to Google
+Messages (the system revokes them with the role). `test-bidi-card-numbers.sh`
+now fails loudly when `dump_ui` fails instead of asserting against a stale
+`ui.xml`.
+
 ## #362 fixed properly: the base direction is per line, not per message (2026-11-01)
 
 Second follow-up on the issue, with two more real bodies that still came out

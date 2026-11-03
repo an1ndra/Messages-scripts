@@ -92,7 +92,7 @@ check_body 'הסכום 20,980.01 שח' '20,980.01' 'Hebrew'
 info "A space-grouped amount is isolated too"
 # A plain space is a neutral, not a number separator: Unicode splits the amount
 # there on its own, so the isolate is the only thing holding it together.
-check_body 'مبلغ 20 980.01 ریال' '20 980.01' 'space-grouped'
+check_body 'مبلغ 20 980.01 ریال' $'20 980.01' 'space-grouped'
 
 echo ""
 echo "=== RESULTS: $PASS passed, $FAIL failed ==="

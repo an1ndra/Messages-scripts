@@ -404,6 +404,25 @@ tap_layout_exact() {
     echo "[tap] '$1' at ($c)"
 }
 
+# Tap the toggle at the trailing edge of the row labelled $1. Compose draws a
+# Switch as part of the host view, so it has no node of its own in the layout
+# dump; the toggle sits on the layout-end side, which is physically right in LTR
+# and physically left in RTL.
+tap_switch_layout() {
+    local q="$1" c y w loc x
+    c=$(layout_center "$q") || { echo "[tap] '$q' not found"; return 1; }
+    y=${c#* }
+    w=$(adb_ shell wm size | sed -E 's/.*: ([0-9]+)x.*/\1/' | tr -d '\r')
+    [ -n "$w" ] || w=1080
+    loc=$(adb_ shell getprop persist.sys.locale | tr -d '\r')
+    case "$loc" in
+        ar-*|fa-*|he-*|ur-*) x=$((w * 11 / 100)) ;;
+        *) x=$((w - w * 11 / 100)) ;;
+    esac
+    adb_ shell input tap "$x" "$y"
+    echo "[tap] switch near '$q' at ($x $y)"
+}
+
 # DocumentsUI is a separate package, so force-stopping the app under test does
 # not dismiss a picker a previous failed run left on top.
 close_documents_ui() {

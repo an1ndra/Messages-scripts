@@ -35,10 +35,11 @@ pin_new_ui() {
 }
 
 open_settings() {
+    local row="${1:-$ROW_TITLE}"
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
     adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 4
     wait_layout_has "General settings" 8 || return 1
-    scroll_to_layout "$ROW_TITLE" || return 1
+    scroll_to_layout "$row" || return 1
     return 0
 }
 
@@ -80,6 +81,56 @@ check_ui() {
     fi
 }
 
+# #405's second half: "Back up without a PIN?" still parked its "?" at the
+# visual start. Settings -> Backup messages opens the PIN dialog; confirming it
+# with an empty PIN is the real route to the unencrypted-backup warning, so the
+# warning cannot be reached without going through it.
+check_backup_dialog() {
+    local label="$1" seen ltr rtl
+
+    close_documents_ui
+    if ! open_settings "Backup messages"; then
+        fail "$label: Settings never reached the backup row"
+        return
+    fi
+    adb_ shell logcat -c >/dev/null 2>&1
+    tap_layout "Backup messages" >/dev/null 2>&1 \
+        || { fail "$label: could not tap the backup row"; return; }
+    if ! wait_layout_has "Set backup PIN" 8; then
+        fail "$label: the PIN dialog never appeared"
+        return
+    fi
+    # Exact: a contains-match on "Save" hits the "Save to" row behind the
+    # dialog and opens the SAF folder picker instead of confirming the PIN.
+    tap_layout_exact "Save" >/dev/null 2>&1 \
+        || { fail "$label: could not confirm the empty PIN"; return; }
+    if ! wait_layout_has "Back up without a PIN?" 8; then
+        fail "$label: the unencrypted-backup warning never appeared"
+        return
+    fi
+
+    if await_dialog_marker Ltr; then
+        seen=$(adb_ logcat -d -s DialogBidi:D 2>/dev/null | grep -o 'dir=.*' | tr -d '\r')
+        ltr=$(printf '%s\n' "$seen" | grep -c 'dir=Ltr')
+        rtl=$(printf '%s\n' "$seen" | grep -c 'dir=Rtl')
+        if [ "$ltr" -ge 2 ] && [ "$rtl" -eq 0 ]; then
+            pass "$label: the warning's title and body painted in their own direction (Ltr, $ltr markers)"
+        else
+            fail "$label: expected >=2 dir=Ltr and no dir=Rtl, got: $(echo "$seen" | tr '\n' ' ')"
+        fi
+    else
+        fail "$label: the warning's copy painted without reporting a direction"
+    fi
+
+    if wait_layout_has "Cancel" 4; then
+        tap_layout "Cancel" >/dev/null 2>&1
+        pass "$label: the warning was dismissed without writing a backup"
+    else
+        fail "$label: the warning had no Cancel to dismiss it with"
+    fi
+}
+
+
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
     pin_new_ui on >/dev/null 2>&1 || true
@@ -117,6 +168,10 @@ check_default_sms_prompt() {
         fail "default-SMS prompt: could not hand the SMS role to $other"
         return
     fi
+    # Losing the role revoked the SMS/contacts grants; without them the app
+    # asks for permissions first and the prompt never appears.
+    grant_perms
+    sleep 1
 
     adb_ shell logcat -c >/dev/null 2>&1
     adb_ shell am start -n "$ACT" >/dev/null 2>&1
@@ -149,16 +204,25 @@ check_default_sms_prompt() {
     set_sms_role "$PKG" >/dev/null 2>&1 || true
 }
 
-for p in READ_SMS READ_CONTACTS POST_NOTIFICATIONS; do
-    adb_ shell pm grant "$PKG" "android.permission.$p" >/dev/null 2>&1
-done
+# Handing the SMS role to another app revokes these again (the system revokes
+# the role's runtime permissions with it), and a missing grant puts the
+# permission dialog in front of the default-SMS prompt.
+grant_perms() {
+    for p in READ_SMS RECEIVE_SMS READ_CONTACTS READ_PHONE_STATE POST_NOTIFICATIONS; do
+        adb_ shell pm grant "$PKG" "android.permission.$p" >/dev/null 2>&1
+    done
+}
+
+grant_perms
 adb_ shell cmd role add-role-holder android.app.role.SMS "$PKG" >/dev/null 2>&1 || true
 
 pin_new_ui on
 check_ui "new settings UI"
+check_backup_dialog "new settings UI"
 
 pin_new_ui off
 check_ui "legacy settings UI"
+check_backup_dialog "legacy settings UI"
 
 check_default_sms_prompt
 
