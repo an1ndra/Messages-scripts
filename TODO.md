@@ -5,6 +5,39 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #398 follow-up: a large album pages four pictures at a time (2026-11-04)
+
+The reporter on #398 asked, after the album grid shipped: with eight pictures
+the bubble says "+4" — can the other four be seen? They could not. The badge was
+`count - MAX_TILES`, drawn on the fourth tile, and tapping it opened the fourth
+picture; every picture past the fourth was unreachable. A 12-picture MMS read
+"+8" with eight pictures lost.
+
+- **Four pictures per page.** `ImageAlbum` is page-based now: `pageCount`,
+  `pageStart`, `pageSize`, `nextPageCount`, `rowCount(count, page, row)` and
+  `rows`. The badge shows the size of the *next* page, not the whole remainder,
+  so 6 pictures read `+2`, 8 read `+4`, and 12 reads `+4` twice (4+4+4).
+- **Navigation is two badges, not a gesture.** `AlbumGrid` keeps its page in
+  `remember(uris)`; the `+N` badge advances one page, and a page after the first
+  puts a back badge (AutoMirrored arrow, top-start of the first tile) on the
+  previous page. Tapping a tile still opens that picture, so the fourth picture
+  stays reachable past the badge.
+- **Small albums are untouched.** One picture is never an album
+  (`foldAlbums` leaves it a `ChatRow.Sent`); 2-4 pictures are one page with no
+  controls. Only 5+ pages.
+- **Accessibility.** The badges name themselves: `chat_album_more`
+  ("%1$d more photos") and `chat_album_previous` ("Previous photos"), added to
+  `values/` and all 13 translated locales.
+- Tests: `ChatAlbumTest` — `theAlbumGridPagesInChunksOfFour`,
+  `theBadgeCountsThePicturesOnTheNextPage`; full `:app:testDebugUnitTest` green
+  (**1313 tests, 0 failures**, including `PreviewCoverageTest` and
+  `TranslationParityTest`).
+- Device (`emulator-5558`): `scripts/test-mms-multi-image.sh` grew from 23 to
+  **28** checks. After the three-picture fixture it adds three parts (6 → page 1
+  `+2`, page 2 two tiles + back) and then six more (12 → `+4`, `+4`, no badge;
+  back returns a page). Verified **21/7 on the pre-change APK** (the seven page
+  assertions red) and **28/28 after**.
+
 ## #362 fixed properly: the base direction is per line, not per message (2026-11-01)
 
 Second follow-up on the issue, with two more real bodies that still came out
