@@ -95,25 +95,33 @@ ROWS=$(imported_rows)
 [[ "$ROWS" == 3 ]] && pass "a second sync does not duplicate the pictures" \
     || fail "a second sync does not duplicate the pictures (got $ROWS)"
 
-# A row imported before the multi-picture fix carried the notice in its body even
-# though every picture is on screen. Put that row back as the old import left it,
-# roll the one-time re-scan back, and let the next start rewrite it.
+# A row imported before the multi-picture fix carried the notice in its body and
+# covered only the first picture. Put that state back — the notice, and the two
+# extra rows deleted — and let the next sync fill them in from the provider. No
+# one-shot migration flag is involved any more: the import compares the stored
+# part URIs with the provider's own part index on every pass (#364 M2/M3).
 adb_ shell am force-stop "$PKG" >/dev/null
 sleep 2
 local_query "UPDATE messages SET body='[MMS: 2 additional/unsupported attachment(s) not displayed]' WHERE sys_id=$PDU AND media_uri=(SELECT MIN(media_uri) FROM messages WHERE sys_id=$PDU);" >/dev/null
+local_query "DELETE FROM messages WHERE sys_id=$PDU AND media_uri<>(SELECT MIN(media_uri) FROM messages WHERE sys_id=$PDU);" >/dev/null
 NOTICE_SET=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
 [[ "$NOTICE_SET" == 1 ]] && pass "the fixture carries the notice an old import wrote" \
     || fail "the fixture carries the notice an old import wrote (got $NOTICE_SET)"
-adb_ shell "run-as $PKG sed -i '/mms_import_version/ s/value=\"[0-9]*\"/value=\"0\"/' shared_prefs/messages_settings.xml" >/dev/null 2>&1 || true
+OLD_ROWS=$(imported_rows)
+[[ "$OLD_ROWS" == 1 ]] && pass "the fixture covers only the first of the three pictures" \
+    || fail "the fixture covers only the first of the three pictures (got $OLD_ROWS)"
 adb_ shell am start -n "$ACT" >/dev/null
 for _ in $(seq 1 20); do
     NOTICE_LEFT=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
-    [[ "$NOTICE_LEFT" == 0 ]] && break
+    [[ "$NOTICE_LEFT" == 0 && "$(imported_rows)" == 3 ]] && break
     sleep 2
 done
 NOTICE_LEFT=$(local_query "SELECT COUNT(*) FROM messages WHERE sys_id=$PDU AND body LIKE '%additional/unsupported%';")
-[[ "$NOTICE_LEFT" == 0 ]] && pass "the re-scan clears the notice over pictures it now shows" \
-    || fail "the re-scan clears the notice over pictures it now shows (got $NOTICE_LEFT)"
+[[ "$NOTICE_LEFT" == 0 ]] && pass "the sync clears the notice over pictures it now shows" \
+    || fail "the sync clears the notice over pictures it now shows (got $NOTICE_LEFT)"
+BACKFILLED=$(imported_rows)
+[[ "$BACKFILLED" == 3 ]] && pass "the sync backfills the two pictures an old import missed" \
+    || fail "the sync backfills the two pictures an old import missed (got $BACKFILLED)"
 
 # The three pictures share one provider MMS, so they must share one bubble: the
 # album names itself "3 photos" for a screen reader, and no picture renders as a
@@ -148,15 +156,83 @@ else
     fail "no picture is a message of its own"
 fi
 
+# Save acts on the whole album, not on the first of its rows (#364 M4). The
+# album selects as one message, so three save outcomes must come back for the
+# three pictures; one means the menu silently kept only part of the bubble.
+info "Saving the album saves every picture"
+if [[ "$SHOWN" == 1 ]]; then
+    ALBUM=$(center_of "3 photos" 2>/dev/null || true)
+    SEL=0
+    if [[ -n "$ALBUM" ]]; then
+        LX=${ALBUM% *}; LY=${ALBUM#* }
+        adb_ shell input swipe "$LX" "$LY" "$LX" "$LY" 900 >/dev/null 2>&1 || true
+        for _ in 1 2 3 4 5; do
+            sleep 0.4
+            dump_ui >/dev/null 2>&1 || continue
+            if grep -qF 'content-desc="Cancel selection"' "$TMP/ui.xml"; then SEL=1; break; fi
+        done
+    fi
+    [[ "$SEL" == 1 ]] && pass "long-pressing the album opens the selection toolbar" \
+        || fail "long-pressing the album did not open the selection toolbar"
+    MENU=0
+    if [[ "$SEL" == 1 ]]; then
+        for _ in 1 2 3 4 5; do
+            MC=$(center_of "More options" 2>/dev/null || true)
+            [[ -n "$MC" ]] || break
+            adb_ shell input tap $MC >/dev/null 2>&1 || true
+            for _ in 1 2 3; do
+                sleep 0.4
+                dump_ui >/dev/null 2>&1 || continue
+                if grep -qF 'text="Select all"' "$TMP/ui.xml"; then MENU=1; break 2; fi
+            done
+        done
+    fi
+    [[ "$MENU" == 1 ]] && pass "the selection overflow opened" \
+        || fail "the selection overflow did not open"
+    if [[ "$MENU" == 1 ]]; then
+        adb_ shell logcat -c >/dev/null 2>&1 || true
+        tap_text "Save image" >/dev/null 2>&1 || true
+        SAVES=0
+        for _ in $(seq 1 12); do
+            sleep 0.5
+            adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
+            SAVES=$(grep -c 'AttachmentSave:' "$TMP/logcat.txt" 2>/dev/null || true)
+            [[ "$SAVES" -ge 3 ]] && break
+        done
+        [[ "$SAVES" -ge 3 ]] && pass "Save reports one outcome per picture ($SAVES)" \
+            || fail "Save reported $SAVES of 3 pictures"
+        # The fixture carries part metadata but no bytes, so the MediaStore
+        # insert cannot succeed here; what this proves is that Save acted on
+        # all three rows. The write itself is covered by the voice save test,
+        # which uses a real file.
+        TARGETED=$(grep -c 'AttachmentSave: target=IMAGE' "$TMP/logcat.txt" 2>/dev/null || true)
+        [[ "$TARGETED" -ge 3 ]] && pass "Save acted on every picture in the album" \
+            || fail "Save acted on only $TARGETED of 3 pictures"
+    else
+        fail "Save reports one outcome per picture (overflow never opened)"
+        fail "Save acted on every picture in the album (overflow never opened)"
+    fi
+else
+    fail "long-pressing the album opens the selection toolbar"
+    fail "the selection overflow opened"
+    fail "Save reports one outcome per picture"
+    fail "Save acted on every picture in the album"
+fi
+
 # Diagnostics has to carry the same story, because that is what a report
 # attaches: what we stored, and what the provider actually holds (#398).
 open_diagnostics() {
     local i
-    for i in $(seq 1 12); do
+    for i in $(seq 1 15); do
         dump_ui >/dev/null 2>&1 || { sleep 1; continue; }
         if grep -qF 'text="Diagnostics"' "$TMP/ui.xml"; then
             tap_text "Diagnostics" >/dev/null 2>&1 && return 0
-        elif grep -qF 'text="Advanced settings"' "$TMP/ui.xml"; then
+        elif grep -qF 'text="Advanced settings"' "$TMP/ui.xml" &&
+             grep -qF 'text="General settings"' "$TMP/ui.xml"; then
+            # Only the settings root carries both rows. Once Advanced settings
+            # is tapped its name stays on screen as the title, and tapping the
+            # title again left the loop spinning on the wrong screen while the
+            # Diagnostics row sat two swipes below it.
             tap_text "Advanced settings" >/dev/null 2>&1 || true
             sleep 2
         else
