@@ -5,6 +5,35 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #408 live-drag background follow-up (2026-11-04)
+
+Reporter follow-up: while a row was still being swiped, the background showed
+the **other** action's colour and icon, and the icon sat at the gesture's start
+edge where the row covered it. The completed swipe was already correct.
+
+- Cause: `SwipeToDismissBoxState.dismissDirection` classifies the live drag by
+  the raw offset sign, so it stays physical in RTL. The background passed it
+  through `travelsRight(isRtl)`, which is only for *settled* `currentValue`, and
+  placed the icon with logical `CenterStart`/`CenterEnd`, both of which mirror
+  in RTL. A leftward drag therefore drew "Mark as read" under the row on the
+  left; the right action was hidden at the start edge.
+- Fix: `dragSwipeAction()` and `dragRevealedSide()` in `SettingsLayout.kt` read
+  the drag physically, the icon is aligned from the physical uncovered side,
+  and the settle path now goes through `settledSwipeAction()`.
+- JUnit: `RtlSwipeMappingTest` grew three cases (physical live drag, uncovered
+  side, drag and settle agreeing on one gesture). Full suite green.
+- `scripts/test-rtl-swipe-background.sh` (8): holds a real touch down, reads the
+  icon label and x from a dump taken **while the row is still displaced**, and
+  asserts Archive on the physical right for a leftward drag / "Mark as read" on
+  the physical left for a rightward drag. 8/0 on the fix; 6 failures on the
+  pre-fix build (the icon is absent from the tree because it is under the row).
+  Labels are resolved from the app's own resources for the device locale.
+- Observation gotcha: `uiautomator dump` cannot run during `adb shell input
+  swipe` — the pointer keeps moving, the wait for idle never ends, and the
+  dump is killed (rc 137) leaving `UiAutomationService ... already registered!`
+  for every later dump until a reboot. The script injects raw `sendevent`s
+  (DOWN, ten MOVEs, then stop) so the UI goes idle with the row still displaced.
+
 ## #408 and #406 verified against GM/Fossify and fixed (2026-11-04)
 
 Compared on `emulator-5558` with Google Messages 2026.x and Fossify Messages,
