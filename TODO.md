@@ -5,6 +5,27 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #363 Gregorian companion row in Message details (2026-11-05)
+
+Reporter follow-up on #363: instead of a full secondary-calendar system, the
+message details dialog should name the Gregorian date when the user's dates
+render in a local calendar.
+
+- `gregorianCompanion()` in `CalendarDates.kt` returns the instant's Gregorian
+  date, or null when the resolved calendar already is Gregorian. Resolution
+  goes through `CalendarSystem.resolve`, so Automatic-on-English and an
+  explicit Gregorian pick both skip the row. The clock is not repeated — it
+  reads the same in every calendar and stays in the `Sent` row.
+- `MessageDetailsDialog` adds a `Gregorian date` row right after `Sent`; the
+  new `message_detail_gregorian` string ships in all 13 locales.
+- JUnit: `CalendarDatesTest` gains four cases (skipped for Gregorian and for
+  Automatic on English, present for Jalali, date-only, Gregorian/DayWithYear/
+  zone passed through). Full suite 1261 green.
+- `scripts/test-363-gregorian-companion.sh` (8): seeds a fixed
+  2026-10-26T12:00Z message, edits the calendar preference with the app
+  force-stopped, and opens the details dialog. 8/0 on the fix; 6/2 on the
+  pre-fix build (missing companion row and value).
+
 ## #408 live-drag background follow-up (2026-11-04)
 
 Reporter follow-up: while a row was still being swiped, the background showed
