@@ -5,6 +5,26 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #398 "Save image" with several pictures selected (2026-11-04)
+
+The selection toolbar named only the first selected picture's save target, so
+two or more pictures still offered "Save image" even though Save writes all of
+them.
+
+- `SelectionToolbar.saveLabelRes(target, count)` now returns `chat_save_images`
+  when more than one file of that target type is selected, and the singular /
+  voice labels otherwise. `ChatScreen` counts the selected files that share the
+  target, so a mixed selection is not counted as pictures.
+- `chat_save_images` added to `values/` and all 13 translated locales, in the
+  same position as `chat_save_image` so key order stays parallel.
+- JUnit: `SelectionToolbarTest.severalPicturesReadAsPlural` (2 and 5 pictures
+  ask for the plural, 1 and a voice target keep the singular). Suite green.
+- `scripts/test-save-images-plural.sh` (8): seeds two real PNG file URIs, opens
+  the chat, asserts one selected picture says "Save image" and two say "Save
+  images" (and neither shows the other's label). 8/0 on the fix; 2 failures on
+  the pre-fix build. The script runs on the `en-US` locale because it matches
+  English labels and digit counts.
+
 ## #398 follow-up: a large album pages four pictures at a time (2026-11-04)
 
 The reporter on #398 asked, after the album grid shipped: with eight pictures
