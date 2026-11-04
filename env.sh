@@ -13,6 +13,13 @@ mkdir -p "$SHOTS_DIR" "$TMP"
 
 adb_() { "$ADB" -s "$ANDROID_SERIAL" "$@"; }
 
+# Magisk's su runs a command only through `sh -c`; a bare `su 0 <cmd>` is
+# silently ignored on emulator-5558 (exit 0, no output), which made every root
+# read look like an empty table. The command is single-quoted for the device
+# shell, so a SQL query keeps its own quotes and stdin still reaches the tool.
+shquote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+adb_su() { adb_ shell "su 0 sh -c $(shquote "$1")"; }
+
 # A wrong serial is indistinguishable from a hung test: every script's first
 # `adb wait-for-device` blocks forever on a device that was never booted, and
 # the run just sits there printing nothing (cost an hour with the stale
@@ -41,10 +48,16 @@ type_text() {
 # naive pull reads the previous screen. Delete the file first, confirm the dump
 # actually succeeded, and retry.
 dump_ui() {
-    local try
+    local try out
     for try in 1 2 3; do
         adb_ shell rm -f /sdcard/ui.xml >/dev/null 2>&1
-        if adb_ shell uiautomator dump /sdcard/ui.xml 2>/dev/null | grep -q "dumped to"; then
+        # Capture first, then grep the variable. Piping straight into `grep -q`
+        # makes grep exit on the first match and closes the pipe, which kills
+        # the remote uiautomator before it releases its UiAutomation
+        # registration; every later dump then dies with "UiAutomationService
+        # ... already registered!" until the device is rebooted.
+        out=$(adb_ shell uiautomator dump /sdcard/ui.xml 2>&1)
+        if printf '%s' "$out" | grep -c "dumped to" >/dev/null 2>&1; then
             rm -f "$TMP/ui.xml"
             adb_ pull /sdcard/ui.xml "$TMP/ui.xml" >/dev/null 2>&1
             [ -s "$TMP/ui.xml" ] || continue
@@ -389,6 +402,25 @@ tap_layout_exact() {
     c=$(layout_center_exact "$1") || { echo "[tap] '$1' (exact) not found"; return 1; }
     adb_ shell input tap $c
     echo "[tap] '$1' at ($c)"
+}
+
+# Tap the toggle at the trailing edge of the row labelled $1. Compose draws a
+# Switch as part of the host view, so it has no node of its own in the layout
+# dump; the toggle sits on the layout-end side, which is physically right in LTR
+# and physically left in RTL.
+tap_switch_layout() {
+    local q="$1" c y w loc x
+    c=$(layout_center "$q") || { echo "[tap] '$q' not found"; return 1; }
+    y=${c#* }
+    w=$(adb_ shell wm size | sed -E 's/.*: ([0-9]+)x.*/\1/' | tr -d '\r')
+    [ -n "$w" ] || w=1080
+    loc=$(adb_ shell getprop persist.sys.locale | tr -d '\r')
+    case "$loc" in
+        ar-*|fa-*|he-*|ur-*) x=$((w * 11 / 100)) ;;
+        *) x=$((w - w * 11 / 100)) ;;
+    esac
+    adb_ shell input tap "$x" "$y"
+    echo "[tap] switch near '$q' at ($x $y)"
 }
 
 # DocumentsUI is a separate package, so force-stopping the app under test does

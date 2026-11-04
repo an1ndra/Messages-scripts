@@ -25,6 +25,16 @@ PDI=$'\u2069'
 CARD1="5022-29xx-xxxx-9227"
 CARD2="6104-33xx-xxxx-8284"
 STAMP="22:20:51 1405/08/03"
+# #405: the app paints spaces and hyphens inside an isolated run as U+00A0 and
+# U+2011 so a card cannot wrap across two lines; the dump therefore carries the
+# non-breaking form, not the raw body.
+NBSP=$' '
+NBHYPHEN=$'‑'
+CARD1_DISPLAY="${CARD1//-/$NBHYPHEN}"
+CARD2_DISPLAY="${CARD2//-/$NBHYPHEN}"
+STAMP_DISPLAY="${STAMP/ /$NBSP}"
+STARRED_RAW="5022 **29 **** 9227"
+STARRED_DISPLAY="5022${NBSP}**29${NBSP}****${NBSP}9227"
 
 adb_ root >/dev/null 2>&1; adb_ wait-for-device; sleep 1
 sql() { adb_ shell "sqlite3 /data/data/$PKG/databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r'; }
@@ -65,11 +75,24 @@ CID=$(sql "SELECT id FROM conversations WHERE address='$NUM';")
 sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($CID,$(sqltext "$BODY"),$TS,'received');" >/dev/null 2>&1
 ok "card transfer seeded"
 
+info "Seed the #405 star-masked card in the same chat"
+# #405's screenshot: "5022 **29 **** 9227" wrapped mid-card because the spaces
+# inside the isolate were still break opportunities.
+sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($CID,'به کارت $STARRED_RAW به نام آقا/خانم',$((TS + 1000)),'received');" >/dev/null 2>&1
+ok "#405 card seeded"
+
 info "Open the conversation"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" >/dev/null 2>&1
 sleep 6
-dump_ui
+if ! dump_ui; then
+    # A stale ui.xml from an earlier run would make every check below assert on
+    # text the current build never painted.
+    bad "uiautomator dump failed"
+    echo ""
+    echo "=== RESULTS: $PASS passed, $FAIL failed ==="
+    exit 1
+fi
 
 # The seeded snippet is the marker, so the bubble's own wording proves the chat
 # opened rather than the list row being dumped.
@@ -102,9 +125,43 @@ PY
     fi
 }
 
-check_isolated "the source card $CARD1" "$CARD1"
-check_isolated "the destination card $CARD2" "$CARD2"
-check_isolated "the transfer stamp $STAMP" "$STAMP"
+check_isolated "the source card $CARD1" "$CARD1_DISPLAY"
+check_isolated "the destination card $CARD2" "$CARD2_DISPLAY"
+check_isolated "the transfer stamp $STAMP" "$STAMP_DISPLAY"
+
+info "The #405 star-masked card cannot break inside the isolate"
+# The isolate fixes order but not wrapping: LRI/PDI are combining marks, not
+# glue, so an ASCII space inside the run is still a line-break opportunity. The
+# painted run must hold no ordinary space (and no breakable hyphen).
+out=$(python3 - "$TMP/ui.xml" "$LRI" "$PDI" "$STARRED_DISPLAY" <<'PY'
+import sys
+xml = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+lri, pdi, wanted = sys.argv[2], sys.argv[3], sys.argv[4]
+spans, i = [], 0
+while True:
+    a = xml.find(lri, i)
+    if a < 0:
+        break
+    b = xml.find(pdi, a)
+    if b < 0:
+        break
+    spans.append((a, xml[a + 1:b]))
+    i = b + 1
+card = [s for _, s in spans if "**29" in s]
+print("isolated" if any(s == wanted for s in card) else "no")
+print("breakable" if any((" " in s or "-" in s) for s in card) else "glued")
+PY
+)
+if [ "$(echo "$out" | sed -n 1p)" = "isolated" ]; then
+    ok "the #405 card is one isolate with non-breaking separators"
+else
+    bad "the #405 card is not the expected non-breaking isolate"
+fi
+if [ "$(echo "$out" | sed -n 2p)" = "glued" ]; then
+    ok "no breakable space or hyphen survives inside the card"
+else
+    bad "the card still contains an ASCII space or hyphen, so it can wrap"
+fi
 
 info "The bare amount has no separators and stays a plain digit run"
 # 'مبلغ:00000000' has nothing to reorder: no mask letters, no separators. The

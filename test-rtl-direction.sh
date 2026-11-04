@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# Regression for #362 — per-message text direction.
+# Regression for #362 — per-line text direction.
 #
 # Two rules, both pure functions in BidiText (unit-tested in
 # BidiTextDirectionTest), here checked against the real UI:
 #
-#   bubble     first and last strong characters decide; digits, punctuation and
-#              links never vote; when the two ends disagree the last one wins.
-#   lines      a line that is only numbers or links is pinned LTR inside an RTL
-#              message, so it is neither reordered nor pushed to the wrong edge.
+#   bubble     each line is laid out in the direction of its own first strong
+#              character; digits, punctuation, links and emoji never vote. This
+#              is the rule Google Messages and Fossify apply — verified against
+#              both on emulator-5558 — so Persian prose and an LTR "11:24 PM"
+#              line can share one bubble. A bubble is no longer forced into one
+#              direction, and the last strong character no longer overrides the
+#              first (#362 second follow-up).
+#   lines      RTL lines get their number runs isolated, LTR lines are pinned as
+#              one run, so a bank timestamp or a card mask cannot be reordered
+#              by a Persian neighbour (#345).
 #   composer   first strong character alone decides, so the field flips as soon
 #              as a Persian/Arabic word is typed and does not flip back when an
 #              English word follows.
@@ -15,11 +21,11 @@
 # A layout direction cannot be seen in a `uiautomator` dump (it carries the
 # string and its bounds, not the text direction), and a screenshot would show
 # the same pixels for a single-line bubble either way — so the app reports the
-# direction it actually painted with, the way BubbleShape reports corner radii:
+# direction it painted with, the way BubbleShape reports corner radii:
 #
-#   BubbleDirection:   id=<id> dir=Rtl|Ltr     (per composed bubble)
-#   BubbleBidi:        dir=Rtl|Ltr ltrLines=<n> (the transformed bubble body)
-#   ComposerDirection: dir=Rtl|Ltr             (per composer direction change)
+#   BubbleDirection:   id=<id> dirs=Rtl,Ltr     (per line of the body)
+#   BubbleBidi:        lines=Rtl,Ltr            (the transformed bubble body)
+#   ComposerDirection: dir=Rtl|Ltr              (per composer direction change)
 #
 # The chat is opened through the real `sms:`/SENDTO share path rather than a
 # seeded draft: `adb shell input text` is ASCII-only, and the `?body=` query is
@@ -79,9 +85,9 @@ wake() {
 # needs, so wait for the marker instead of guessing: an empty log is
 # indistinguishable from "the app never painted".
 await_marker() {
-    local tag="$1" want="$2" i
+    local tag="$1" want="$2" key="$3" i
     for i in $(seq 1 10); do
-        adb_ logcat -d -s "$tag":D 2>/dev/null | grep -q "dir=$want" && { sleep 1; return 0; }
+        adb_ logcat -d -s "$tag":D 2>/dev/null | grep -q "$key=$want" && { sleep 1; return 0; }
         sleep 1.5
     done
     return 1
@@ -99,42 +105,40 @@ PY
 }
 
 # The seeded body is the only bubble on screen, so the direction lines in a
-# freshly cleared log are unambiguous.
+# freshly cleared log are unambiguous. $want is the whole per-line list, e.g.
+# "Rtl,Rtl,Ltr".
 bubble_case() {
     local desc="$1" body="$2" want="$3"
     wake
     sql "DELETE FROM messages WHERE conversation_id=$CID;" >/dev/null 2>&1
     sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($CID,$(sqltext "$body"),$TS,'received');" >/dev/null 2>&1
     adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" >/dev/null 2>&1
-    await_marker BubbleDirection "$want"
+    await_marker BubbleDirection "$want" dirs
     local seen
-    seen=$(adb_ logcat -d -s BubbleDirection:D 2>/dev/null | grep -o 'dir=.*' | tr -d '\r' | sort -u | tr '\n' ' ')
-    if [ "$seen" = "dir=$want " ]; then
+    seen=$(adb_ logcat -d -s BubbleDirection:D 2>/dev/null | grep -o 'dirs=.*' | tr -d '\r' | sort -u | tr '\n' ' ')
+    if [ "$seen" = "dirs=$want " ]; then
         ok "$desc -> $want"
     else
-        bad "$desc -> expected dir=$want, got '${seen:-nothing}'"
+        bad "$desc -> expected dirs=$want, got '${seen:-nothing}'"
     fi
 }
 
-# A line pinned LTR is invisible in a dump and in a screenshot of a single
-# line, so the count comes from the transform that actually painted.
+# The transform's own view of the same body: it must agree with the directions
+# reported above, or the isolates are being decided on a different rule from
+# the one the text is painted with.
 bidi_case() {
-    local desc="$1" body="$2" want="$3" want_lines="$4"
+    local desc="$1" body="$2" want="$3"
     wake
     sql "DELETE FROM messages WHERE conversation_id=$CID;" >/dev/null 2>&1
     sql "INSERT INTO messages(conversation_id,body,timestamp,status) VALUES($CID,$(sqltext "$body"),$TS,'received');" >/dev/null 2>&1
     adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" >/dev/null 2>&1
-    local i
-    for i in $(seq 1 10); do
-        adb_ logcat -d -s BubbleBidi:D 2>/dev/null | grep -q "ltrLines=$want_lines" && break
-        sleep 1.5
-    done
+    await_marker BubbleBidi "$want" lines
     local seen
-    seen=$(adb_ logcat -d -s BubbleBidi:D 2>/dev/null | grep -o 'dir=.*' | tr -d '\r' | tail -1)
-    if [ "$seen" = "dir=$want ltrLines=$want_lines" ]; then
-        ok "$desc -> $want, $want_lines LTR line(s)"
+    seen=$(adb_ logcat -d -s BubbleBidi:D 2>/dev/null | grep -o 'lines=.*' | tr -d '\r' | sort -u | tr '\n' ' ')
+    if [ "$seen" = "lines=$want " ]; then
+        ok "$desc -> $want"
     else
-        bad "$desc -> expected dir=$want ltrLines=$want_lines, got '${seen:-nothing}'"
+        bad "$desc -> expected lines=$want, got '${seen:-nothing}'"
     fi
 }
 
@@ -157,22 +161,26 @@ composer_case() {
     fi
 }
 
-info "Message text: first and last strong characters decide"
+info "The first strong character of each line decides"
 bubble_case "Persian message"                     "سلام خوبی"                          Rtl
 bubble_case "English message"                     "see you at 8"                       Ltr
-bubble_case "Persian ending a message opened in English" "Order 48291 تکمیل شد"         Rtl
-bubble_case "English ending a message opened in Persian" "سلام OK"                      Ltr
+bubble_case "English head, Persian tail"          "Order 48291 تکمیل شد"               Ltr
+bubble_case "Persian head, English tail"          "سلام OK"                            Rtl
+bubble_case "Persian head, Latin tail, full stop" "سلام abc."                          Rtl
 
 info "Trailing punctuation and digits do not vote"
 bubble_case "Persian with a trailing bang"        "سلام!"                              Rtl
 bubble_case "English with a trailing bang"        "hello!"                             Ltr
 bubble_case "Persian ending on a phone number"    "شماره من 09123456789"               Rtl
+bubble_case "a leading amount before the Persian" "60374356سلام:"                      Rtl
+bubble_case "an LTR timestamp line"               "11:24 PM."                          Ltr
+bubble_case "a bare domain"                       "bki. ir"                            Ltr
 
-info "Links do not vote for the message"
+info "Links do not vote for a line"
 bubble_case "Persian broadcast ending on a bare link" "ارسال رایگان شد
-l.tpshp.co/3lDXoA"                                                                  Rtl
+l.tpshp.co/3lDXoA"                                                                  Rtl,Ltr
 bubble_case "Persian line then an https link"        "تخفیف ویژه
-https://zbl.io/RogeAbne"                                                            Rtl
+https://zbl.io/RogeAbne"                                                            Rtl,Ltr
 bubble_case "a message that is only a link"          "https://zbl.io/RogeAbne"        Ltr
 
 info "Emoji never vote"
@@ -180,19 +188,37 @@ bubble_case "Persian message ending on an emoji"     "ارسال رایگان ش
 bubble_case "Persian message opening on an emoji"    "📣 ارسال رایگان شد"             Rtl
 bubble_case "English message ending on an emoji"     "hello 📣"                       Ltr
 
-info "A line of only numbers or links is pinned LTR"
+info "Each line is judged on its own head"
+bubble_case "the issue's delivery receipt"           "60374356بنام امید
+فرستنده:
++989015000000
+استفاده شده SIM:
+سیم ۱
+ارسال شده:
+18.06
+11:24 PM"                                                                           Rtl,Rtl,Ltr,Rtl,Rtl,Rtl,Ltr,Ltr
+bubble_case "the issue's bank SMS"                   "واريز400,000
+مانده1,165,755
+050705-19:01
+کارت8217*
+bki. ir"                                                                            Rtl,Rtl,Ltr,Rtl,Ltr
+
+info "The transform agrees with the directions it reports"
 bidi_case "OTP code line in a Persian message"       "کد ورود به صرافی تبدیل:
 85904
 @tabdeal.org #85904
-لغو11"                                                                              Rtl 2
-bidi_case "Persian broadcast with a bare link line"  "ارسال رایگان شد
-l.tpshp.co/3lDXoA
-لغو 11r.eu/t"                                                                       Rtl 1
-bidi_case "an emoji-only line in a Persian message"  "کد تخفیف را ثبت کن
-🎁🎁"                                                                                Rtl 1
-bidi_case "no weak-only line, nothing pinned"        "بانک سامان
+لغو11"                                                                              Rtl,Ltr,Ltr,Rtl
+bidi_case "the issue's delivery receipt"             "60374356بنام امید
+فرستنده:
++989015000000
+استفاده شده SIM:
+سیم ۱
+ارسال شده:
+18.06
+11:24 PM"                                                                           Rtl,Rtl,Ltr,Rtl,Rtl,Rtl,Ltr,Ltr
+bidi_case "no weak-only line"                        "بانک سامان
 برداشت مبلغ
-مانده 78,556,010"                                                                   Rtl 0
+مانده 78,556,010"                                                                   Rtl,Rtl,Rtl
 
 info "Composer: the first strong character typed decides"
 composer_case "draft opening in Persian"           "سلام hello"                         Rtl

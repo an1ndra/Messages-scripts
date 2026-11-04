@@ -23,7 +23,7 @@ DB=$PROVIDER_DIR/databases/contacts2.db
 NAME_MIME=7; PHONE_MIME=5; PHOTO_MIME=10
 
 dbq() { printf '%s' "$1" | adb_ shell "run-as $PKG sqlite3 databases/messages.db" 2>/dev/null | tr -d '\r'; }
-sq()  { printf '%s' "$1" | adb_ shell "su 0 sqlite3 $DB" 2>/dev/null | tr -d '\r'; }
+sq()  { printf '%s' "$1" | adb_su "sqlite3 $DB" 2>/dev/null | tr -d '\r'; }
 # One row, trimmed at the edges only - internal spaces matter for names.
 sq1() { sq "$1" | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 

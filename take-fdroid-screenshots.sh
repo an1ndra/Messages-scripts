@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Refreshes the F-Droid screenshots against the current build.
+# Captures the raw 1080x2400 app screenshots the listings are built from.
 #
 # Curated set of 8 shots with dummy contacts and
 # conversations. The output directory is emptied first so superseded shots do
 # not accumulate.
+#
+# Writes screenshots/store-raw/ (git-ignored) by default; the published Play
+# listing is composited from it by make-store-screenshots.py.
 #
 # Requires the demo data seeders:
 #   bash scripts/insert-demo-contacts.sh     # phone book, with monogram photos
@@ -18,7 +21,9 @@ cd "$(dirname "$0")"
 source ./env.sh
 source ./demo-data.sh
 
-SHOTS="$PROJECT_DIR/fastlane/metadata/android/en-US/images/phoneScreenshots"
+# Raw captures by default; make-store-screenshots.py composites the listing set
+# from this directory, so never point the default at the published screenshots.
+SHOTS="${FDROID_SHOTS_DIR:-$PROJECT_DIR/screenshots/store-raw}"
 mkdir -p "$SHOTS"
 rm -f "$SHOTS"/*.png
 
@@ -65,6 +70,8 @@ dismiss_onboarding() {
         dump_ui >/dev/null
         C=$(center_of_contains "Not now") && { adb_ shell input tap $C; sleep 1.5; continue; }
         C=$(center_of_contains "ALLOW") && { adb_ shell input tap $C; sleep 1.5; continue; }
+        # The voice-message coach mark sits over the composer on first open.
+        C=$(center_of_contains "Got it") && { adb_ shell input tap $C; sleep 1.5; continue; }
         break
     done
     sleep 1
@@ -145,7 +152,9 @@ tapxy() {
 
 tap_text()  { local c; c=$(rowxy "$1") || { echo "  !! no row '$1'"; FAILED=1; return 1; }; tapxy ${c% *} ${c#* }; }
 tap_desc()  { local c; c=$(cdxy "$1") || { echo "  !! no control '$1'"; FAILED=1; return 1; }; tapxy ${c% *} ${c#* }; }
-open_chat() { tap_text "$1"; }
+# The voice-message coach mark opens with the first chat of a session and covers
+# the composer, so every chat entry clears it before anything is captured.
+open_chat() { tap_text "$1"; dismiss_onboarding; }
 
 tap_settings() {
     dump_ui >/dev/null
@@ -237,7 +246,7 @@ drop_thread() {
     dbq "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$1');"
     dbq "DELETE FROM conversations WHERE address='$1';"
     dbq "DELETE FROM participants WHERE normalized_destination='$1';"
-    adb_ shell "su 0 content delete --uri content://sms --where \"address='$1'\"" >/dev/null 2>&1
+    adb_su "content delete --uri content://sms --where \"address='$1'\"" >/dev/null 2>&1
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1
 }
 

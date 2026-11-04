@@ -63,6 +63,9 @@ for stamp in "1405/07/30 - 16:59" "05/07/30-04:05" "07/30_04:00"; do
 import sys
 xml, lri, pdi, stamp = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 body = open(xml, encoding='utf-8', errors='replace').read()
+# The app now paints spaces/hyphens inside a number as U+00A0/U+2011 so the
+# stamp cannot wrap (#405); fold them back to compare content.
+body = body.replace(' ', ' ').replace('‑', '-')
 raise SystemExit(0 if (lri + stamp + pdi) in body else 1)
 PY
     then
@@ -77,6 +80,7 @@ if python3 - "$TMP/ui.xml" "$LRI" "$PDI" <<'PY'
 import sys
 xml, lri, pdi = sys.argv[1], sys.argv[2], sys.argv[3]
 body = open(xml, encoding='utf-8', errors='replace').read()
+body = body.replace(' ', ' ').replace('‑', '-')
 split = [lri + "05/07/30-04" + pdi + ":05", lri + "1405/07/30 - 16" + pdi + ":59"]
 raise SystemExit(0 if any(s in body for s in split) else 1)
 PY
@@ -91,6 +95,7 @@ if python3 - "$TMP/ui.xml" "$LRI" "$PDI" <<'PY'
 import sys
 xml, lri, pdi = sys.argv[1], sys.argv[2], sys.argv[3]
 body = open(xml, encoding='utf-8', errors='replace').read()
+body = body.replace(' ', ' ').replace('‑', '-')
 raise SystemExit(0 if (lri + "-500,000" + pdi) in body else 1)
 PY
 then
