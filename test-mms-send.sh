@@ -109,12 +109,28 @@ else
     printf '%s\n' "$TRACELOG" | sed 's/^/    | /'
 fi
 
-if [[ "$TRACELOG" == *"linked to message"* ]]; then
+if [[ "$TRACELOG" == *"linked to "*" message(s)"* ]]; then
     pass 'the outbox row was linked to the app message (no duplicate on re-entry)'
 else
     fail 'outbox row not linked to the app message: the picture would appear twice'
     printf '%s\n' "$TRACELOG" | sed 's/^/    | /'
 fi
+
+# The provider's copy of the attachment replaces the picker URI only after the
+# hand-off is accepted. On this path the platform took the PDU, so the row must
+# now read the provider part; moving that work to the failure branch would leave
+# it on the (soon dead) picker URI (#364 M11).
+SENT_SYS=$(local_query "SELECT sys_id FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$ADDRESS') AND media_type='image' ORDER BY id DESC LIMIT 1;")
+SENT_URI=$(local_query "SELECT media_uri FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$ADDRESS') AND media_type='image' ORDER BY id DESC LIMIT 1;")
+if [[ -n "$SENT_SYS" && "$SENT_SYS" -gt 0 ]]; then
+    pass "the sent row is linked to provider row $SENT_SYS"
+else
+    fail "the sent row has no provider link (sys_id=${SENT_SYS:-<none>})"
+fi
+case "$SENT_URI" in
+    content://mms/part/*) pass "the sent row reads the provider's part" ;;
+    *) fail "the sent row still points at '$SENT_URI'" ;;
+esac
 
 # The default-SIM send forced above must have reached the transport on that id.
 # This is smoke coverage, not the regression gate: on this AVD

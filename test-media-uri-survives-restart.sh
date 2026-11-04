@@ -54,17 +54,25 @@ PY
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
     adb_ shell "run-as $PKG sqlite3 databases/messages.db \"DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$ADDR'); DELETE FROM conversations WHERE address='$ADDR'; DELETE FROM participants WHERE normalized_destination='$ADDR';\"" >/dev/null 2>&1 || true
+    adb_ shell "run-as $PKG rm -f cache/camera/media-uri-source.png" >/dev/null 2>&1 || true
+    adb_ shell rm -f /data/local/tmp/media-uri-source.png >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 adb_ shell cmd role add-role-holder android.app.role.SMS "$PKG" >/dev/null 2>&1 || true
 
 info "0. share a photo into a new conversation"
-# A file:// URI is enough to exercise the whole path: the app copies whatever
-# it is handed into its own storage before sending, and that copy is exactly
-# the URI this test is checking gets replaced.
-SHARED_URI="file:///sdcard/media-uri-source.png"
-adb_ push "$SHARED_IMG" "$SHARED_URI" >/dev/null 2>&1
+# The share carries a content:// URI, which is what a real sender hands over:
+# with targetSdk 36 this app cannot read an arbitrary file:///sdcard path
+# (scoped storage, no legacy-storage permission), so the share would land on
+# the conversation list instead of the recipient picker. The source is the
+# app's own FileProvider, which it can always read; the app then copies it into
+# cache/shared before sending, and that copy is exactly the URI this test is
+# checking gets replaced.
+adb_ shell "run-as $PKG mkdir -p cache/camera"
+adb_ push "$SHARED_IMG" "/data/local/tmp/media-uri-source.png" >/dev/null 2>&1
+adb_ shell "run-as $PKG sh -c 'cat /data/local/tmp/media-uri-source.png > cache/camera/media-uri-source.png'"
+SHARED_URI="content://$PKG.fileprovider/camera/media-uri-source.png"
 
 adb_ shell am start -a android.intent.action.SEND -t "image/png" \
     --eu android.intent.extra.STREAM "$SHARED_URI" \
