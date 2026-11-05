@@ -119,3 +119,35 @@ To pull this repo into a fresh app checkout:
 ```bash
 git submodule update --init scripts     # in the app repo
 ```
+
+### Land script commits on `Develop` first — or every PR conflicts
+
+A gitlink merge only resolves on its own when one side's pointer is an
+**ancestor** of the other's. Two pointers that each carry commits the other
+does not are a conflict, and the superproject cannot merge them for you: the
+index just shows `UU scripts`. That is what kept breaking PRs.
+
+So the order below is not optional:
+
+1. Land the scripts commit on **`Develop`** of this repo (push it, or merge the
+   feature branch into `Develop`) *before* opening or updating the app PR.
+   `Develop` here is the trunk; a feature branch only borrows it.
+2. In the app branch, merge `Develop` of this repo into the branch's scripts
+   checkout so its history contains `origin/Develop`, then record that commit:
+   ```bash
+   git -C scripts fetch origin
+   git -C scripts merge origin/Develop          # resolve TODO.md, keep both sides
+   git add scripts && git commit -m "chore: bump scripts submodule"
+   ```
+3. Never leave a scripts feature branch as the only place a test script lives.
+   If the app PR is closed, the script is stranded and the next PR built on
+   `Develop` conflicts against it.
+
+When the superproject does report `UU scripts`, resolve by hand rather than
+guessing — the branch must keep every section of `TODO.md` from both sides,
+and its pointer must contain `origin/Develop`'s pointer as an ancestor:
+
+```bash
+git -C scripts merge origin/Develop            # or the other PR's scripts branch
+git update-index --add --cacheinfo 160000,"$(git -C scripts rev-parse HEAD)",scripts
+```
