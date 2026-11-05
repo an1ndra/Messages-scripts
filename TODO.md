@@ -5,6 +5,205 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #421 one row for a chat's notification settings (2026-11-05)
+
+Reporter follow-up on #339: the "Notifications" switch read as a master switch
+for alerts, while it actually meant "this chat has its own channel". The switch
+and the row into Android's page are now one row.
+
+- `ContactDetailsScreen` shows a single **Notification profile** row: the
+  switch creates or deletes the chat's channel, and the label opens Android's
+  page for it only while the switch is on — before that there is no page.
+- The unused `contact_notifications` string is gone from `values/` and all 13
+  locales; the row's key is now `contact_notification_profile`, translated in
+  all of them.
+- JUnit: `NotificationChannelWiringTest` pins the merged row and the
+  `onClick = if (channelOn)` gate; `ContactDetailsWiringTest` anchors moved to
+  the remaining string. Full suite 1299 green.
+- `scripts/test-notification-channels.sh` (22): 22/0 on the fix; 16/6 on the
+  pre-fix build, failing first on "chat details has no Notification profile
+  row".
+
+## #323 user-chosen SIM names (2026-11-05)
+
+A SIM renamed in Android settings ("private", "work") showed only "SIM n" in
+the chat, because message bubbles rendered the slot and the pickers preferred
+the carrier.
+
+- `SubscriptionInfo.displayName` is the user's name when set, but Android
+  echoes `carrierName` when it is not. `SimLabels.userName()` therefore treats
+  the display name as a real choice only when it differs from the carrier.
+- Renamed SIMs now appear as the name in the settings row/picker
+  (`Work (SIM 2)`), the 3-dot menu and switch toast (`SIM 2 · Work`), and the
+  sent-bubble meta line (`· Work`). Un-renamed SIMs keep `· SIM 1` / `SIM 1`,
+  so devices that never renamed a SIM render exactly as before.
+- The formatting decision lives once in `ui/SimLabelText.kt`; `ChatScreen`
+  resolves the `SimCard` for each message/scheduled row and passes it down.
+- Unit: `SimLabelsTest` (11) with new display-name cases; full
+  `testDebugUnitTest` green.
+- `scripts/test-323-sim-name.sh` (4): the fake dual-SIM fixture's second SIM
+  has a display name ("Vodafone UK") different from its carrier, standing in
+  for a rename. Asserts the settings picker and the bubble meta line. Fails 3
+  assertions on a build with name resolution disabled; 4/4 after.
+- `test-fake-dual-sim.sh` expectations updated to "Vodafone UK (SIM 2)" —
+  7/7. `test-backup-sim-coil.sh` menu expectation updated likewise (not run:
+  uiautomator entered its "already registered" state on this AVD).
+- `test-scheduled-in-chat.sh`: the SIM-label assertion is back to passing
+  ("· SIM 1"). Its "in 2h" countdown assertion is independently flaky —
+  `ScheduledCountdown.format` floors, so a row seeded 2h out renders
+  "1h 59m" by the time the chat opens. Pre-existing, not from this change.
+- Screenshot: `/tmp/opencode/messages-tests/issue-323-chat-final.png` shows
+  `7:47 PM • SMS • Vodafone UK` under the sent bubble.
+
+## #354 a locked phone threw away the open conversation (2026-11-05)
+
+Reporter follow-up: with App lock on, opening a conversation (in the app or in a
+bubble), locking the phone and unlocking it came back to a blank conversation
+with no name and no messages.
+
+- Cause: `chatId` was `remember`ed inside `MainActivity`'s gated content. Screen
+  off ends the unlocked session, and the gate re-arms on `ON_RESUME`, so that
+  content stops composing and its `remember` state is dropped. `navRoute` is an
+  activity field and stayed `"chat"`, so the unlocked window composed
+  `ChatScreen(-1)`: chat chrome, no title, no messages. Introduced by `a5ef231`
+  (the re-arm itself); first shipped in v1.0.31.
+- Fix: `chatId` moved to an activity-scoped `mutableStateOf`, beside
+  `navRoute`/`pendingOpenAddress`.
+- JUnit: `AppLockGateTest.theOpenChatIsHeldOutsideTheGatedContent` requires the
+  declaration before the gate's `return@setContent`. Full suite green.
+- `test-354-applock-chat-survives.sh` (new, 6 assertions): a full-screen chat
+  and a bubble, each opened, screen off, then keyguard and app gate answered —
+  the seeded message must still be on screen. Before the fix: 4 pass / 2 fail
+  (both "came back blank"). After: 6/6. The check requires the `uiautomator`
+  dump to succeed; `layout_has` keeps grepping the last dump when a dump fails,
+  which read a stale pre-lock screen as a pass. The script sets and clears its
+  own PIN — `locksettings verify` succeeds vacuously with no credential, so
+  `get-disabled` is what tells "none" apart from "set".
+- Unrelated and left alone: `test-app-lock-verification.sh` still hops into
+  "Advanced settings" for the App lock row, which the redesigned Settings screen
+  moved to the main list.
+
+## CodeQL scans failed on a split action version (2026-11-05)
+
+The v1.0.31 release run's `CodeQL (Kotlin/Java)` job failed, and so had every
+scheduled Security Scan since 2026-10-19.
+
+- Cause: `analyze` and `upload-sarif` were bumped to `v4.39.1`, but `init`
+  stayed on `v4.38.2`. `analyze` reads the config file `init` wrote and refuses
+  to run when the versions differ: "Loaded a configuration file for version
+  '4.38.2', but running version '4.39.1'". The checkout and the CodeQL database
+  build both succeeded; only the analyze post-action failed.
+- Fix: pin `init` to the same commit as the other two steps, and group
+  `github/codeql-action*` in `dependabot.yml` so the next bump cannot split.
+- JUnit: `SecurityWorkflowTest` (3 cases) reads every workflow and requires one
+  CodeQL action commit per file. Full suite green.
+- `scripts/test-security-workflow.sh` (5): 2 fail pre-fix (the mixed pins and
+  the JUnit case), 5/5 after. Static assertions; no UI driving.
+
+## #363 Gregorian companion row in Message details (2026-11-05)
+
+Reporter follow-up on #363: instead of a full secondary-calendar system, the
+message details dialog should name the Gregorian date when the user's dates
+render in a local calendar.
+
+- `gregorianCompanion()` in `CalendarDates.kt` returns the instant's Gregorian
+  date, or null when the resolved calendar already is Gregorian. Resolution
+  goes through `CalendarSystem.resolve`, so Automatic-on-English and an
+  explicit Gregorian pick both skip the row. The clock is not repeated — it
+  reads the same in every calendar and stays in the `Sent` row.
+- `MessageDetailsDialog` adds a `Gregorian date` row right after `Sent`; the
+  new `message_detail_gregorian` string ships in all 13 locales.
+- JUnit: `CalendarDatesTest` gains four cases (skipped for Gregorian and for
+  Automatic on English, present for Jalali, date-only, Gregorian/DayWithYear/
+  zone passed through). Full suite 1261 green.
+- `scripts/test-363-gregorian-companion.sh` (8): seeds a fixed
+  2026-10-26T12:00Z message, edits the calendar preference with the app
+  force-stopped, and opens the details dialog. 8/0 on the fix; 6/2 on the
+  pre-fix build (missing companion row and value).
+
+## #408 live-drag background follow-up (2026-11-04)
+
+Reporter follow-up: while a row was still being swiped, the background showed
+the **other** action's colour and icon, and the icon sat at the gesture's start
+edge where the row covered it. The completed swipe was already correct.
+
+- Cause: `SwipeToDismissBoxState.dismissDirection` classifies the live drag by
+  the raw offset sign, so it stays physical in RTL. The background passed it
+  through `travelsRight(isRtl)`, which is only for *settled* `currentValue`, and
+  placed the icon with logical `CenterStart`/`CenterEnd`, both of which mirror
+  in RTL. A leftward drag therefore drew "Mark as read" under the row on the
+  left; the right action was hidden at the start edge.
+- Fix: `dragSwipeAction()` and `dragRevealedSide()` in `SettingsLayout.kt` read
+  the drag physically, the icon is aligned from the physical uncovered side,
+  and the settle path now goes through `settledSwipeAction()`.
+- JUnit: `RtlSwipeMappingTest` grew three cases (physical live drag, uncovered
+  side, drag and settle agreeing on one gesture). Full suite green.
+- `scripts/test-rtl-swipe-background.sh` (8): holds a real touch down, reads the
+  icon label and x from a dump taken **while the row is still displaced**, and
+  asserts Archive on the physical right for a leftward drag / "Mark as read" on
+  the physical left for a rightward drag. 8/0 on the fix; 6 failures on the
+  pre-fix build (the icon is absent from the tree because it is under the row).
+  Labels are resolved from the app's own resources for the device locale.
+- Observation gotcha: `uiautomator dump` cannot run during `adb shell input
+  swipe` — the pointer keeps moving, the wait for idle never ends, and the
+  dump is killed (rc 137) leaving `UiAutomationService ... already registered!`
+  for every later dump until a reboot. The script injects raw `sendevent`s
+  (DOWN, ten MOVEs, then stop) so the UI goes idle with the row still displaced.
+
+## #408 and #406 verified against GM/Fossify and fixed (2026-11-04)
+
+Compared on `emulator-5558` with Google Messages 2026.x and Fossify Messages,
+device locale `fa-IR`/`he-IL` (RTL) and `en-US`.
+
+**#408 (RTL layout)**
+
+- Swipe actions ran the mirrored action. Compose's `StartToEnd`/`EndToStart`
+  are layout-relative; the settings' "Swipe left/right" are physical. In RTL a
+  leftward finger settles on `StartToEnd` and ran the action configured for the
+  right. `SwipeToDismissBoxValue.travelsRight(isRtl)` now maps settle values to
+  physical directions for both the enable flags and the action, and
+  `SwipeActionPreview` uses the same physical side instead of logical Start/End
+  (it previously advertised the mirrored action).
+- The long-press reaction bar was placed from `isMe` alone, so in RTL its first
+  three emoji were drawn off the left edge. Now `reactionBarX(isMe, isRtl, …)`
+  keeps the bar inside the bubble's own edge in every combination.
+- The Start-chat pill lost its 16dp end inset whenever the label was squeezed:
+  a spacer collapses to zero under the width animation. It is now
+  `padding(horizontal = 16.dp)`, which leaves exactly the 24dp icon collapsed.
+- Checked and already matched GM: selection-toolbar order, the mirrored forward
+  icon (`AutoMirrored`), and the archive block's edge behaviour.
+
+**#406 (history/search)**
+
+- `AUTO_CAP = 400` dead-ended scrolling in any longer thread. Removed: the pager
+  grows by `AUTO_CHUNK` (40) until `totalCount`, and a `CircularProgressIndicator`
+  sits at the top while a page is in flight.
+- A search hit below the window now loads one direct page
+  (`searchPageLimit` = newer rows + 60 context) instead of walking 200-row steps
+  behind the scroll-up settling delay.
+- Two cancellation races surfaced while testing. Assigning `pageLimit` inside
+  the keyed `LaunchedEffect` relaunched and cancelled the run before its anchor
+  restore and `loadingEarlier = false` (stuck spinner, no further preloads);
+  and marking a request handled before the settling delay let a cancelled run
+  swallow it. The restore is now a separate effect fed by `PendingLoad`, with a
+  2.5 s watchdog, and `handledRequest` is written after the delay.
+
+**Tests**
+
+- JUnit: `RtlSwipeMappingTest` (10), `ReactionBarPlacementTest` (6),
+  `ChatPagingTest` (8); full `:app:testDebugUnitTest` green.
+- Scripts: `test-rtl-swipe-mirror.sh` 5/0 (4 failures on the pre-fix build),
+  `test-rtl-reaction-bar.sh` 3/0 (1 failure pre-fix),
+  `test-chat-history-paging.sh` 5/0 (4 failures with the old cap/stepping).
+  Adjacent behaviour stayed green: `test-in-chat-search.sh` 8/0,
+  `test-chat-search-scroll.sh` 6/0, `test-chat-opens-at-bottom.sh` 6/0.
+- #405 re-run in its reporter configuration (`he-IL`): dialog 10/0, cards 12/0.
+- #339 re-run after the control was folded into one per chat: 21/0. The script
+  still looked for the removed "Custom notifications" switch; it now drives the
+  Notifications switch through `tap_switch_layout` (the toggle has no
+  accessibility node of its own, and the trailing side is physically left in
+  RTL) and asserts the "Customize notifications" row that appears with it.
+
 ## #398 "Save image" with several pictures selected (2026-11-04)
 
 The selection toolbar named only the first selected picture's save target, so
@@ -57,6 +256,66 @@ picture; every picture past the fourth was unreachable. A 12-picture MMS read
   `+2`, page 2 two tiles + back) and then six more (12 → `+4`, `+4`, no badge;
   back returns a page). Verified **21/7 on the pre-change APK** (the seven page
   assertions red) and **28/28 after**.
+
+## #405 fixed: dialog punctuation stays put, a card number cannot wrap (2026-11-03)
+
+Two complaints from the issue's screenshots, both taken on an **RTL window with
+English fallback copy** (the reporter's 1.0.31 predates `values-fa`, so dates are
+Persian while the app's own strings are English):
+
+- "Back up without a PIN?" put its "?" at the start of the title, and the body's
+  sentence-final "." likewise. The default-SMS prompt did the same with "?app".
+- "5022 **29 **** 9227" wrapped mid-card, so the second half appeared on the
+  next line.
+
+Root causes:
+
+- Dialog copy painted with plain `Text` inherits the window direction; an
+  English sentence in an RTL paragraph moves its trailing neutral punctuation to
+  the visual start. Only the mark-read dialog had been treated before, and the
+  backup warning had no treatment at all.
+- An isolate fixes *order* only: LRI/PDI are formatting characters, not glue, so
+  the spaces and hyphens inside a number run stayed ordinary break
+  opportunities.
+
+Fix:
+
+- `DialogText` in `Components.kt` paints a string in the direction of its own
+  first strong character (the same rule bubbles use) and logs `DialogBidi`.
+  Every punctuated AlertDialog title/body in the new and legacy settings UIs,
+  About's custom dialogs and `CrashReportDialog` now goes through it.
+  `DialogDirectionTest.everyPunctuatedAlertDialogSlotPaintsDirectionally` fails
+  the build when a new punctuated slot forgets it.
+- `BidiText.isolateNumberRuns` paints a space inside a transformed run as
+  U+00A0 and a hyphen as U+2011 — one character for one, so `remap()` and every
+  span keep their offsets. `MessageSearch` folds both back, so a query typed
+  with ordinary characters still matches a painted bubble.
+
+Verified in the reporter's exact configuration — system locale `he-IL`
+(untranslated → English copy, RTL layout) on `emulator-5558`:
+`test-dialog-rtl-punctuation.sh` 10/10.
+
+Tests:
+
+- JUnit: `BidiTextTest` (#405 card cannot break; NBSP/U+2011 expectations),
+  `MessageSearchTest` (ranges across NBSP), `DialogDirectionTest` (source sweep).
+  Full `:app:testDebugUnitTest` green.
+- Scripts: `test-bidi-card-numbers.sh` 12/12 (adds the #405 spaced-star card),
+  `test-dialog-rtl-punctuation.sh` 10/10 (both UIs + default-SMS prompt + the
+  backup warning), and updated expectations in `test-bidi-bank-time.sh`,
+  `test-bidi-within-number.sh`, `test-persian-numbers.sh`,
+  `test-bidi-persian-amount.sh` — all green.
+- Both new script checks were seen failing on a build with the fix reverted
+  (card: 8 FAILs, dialog: 2 FAILs), then passing after restoring it.
+
+Script fixes the run exposed: `tap_layout_exact "Save"` (a contains-match hit
+the "Save to" row behind the dialog and opened the SAF picker instead of
+confirming the PIN), `close_documents_ui` before the backup case, a
+`READ_PHONE_STATE` grant (its first-run dialog hid the default-SMS prompt), and
+re-granting the runtime permissions after the SMS role is handed to Google
+Messages (the system revokes them with the role). `test-bidi-card-numbers.sh`
+now fails loudly when `dump_ui` fails instead of asserting against a stale
+`ui.xml`.
 
 ## #362 fixed properly: the base direction is per line, not per message (2026-11-01)
 

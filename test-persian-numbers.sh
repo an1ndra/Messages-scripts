@@ -13,6 +13,7 @@ RTL_NUM="+989998620453"
 LTR_NUM="+15551234577"
 LRI=$'\u2066'
 PDI=$'\u2069'
+NBSP=$'\u00a0'
 PASS=0; FAIL=0
 ok()  { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
 bad() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
@@ -42,7 +43,8 @@ c=$(center_of_contains "98 999 862 0453") || c=""
 if [ -n "$c" ]; then
     adb_ shell input tap $c; sleep 2
     dump_ui || true
-    grep -qF "${LRI}0999 862 0453${PDI}" "$TMP/ui.xml" \
+    # #405: spaces inside a painted number are U+00A0 so they cannot wrap.
+    grep -qF "${LRI}0999${NBSP}862${NBSP}0453${PDI}" "$TMP/ui.xml" \
         && ok "RTL body number isolated ($LRI…$PDI)" \
         || bad "RTL body number not isolated"
     adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
