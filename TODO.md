@@ -5,6 +5,25 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #421 one row for a chat's notification settings (2026-11-05)
+
+Reporter follow-up on #339: the "Notifications" switch read as a master switch
+for alerts, while it actually meant "this chat has its own channel". The switch
+and the row into Android's page are now one row.
+
+- `ContactDetailsScreen` shows a single **Notification profile** row: the
+  switch creates or deletes the chat's channel, and the label opens Android's
+  page for it only while the switch is on — before that there is no page.
+- The unused `contact_notifications` string is gone from `values/` and all 13
+  locales; the row's key is now `contact_notification_profile`, translated in
+  all of them.
+- JUnit: `NotificationChannelWiringTest` pins the merged row and the
+  `onClick = if (channelOn)` gate; `ContactDetailsWiringTest` anchors moved to
+  the remaining string. Full suite 1299 green.
+- `scripts/test-notification-channels.sh` (22): 22/0 on the fix; 16/6 on the
+  pre-fix build, failing first on "chat details has no Notification profile
+  row".
+
 ## #354 a locked phone threw away the open conversation (2026-11-05)
 
 Reporter follow-up: with App lock on, opening a conversation (in the app or in a
