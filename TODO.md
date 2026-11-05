@@ -5,6 +5,37 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #323 user-chosen SIM names (2026-11-05)
+
+A SIM renamed in Android settings ("private", "work") showed only "SIM n" in
+the chat, because message bubbles rendered the slot and the pickers preferred
+the carrier.
+
+- `SubscriptionInfo.displayName` is the user's name when set, but Android
+  echoes `carrierName` when it is not. `SimLabels.userName()` therefore treats
+  the display name as a real choice only when it differs from the carrier.
+- Renamed SIMs now appear as the name in the settings row/picker
+  (`Work (SIM 2)`), the 3-dot menu and switch toast (`SIM 2 · Work`), and the
+  sent-bubble meta line (`· Work`). Un-renamed SIMs keep `· SIM 1` / `SIM 1`,
+  so devices that never renamed a SIM render exactly as before.
+- The formatting decision lives once in `ui/SimLabelText.kt`; `ChatScreen`
+  resolves the `SimCard` for each message/scheduled row and passes it down.
+- Unit: `SimLabelsTest` (11) with new display-name cases; full
+  `testDebugUnitTest` green.
+- `scripts/test-323-sim-name.sh` (4): the fake dual-SIM fixture's second SIM
+  has a display name ("Vodafone UK") different from its carrier, standing in
+  for a rename. Asserts the settings picker and the bubble meta line. Fails 3
+  assertions on a build with name resolution disabled; 4/4 after.
+- `test-fake-dual-sim.sh` expectations updated to "Vodafone UK (SIM 2)" —
+  7/7. `test-backup-sim-coil.sh` menu expectation updated likewise (not run:
+  uiautomator entered its "already registered" state on this AVD).
+- `test-scheduled-in-chat.sh`: the SIM-label assertion is back to passing
+  ("· SIM 1"). Its "in 2h" countdown assertion is independently flaky —
+  `ScheduledCountdown.format` floors, so a row seeded 2h out renders
+  "1h 59m" by the time the chat opens. Pre-existing, not from this change.
+- Screenshot: `/tmp/opencode/messages-tests/issue-323-chat-final.png` shows
+  `7:47 PM • SMS • Vodafone UK` under the sent bubble.
+
 ## CodeQL scans failed on a split action version (2026-11-05)
 
 The v1.0.31 release run's `CodeQL (Kotlin/Java)` job failed, and so had every

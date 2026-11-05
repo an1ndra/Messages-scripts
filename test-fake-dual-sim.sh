@@ -51,15 +51,15 @@ launch true
 open_sim_dialog
 dump_ui
 grep -q 'text="T-Mobile (SIM 1)"' "$TMP/ui.xml" && ok "shows T-Mobile (SIM 1)" || bad "missing T-Mobile (SIM 1)"
-grep -q 'text="Vodafone (SIM 2)"' "$TMP/ui.xml" && ok "shows Vodafone (SIM 2)" || bad "missing Vodafone (SIM 2)"
+grep -q 'text="Vodafone UK (SIM 2)"' "$TMP/ui.xml" && ok "shows Vodafone UK (SIM 2)" || bad "missing Vodafone UK (SIM 2)"
 grep -q 'text="SIM 7"' "$TMP/ui.xml" && bad "raw subId leaked as 'SIM 7'" || ok "no raw 'SIM 7' label"
 
 info "Selecting the second SIM updates the row + pref"
-tap_text "Vodafone (SIM 2)" >/dev/null 2>&1; sleep 0.6
+tap_text "Vodafone UK (SIM 2)" >/dev/null 2>&1; sleep 0.6
 tap_text "OK" >/dev/null 2>&1; sleep 1.5
 [ "$(pref_get sim_subscription_id)" = "7" ] && ok "pref sim_subscription_id=7" || bad "pref is $(pref_get sim_subscription_id)"
 dump_ui
-grep -q 'text="Vodafone (SIM 2)"' "$TMP/ui.xml" && ok "SIM row shows Vodafone (SIM 2)" || bad "SIM row not updated"
+grep -q 'text="Vodafone UK (SIM 2)"' "$TMP/ui.xml" && ok "SIM row shows Vodafone UK (SIM 2)" || bad "SIM row not updated"
 
 info "Restore Default"
 open_sim_dialog
@@ -71,7 +71,7 @@ info "Normal launch (no flag) shows the real single SIM"
 launch false
 open_sim_dialog
 dump_ui
-grep -q 'text="Vodafone (SIM 2)"' "$TMP/ui.xml" && bad "fake SIM leaked into a normal launch" || ok "no fake SIM without the flag"
+grep -q 'text="Vodafone UK (SIM 2)"' "$TMP/ui.xml" && bad "fake SIM leaked into a normal launch" || ok "no fake SIM without the flag"
 
 echo ""
 info "Results: $PASS passed, $FAIL failed"

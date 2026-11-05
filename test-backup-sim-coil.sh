@@ -114,13 +114,13 @@ grep -q 'content-desc="Change SIM"' "$TMP/ui.xml" \
 c=$(center_of_contains "More options") || c=""
 [ -n "$c" ] && adb_ shell input tap $c; sleep 1.5
 dump_ui >/dev/null 2>&1
-if grep -q 'text="SIM 2 · Vodafone"' "$TMP/ui.xml"; then
+if grep -q 'text="SIM 2 · Vodafone UK"' "$TMP/ui.xml"; then
     pass '3-dot menu offers SIM selection'
 else
     fail '3-dot menu missing SIM selection'
 fi
 # Selecting the second SIM should persist the choice.
-c=$(center_of "SIM 2 · Vodafone") || c=""
+c=$(center_of "SIM 2 · Vodafone UK") || c=""
 [ -n "$c" ] && adb_ shell input tap $c; sleep 1.5
 adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null \
     | grep -q 'sim_subscription_id" value="7"' \
