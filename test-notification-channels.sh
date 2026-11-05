@@ -12,10 +12,10 @@
 #   - a message posts on the category channel while the chat has no channel
 #   - the three category channels still exist, the legacy ids are gone
 #   - a conversation that lands in the database gets no channel at launch
-#   - turning the chat's "Notifications" switch on creates messages_convo_<id>,
-#     named after the chat, and the notification then posts on it
-#   - the "Customize notifications" row appears (and opens Android's page for
-#     that channel)
+#   - the chat's "Notification profile" switch, off by default, creates
+#     messages_convo_<id>, named after the chat, and the notification then
+#     posts on it
+#   - its label opens Android's page for that channel once the switch is on
 #   - the channel keeps its id and sound across a relaunch (no re-minting)
 #   - turning it off deletes the channel, and messages fall back to the
 #     category channel instead of being dropped
@@ -116,10 +116,10 @@ open_details() {
     tap_layout "More options" >/dev/null 2>&1 || return 1
     sleep 1
     tap_layout "Details" >/dev/null 2>&1 || return 1
-    wait_layout_has "Notifications" 8
+    wait_layout_has "Notification profile" 8
 }
 
-# Android's channel page for this app, opened by the "Customize notifications"
+# Android's channel page for this app, opened by the "Notification profile"
 # row. It is a different app entirely, so the resumed activity is the assertion.
 # API 31 prints only `mResumedActivity`; newer releases add `topResumedActivity`.
 settings_page_open() {
@@ -201,12 +201,15 @@ info "The chat details screen offers the opt-in"
 open_chat "$FROM"
 sleep 2
 open_details || true
+layout_has "Notification profile" \
+    && pass "chat details shows the Notification profile switch" \
+    || fail "chat details has no Notification profile row"
 layout_has "Notifications" \
-    && pass "chat details shows the Notifications switch" \
-    || fail "chat details has no Notifications row"
+    && fail "the old Notifications switch is back" \
+    || pass "the old Notifications row is gone"
 
 info "Switching it on creates the chat's channel"
-tap_switch_layout "Notifications" >/dev/null 2>&1
+tap_switch_layout "Notification profile" >/dev/null 2>&1
 CH=""
 for _ in $(seq 1 10); do
     CH=$(convo_ch "$CID")
@@ -231,9 +234,9 @@ printf '%s' "$block" | grep -q "channel=${CH}" \
     && pass "the record posts on the chat's own channel" \
     || fail "the record still posts on a category channel"
 
-info "Customize notifications opens Android's page for that channel"
-wait_layout_has "Customize notifications" 8 || true
-tap_layout "Customize notifications" >/dev/null 2>&1
+info "Notification profile opens Android's page for that channel"
+wait_layout_has "Notification profile" 8 || true
+tap_layout "Notification profile" >/dev/null 2>&1
 opened=no
 for _ in $(seq 1 6); do
     if settings_page_open; then opened=yes; break; fi
@@ -262,7 +265,7 @@ info "Switching it off removes the channel and falls back to the category"
 open_chat "$FROM"
 sleep 2
 open_details || true
-tap_switch_layout "Notifications" >/dev/null 2>&1
+tap_switch_layout "Notification profile" >/dev/null 2>&1
 sleep 3
 has_channel "$CH" \
     && fail "the channel survived the switch being turned off" \
