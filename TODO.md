@@ -5,6 +5,23 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## CodeQL scans failed on a split action version (2026-11-05)
+
+The v1.0.31 release run's `CodeQL (Kotlin/Java)` job failed, and so had every
+scheduled Security Scan since 2026-10-19.
+
+- Cause: `analyze` and `upload-sarif` were bumped to `v4.39.1`, but `init`
+  stayed on `v4.38.2`. `analyze` reads the config file `init` wrote and refuses
+  to run when the versions differ: "Loaded a configuration file for version
+  '4.38.2', but running version '4.39.1'". The checkout and the CodeQL database
+  build both succeeded; only the analyze post-action failed.
+- Fix: pin `init` to the same commit as the other two steps, and group
+  `github/codeql-action*` in `dependabot.yml` so the next bump cannot split.
+- JUnit: `SecurityWorkflowTest` (3 cases) reads every workflow and requires one
+  CodeQL action commit per file. Full suite green.
+- `scripts/test-security-workflow.sh` (5): 2 fail pre-fix (the mixed pins and
+  the JUnit case), 5/5 after. Static assertions; no UI driving.
+
 ## #363 Gregorian companion row in Message details (2026-11-05)
 
 Reporter follow-up on #363: instead of a full secondary-calendar system, the
