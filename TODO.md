@@ -5,6 +5,34 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #354 a locked phone threw away the open conversation (2026-11-05)
+
+Reporter follow-up: with App lock on, opening a conversation (in the app or in a
+bubble), locking the phone and unlocking it came back to a blank conversation
+with no name and no messages.
+
+- Cause: `chatId` was `remember`ed inside `MainActivity`'s gated content. Screen
+  off ends the unlocked session, and the gate re-arms on `ON_RESUME`, so that
+  content stops composing and its `remember` state is dropped. `navRoute` is an
+  activity field and stayed `"chat"`, so the unlocked window composed
+  `ChatScreen(-1)`: chat chrome, no title, no messages. Introduced by `a5ef231`
+  (the re-arm itself); first shipped in v1.0.31.
+- Fix: `chatId` moved to an activity-scoped `mutableStateOf`, beside
+  `navRoute`/`pendingOpenAddress`.
+- JUnit: `AppLockGateTest.theOpenChatIsHeldOutsideTheGatedContent` requires the
+  declaration before the gate's `return@setContent`. Full suite green.
+- `test-354-applock-chat-survives.sh` (new, 6 assertions): a full-screen chat
+  and a bubble, each opened, screen off, then keyguard and app gate answered —
+  the seeded message must still be on screen. Before the fix: 4 pass / 2 fail
+  (both "came back blank"). After: 6/6. The check requires the `uiautomator`
+  dump to succeed; `layout_has` keeps grepping the last dump when a dump fails,
+  which read a stale pre-lock screen as a pass. The script sets and clears its
+  own PIN — `locksettings verify` succeeds vacuously with no credential, so
+  `get-disabled` is what tells "none" apart from "set".
+- Unrelated and left alone: `test-app-lock-verification.sh` still hops into
+  "Advanced settings" for the App lock row, which the redesigned Settings screen
+  moved to the main list.
+
 ## CodeQL scans failed on a split action version (2026-11-05)
 
 The v1.0.31 release run's `CodeQL (Kotlin/Java)` job failed, and so had every
