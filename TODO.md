@@ -5,6 +5,25 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Undoing an archive must not scroll the inbox (2026-11-07)
+
+Reported with screenshots: an unread chat three rows down was archived and the
+snackbar's Undo tapped. The inbox jumped so that chat sat at the top of the
+screen and the two newer chats above it were scrolled off. Restoring a chat —
+Undo, unarchive, Trash restore — re-enters the list, and the "reveal a new
+unread" effect read a missing previous entry as `0`, so the old count looked
+like a freshly received message and the effect scrolled to that row.
+
+- `ConversationList.newlyUnread(displayed, previous)` returns a chat only when
+  its unread count grew for a chat that was already in the previous emission.
+  `ConversationsScreen` uses it instead of the inlined `?: 0` comparison.
+- Unit: `ConversationListTest` gains three cases (a returning chat is not
+  fresh, a grown count is, an unchanged count is not). Full suite 1313 green.
+- `scripts/test-undo-archive-scroll.sh`: seeds 14 chats with an unread third
+  from the top, archives it from the long-press sheet, taps Undo, and asserts
+  the two newer chats are still on screen. 3/1 on the pre-fix build (fails on
+  the scroll assertion), 4/0 after.
+
 ## #421 one row for a chat's notification settings (2026-11-05)
 
 Reporter follow-up on #339: the "Notifications" switch read as a master switch
