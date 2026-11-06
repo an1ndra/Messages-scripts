@@ -104,15 +104,33 @@ case "$line" in
     *) ok "archived conversation is excluded" ;;
 esac
 unread_part=$(printf '%s' "$line" | sed -E 's/.*unread=\[([^]]*)\].*/\1/')
+UNREAD_ID=$(sql "SELECT id FROM conversations WHERE address='$UNREAD_NUM';" | tr -d ' \n')
 case "$unread_part" in
-    *"$UNREAD_NUM|Unread Two|2"*) ok "unread widget carries the unread row and its count" ;;
-    *) bad "unread widget does not carry '$UNREAD_NUM|Unread Two|2' (saw '$unread_part')" ;;
+    *"$UNREAD_ID|$UNREAD_NUM|Unread Two|2"*)
+        ok "unread widget carries the row's conversation id and unread count" ;;
+    *) bad "unread widget does not carry '$UNREAD_ID|$UNREAD_NUM|Unread Two|2' (saw '$unread_part')" ;;
 esac
-expected_total=$(sql "SELECT COALESCE(SUM(unread_count),0) FROM conversations WHERE deleted_at=0 AND blocked=0 AND archived=0;" | tr -d ' \n')
+expected_total=""
+for i in 1 2 3; do
+    expected_total=$(sql "SELECT COALESCE(SUM(unread_count),0) FROM conversations WHERE deleted_at=0 AND blocked=0 AND archived=0;" | tr -d ' \n')
+    [ -n "$expected_total" ] && break
+    sleep 1
+done
+[ -n "$expected_total" ] && ok "unread total in the inbox is $expected_total messages" \
+    || bad "could not read the inbox's unread total from the database"
 case "$line" in
-    *"total=$expected_total"*) ok "unread total matches the inbox ($expected_total messages)" ;;
+    *"total=$expected_total"*) ok "the widget's total matches the inbox" ;;
     *) bad "expected total=$expected_total in the probe line" ;;
 esac
+
+info "A widget row opens the conversation it names"
+# The composer only exists inside an open chat, so "Attach" says the id extra
+# landed in one rather than leaving the app on the inbox.
+adb_ shell am force-stop "$PKG"; sleep 1
+adb_ shell am start -n "$ACT" --el open_conversation_id "$UNREAD_ID" >/dev/null 2>&1
+wait_layout_has "Attach" 15 \
+    && ok "launching the widget's conversation id opens its chat" \
+    || bad "conversation id $UNREAD_ID did not open a chat"
 
 info "App lock blanks both widgets"
 line=$(probe_line -n "$ACT" --es app_lock_probe enable --ez widget_probe true) || line=""
