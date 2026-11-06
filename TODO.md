@@ -204,6 +204,32 @@ device locale `fa-IR`/`he-IL` (RTL) and `en-US`.
   accessibility node of its own, and the trailing side is physically left in
   RTL) and asserts the "Customize notifications" row that appears with it.
 
+## #406 follow-up: the whole thread loads on open (2026-11-06)
+
+The pager above is gone. Chunked history made scrolling stop at every page and
+made a search hit walk toward itself; loading the thread in one query removes
+both, and with them the prepend anchor and the spinner race that caused #406 in
+the first place.
+
+- `ChatScreen` requests `vm.messages(conversationId)` with no window and keeps
+  no paging state: `pageLimit`, `pendingEarlier`, `loadingEarlier`,
+  `grownPageLimit`, `PendingLoad`, the scroll-up effects, the watchdog and the
+  spinner row are all removed. `Repository.messages()` already defaulted to
+  `Int.MAX_VALUE`; it now also logs `ChatLoad ... rows=<n> took=<ms>`, which is
+  the script surface for "the whole thread arrived".
+- A focused search hit is always a row already, so the search-jump path is gone
+  too; opening from the home list still scrolls to the hit.
+- `ChatFullHistoryTest` replaces `ChatPagingTest`, `ChatOpenPreloadTest` and
+  `ChatPagingFinishTest` (all three deleted with the machinery they covered).
+- `test-chat-history-paging.sh` rewritten: 7/0 on the final build, and 4
+  failures when temporarily reverted to a 40-row window (the red run).
+  `test-chat-open-stability.sh` rewritten: 6/0, asserting one full-size load on
+  open and no page request while scrolling to the first message.
+- Measured on `emulator-5558` with `ChatLoad`: a 1,500-message thread opens in
+  1.20 s (`TotalTime`, query 46 ms); a 20,000-message thread opens in 1.27 s
+  (first query 146 ms, re-queries ~80 ms). The open cost does not scale with the
+  thread the way the old page-by-page walk did.
+
 ## #405 fixed: dialog punctuation stays put, a card number cannot wrap (2026-11-03)
 
 Two complaints from the issue's screenshots, both taken on an **RTL window with

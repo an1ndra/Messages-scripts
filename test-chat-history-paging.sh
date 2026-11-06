@@ -4,17 +4,22 @@
 # conversation. A search hit below the cap was reached only by walking the
 # history in fixed 200-row steps, each behind the scroll-up settling delay.
 #
+# The pager is gone: the chat now loads the whole thread in one query on open.
+# That removes the chunk stops, the prepend anchor race that used to strand the
+# spinner, and the multi-step search jump in one go.
+#
 # Asserts:
-#   1. a 460-message thread can be scrolled past row 400 all the way to its
-#      oldest message;
-#   2. a search hit ~1,200 rows back is reached by one direct page, reported as
-#      a `ChatPaging ... search jump ... limit=<n>` line.
-# The app logs both loads under the `ChatPaging` tag.
+#   1. opening a 1,500-message thread fetches all 1,500 rows;
+#   2. scrolling from the bottom to the top reaches the oldest message without a
+#      single page request or loading spinner;
+#   3. a search hit 1,198 rows back opens directly on the hit, with the thread's
+#      full history loaded too.
+# The app logs the query's row count under the `ChatLoad` tag.
 source "$(dirname "$0")/env.sh"
 
 NAME_A="Long History"
 NUM_A="+15558808611"
-TOTAL_A=460
+TOTAL_A=1500
 NAME_B="Buried Search Hit"
 NUM_B="+15558808612"
 TOTAL_B=1200
@@ -55,9 +60,10 @@ open_chat() {
     sleep 1
 }
 
-last_limit() {
-    adb_ shell logcat -d -s ChatPaging:D 2>/dev/null \
-        | grep -oE 'limit=[0-9]+' | tail -1 | cut -d= -f2 | tr -d '\r'
+full_rows() {
+    # full_rows <total> -> number of ChatLoad lines reporting that row count
+    adb_ shell logcat -d -s ChatLoad:D 2>/dev/null | tr -d '\r' \
+        | grep -cE "rows=$1( |$)"
 }
 
 saw_marker() { layout_has "$1"; }
@@ -65,41 +71,47 @@ saw_marker() { layout_has "$1"; }
 info "Hold the default SMS role"
 adb_su "cmd role add-role-holder android.app.role.SMS $PKG" >/dev/null 2>&1
 
-info "Part 1: scroll a $TOTAL_A-message thread past the old 400-row cap"
+info "Part 1: a $TOTAL_A-message thread opens with its entire history"
 seed "$NUM_A" "$NAME_A" "$TOTAL_A" 1 "the oldest history marker"
 adb_ shell logcat -c
 open_chat "$NUM_A"
 
-SEEN=""
-for i in $(seq 1 160); do
-    adb_ shell input swipe 540 700 540 1950 90
-    sleep 0.25
-    if [ $((i % 3)) -eq 0 ] && saw_marker "the oldest history marker"; then SEEN=1; break; fi
+ROWS=$(full_rows "$TOTAL_A")
+if [ "$ROWS" -gt 0 ]; then
+    ok "opening the thread loaded all $TOTAL_A messages in one query"
+else
+    bad "the open query never returned all $TOTAL_A rows"
+fi
+
+# Tight swipes with no per-swipe UI dumps, so the whole thread is traversed in
+# one run; the probe at the end checks the first message has been reached.
+for i in $(seq 1 120); do
+    adb_ shell input swipe 540 700 540 1950 80
+    sleep 0.20
 done
 sleep 2
 if saw_marker "the oldest history marker"; then
     ok "scrolling reached the first message of a $TOTAL_A-message thread"
 else
-    LIM=$(last_limit)
-    bad "scrolling dead-ended before the first message (loaded limit ${LIM:-unknown} of $TOTAL_A)"
+    bad "scrolling never reached the first message of the thread"
 fi
 
-LIM=$(last_limit)
-if [ -n "$LIM" ] && [ "$LIM" -gt 400 ]; then
-    ok "pager grew past the old 400-row cap (limit=$LIM)"
+# No pager means no page requests and no spinner at the top. Both are reported
+# live by the app, so a reintroduced pager shows up here immediately.
+PAGING=$(adb_ shell logcat -d -s ChatPaging:D ChatPreload:D 2>/dev/null | tr -d '\r' \
+    | grep -cE 'scroll-up load|search jump')
+if [ "$PAGING" = "0" ]; then
+    ok "scrolling up issued no page request (the thread was already loaded)"
 else
-    bad "pager never grew past 400 rows (limit ${LIM:-unknown})"
+    bad "the pager is back: $PAGING page request(s) during scroll-up"
 fi
-
-# Informational: the spinner is only on screen while a page is in flight, and a
-# local DB load is fast, so a dump usually misses it. Not a failure either way.
 if layout_has "Load earlier messages"; then
-    echo "[info] loading spinner observed at the top of the list"
+    bad "loading spinner is on screen at the top of a fully loaded list"
 else
-    echo "[info] loading spinner not sampled (loads completed between dumps)"
+    ok "no loading spinner at the top"
 fi
 
-info "Part 2: a search hit ~1,200 rows back is one direct page"
+info "Part 2: a search hit ~1,200 rows back opens directly on the hit"
 seed "$NUM_B" "$NAME_B" "$TOTAL_B" 2 "the $KW needle"
 adb_ shell logcat -c
 adb_ shell am force-stop "$PKG"; sleep 1
@@ -111,13 +123,15 @@ for _ in 1 2 3; do
 done
 if [ -z "$FOUND" ]; then bad "no Search button"; echo ""; info "Results: $PASS passed, $FAIL failed"; exit 1; fi
 sleep 1
-type_text "$KW" >/dev/null 2>&1; sleep 3
-if ! layout_has "$NAME_B"; then
+type_text "$KW" >/dev/null 2>&1; sleep 4
+# The row titles with the address, not the seeded `name` column: the app
+# resolves display names from contacts and falls back to the number here.
+if ! layout_has "$NUM_B"; then
     bad "thread not listed by its buried keyword"
 else
     ok "thread listed by a keyword hit 1,198 rows back"
 fi
-C=$(layout_center "$NAME_B")
+C=$(layout_center "$NUM_B")
 if [ -z "$C" ]; then
     bad "could not tap the thread row"
 else
@@ -128,16 +142,11 @@ else
     else
         bad "search did not reach the buried hit"
     fi
-    JUMP=$(adb_ shell logcat -d -s ChatPaging:D 2>/dev/null | grep -oE 'search jump newer=[0-9]+ limit=[0-9]+' | tail -1 | tr -d '\r')
-    if [ -n "$JUMP" ]; then
-        J_LIMIT=$(sed -E 's/.*limit=([0-9]+)/\1/' <<< "$JUMP")
-        if [ "$J_LIMIT" -gt 1000 ]; then
-            ok "search used one direct page ($JUMP)"
-        else
-            bad "search page was too small: $JUMP"
-        fi
+    SEARCH_ROWS=$(full_rows "$TOTAL_B")
+    if [ "$SEARCH_ROWS" -gt 0 ]; then
+        ok "the searched thread also opened with its whole $TOTAL_B-message history"
     else
-        bad "no direct search page in the log — the pager still walked the history in steps"
+        bad "the searched thread did not load all $TOTAL_B rows"
     fi
 fi
 

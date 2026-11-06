@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Regression: opening a long chat must not load older history under the reader.
+# Regression: a chat opens with its whole history already in place.
 #
 # Reported twice: "I have so many messages ... when I open chat I see chat
-# flickering every time I open chat". Opening a 300-message thread used to pull
-# older history in 40-row chunks while the list sat at the bottom: 7 loads and 8
-# bottom snaps in 2.5s, and each prepend shifted every visible row for a frame
-# before the snap pulled it back.
+# flickering every time I open chat". That originated in chunked loading: opening
+# a 300-message thread pulled older history in 40-row chunks while the list sat at
+# the bottom (7 loads, 8 bottom snaps in 2.5s), and each prepend shifted every
+# visible row for a frame before the follow-bottom snap pulled it back.
 #
-# Older history now loads only when the reader reaches the top, so a cold open
-# must log no preload at all. The second half proves the feature is still alive:
-# scrolling up does load, and does so exactly where the reader is looking.
+# The pager is gone. The chat now requests the whole thread in one query, so a
+# cold open must log a single full-size load (`ChatLoad ... rows=<total>`) and no
+# prepend at all, and scrolling to the top must find the first message already on
+# screen instead of triggering a page request.
 source "$(dirname "$0")/env.sh"
 
 PASS=0; FAIL=0
@@ -20,6 +21,7 @@ info() { echo -e "\n=== $* ==="; }
 NUM="+15559440001"
 ROWS=300
 MSG="message number $((ROWS - 1))"
+OLDEST="message number 0"
 
 adb_ root >/dev/null 2>&1; sleep 1
 sql() { adb_ shell "sqlite3 /data/data/$PKG/databases/messages.db \"$1\"" 2>/dev/null | tr -d '\r'; }
@@ -31,7 +33,11 @@ cleanup() {
 trap cleanup EXIT
 cleanup
 
-preloads() { adb_ logcat -d -s ChatPreload 2>/dev/null | grep -c "scroll-up load"; }
+full_loads() {
+    adb_ logcat -d -s ChatLoad 2>/dev/null | tr -d '\r' \
+        | grep -cE "rows=$ROWS( |$)"
+}
+paging_requests() { adb_ logcat -d -s ChatPaging:D ChatPreload:D 2>/dev/null | grep -cE "scroll-up load|search jump"; }
 
 info "Seed a $ROWS-message conversation"
 sql "INSERT INTO conversations(address,name,snippet,timestamp,unread_count) VALUES('$NUM','longthread','$MSG',$(date +%s000),0);" >/dev/null 2>&1
@@ -51,39 +57,55 @@ adb_ shell "sqlite3 /data/data/$PKG/databases/messages.db < /data/local/tmp/chat
 SEEDED=$(sql "SELECT count(*) FROM messages WHERE conversation_id=$CID;")
 [ "$SEEDED" = "$ROWS" ] && ok "seeded $SEEDED messages" || bad "seeded only $SEEDED messages"
 
-info "Opening the chat loads no older history"
+info "Opening the chat loads the whole thread, in one window"
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 adb_ shell logcat -c >/dev/null 2>&1
 adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" >/dev/null 2>&1
 sleep 8
-OPEN_PRELOADS=$(preloads)
-if [ "$OPEN_PRELOADS" = "0" ]; then
+LOADS=$(full_loads)
+if [ "$LOADS" -gt 0 ]; then
+    ok "opened with all $ROWS messages loaded (query returned rows=$ROWS)"
+else
+    bad "open never fetched the whole $ROWS-message thread"
+fi
+OPEN_PAGING=$(paging_requests)
+if [ "$OPEN_PAGING" = "0" ]; then
     ok "no chunk was prepended while the chat opened"
 else
-    bad "$OPEN_PRELOADS chunk(s) prepended during open - the flicker is back"
+    bad "$OPEN_PAGING paging request(s) during open - the flicker can come back"
 fi
-dump_ui >/dev/null 2>&1 || true
-grep -qF -- "$MSG" "$TMP/ui.xml" && ok "the chat opened on the newest message" \
-    || bad "the newest message is not on screen after opening"
+# Poll rather than sample once: the list paints at the top for a frame before
+# the open scroll lands, and a dump taken during that frame (or while a busy
+# emulator is still settling) would report a false failure.
+if wait_layout_has "$MSG" 12; then
+    ok "the chat opened on the newest message"
+else
+    bad "the newest message is not on screen after opening"
+fi
 
-info "Scrolling up still loads older history"
+info "Scrolling up finds the first message without a page request"
 # The flings on this AVD sometimes stop short, so the scroll is retried until the
-# window is actually at its top (a whole screen of fresh swipes per attempt).
-SCROLL_PRELOADS=0
-for attempt in 1 2 3; do
+# oldest message is actually on screen (a whole screen of fresh swipes per try).
+SCROLL_PAGING=0
+REACHED=""
+# The flings on this AVD sometimes stop short, so the scroll is retried until the
+# oldest message is actually on screen (a whole screen of fresh swipes per try).
+for attempt in $(seq 1 8); do
     for i in $(seq 1 12); do
         adb_ shell input swipe 540 900 540 1900 300 >/dev/null 2>&1
         sleep 0.2
     done
-    sleep 2.5
-    SCROLL_PRELOADS=$(preloads)
-    [ "$SCROLL_PRELOADS" -gt 0 ] && break
+    sleep 1.5
+    if wait_layout_has "$OLDEST" 4; then REACHED=1; break; fi
+    SCROLL_PAGING=$(paging_requests)
 done
-if [ "$SCROLL_PRELOADS" -gt 0 ]; then
-    ok "reaching the top loaded older history ($SCROLL_PRELOADS chunk(s))"
+if [ -n "$REACHED" ]; then
+    ok "the first message of the thread was already loaded"
 else
-    bad "scrolling to the top loaded nothing"
+    bad "scrolling to the top never showed the first message"
 fi
+[ "$SCROLL_PAGING" = "0" ] && ok "scrolling up asked for no extra page" \
+    || bad "scrolling up still paged history ($SCROLL_PAGING request(s))"
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
