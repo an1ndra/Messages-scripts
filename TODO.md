@@ -5,6 +5,35 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The notification row says it also opens a page (2026-11-07)
+
+Reporter follow-up on #421: the merged "Notification profile" row behaved
+right, but looked identical to the Bubbles switch beside it, so nothing said
+the row also drills into Android's page — and while the switch was off it
+genuinely did nothing. Android Settings marks that shape with a chevron and a
+hairline before the switch; the screenshot in the report is exactly that.
+
+- `DetailCardRow` takes `drillIn: Boolean = false`, defaulting off so
+  switch-only rows are unchanged. When set it draws
+  `Icons.AutoMirrored.Rounded.KeyboardArrowRight` and a 1dp `outlineVariant`
+  hairline before the trailing control.
+- The notification row passes `drillIn = channelOn` — the same boolean that
+  gates its `onClick`, so the chevron appears only while there is a page to
+  open. The chevron is decorative (`contentDescription = null`); the row's own
+  label is the accessible name.
+- Unit: `ContactDetailsDrillInTest` (4) pins the default-off flag, the
+  chevron/hairline inside `if (drillIn)`, the `drillIn = channelOn` wiring,
+  and that the Bubbles row does not claim a drill-in. Full suite green.
+- `scripts/test-notification-channels.sh` (25): reads the label's trailing
+  edge from the layout dump — 80dp from the right with the switch off, 123dp
+  with it on, back to 80dp after switching off. 24/1 on a build with
+  `drillIn = false` (fails on "no drill-in affordance with the channel on"),
+  25/0 after.
+- `scripts/test-contact-details.sh`: its "reached the details screen" anchor
+  still looked for `text="Notifications"`, gone since the #421 merge. It now
+  looks for `Notification profile` — 8/0. The stale anchor, not this change,
+  was the failure.
+
 ## Undoing an archive must not scroll the inbox (2026-11-07)
 
 Reported with screenshots: an unread chat three rows down was archived and the

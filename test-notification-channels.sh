@@ -16,6 +16,10 @@
 #     messages_convo_<id>, named after the chat, and the notification then
 #     posts on it
 #   - its label opens Android's page for that channel once the switch is on
+#   - the row is drawn as a switch *and* a drill-in, the way Android Settings
+#     marks that: turning the switch on moves the title's trailing edge left by
+#     ~43dp to make room for a chevron and a hairline (#421 follow-up), and
+#     turning it back off gives the space back
 #   - the channel keeps its id and sound across a relaunch (no re-minting)
 #   - turning it off deletes the channel, and messages fall back to the
 #     category channel instead of being dropped
@@ -127,6 +131,51 @@ settings_page_open() {
         | grep -E "ResumedActivity" | grep -q "com.android.settings"
 }
 
+# Where the trailing controls of a detail row begin: the x2 of the label's node.
+# The label is the weighted child that fills the row, so this edge is exactly
+# the start of whatever trails it -- the switch alone, or the chevron, hairline
+# and switch together.
+label_right_px() {
+    layout_json || return 1
+    python3 - "$TMP/layout.json" "$1" <<'PY'
+import json, re, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+want = sys.argv[2]
+found = [None]
+def walk(node):
+    if found[0] is not None:
+        return
+    if isinstance(node, list):
+        for child in node:
+            walk(child)
+    elif isinstance(node, dict):
+        if not node.get("off-screen") and node.get("text") == want:
+            m = re.match(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]", node.get("bounds") or "")
+            if m:
+                found[0] = int(m.group(3))
+                return
+        for key in ("content", "children"):
+            for child in (node.get(key) or []):
+                walk(child)
+walk(data)
+if found[0] is None:
+    sys.exit(1)
+print(found[0])
+PY
+}
+
+# dp from px at this device's density, so the thresholds below are not tied to
+# one screen.
+px_to_dp() {
+    local px="$1" density
+    density=$(adb_ shell wm density | tr -d '\r' | sed -E 's/.*: ([0-9]+)/\1/')
+    [ -n "$density" ] || density=440
+    echo $((px * 160 / density))
+}
+
 cleanup() {
     for addr in "$FROM" "$SEEDED"; do
         sql "DELETE FROM conversations WHERE address='$addr';" >/dev/null 2>&1
@@ -208,6 +257,21 @@ layout_has "Notifications" \
     && fail "the old Notifications switch is back" \
     || pass "the old Notifications row is gone"
 
+# While the chat has no channel the row is a plain switch: the label runs right
+# up to it. Once there is a page to open, the chevron and hairline take ~43dp
+# from the label, which is the dump-visible half of that affordance.
+SCREEN_W=$(adb_ shell wm size | sed -E 's/.*: ([0-9]+)x.*/\1/' | tr -d '\r')
+[ -n "$SCREEN_W" ] || SCREEN_W=1080
+ROW_OFF=$(label_right_px "Notification profile" || true)
+if [ -n "$ROW_OFF" ]; then
+    gap_off_dp=$(px_to_dp $((SCREEN_W - ROW_OFF)))
+    echo "  label edge from the right: ${gap_off_dp}dp (switch only)"
+    pass "the row's trailing edge is measurable while the switch is off"
+else
+    gap_off_dp=""
+    fail "could not measure the row's trailing edge while off"
+fi
+
 info "Switching it on creates the chat's channel"
 tap_switch_layout "Notification profile" >/dev/null 2>&1
 CH=""
@@ -220,6 +284,19 @@ done
 [ "$CH" = "messages_convo_${CID}" ] \
     && pass "the channel id is the stable one (no tone suffix)" \
     || fail "unexpected channel id '$CH'"
+
+# Same row, now with a page to open: the chevron and the hairline before the
+# switch push the label's trailing edge left (#421 follow-up).
+ROW_ON=$(label_right_px "Notification profile" || true)
+if [ -n "$ROW_ON" ] && [ -n "$gap_off_dp" ]; then
+    gap_on_dp=$(px_to_dp $((SCREEN_W - ROW_ON)))
+    echo "  label edge from the right: ${gap_off_dp}dp off -> ${gap_on_dp}dp on"
+    [ $((gap_on_dp - gap_off_dp)) -ge 35 ] \
+        && pass "the row grew its drill-in chevron once the channel exists (+$((gap_on_dp - gap_off_dp))dp)" \
+        || fail "the row shows no drill-in affordance with the channel on (+$((gap_on_dp - gap_off_dp))dp)"
+else
+    fail "could not measure the row's trailing edge with the channel on"
+fi
 
 name=$(channel_name "$CH")
 echo "  channel name: ${name:-<empty>}"
@@ -270,6 +347,17 @@ sleep 3
 has_channel "$CH" \
     && fail "the channel survived the switch being turned off" \
     || pass "the chat's channel was deleted"
+
+# With no channel left there is no page to open, so the chevron and the
+# hairline must go and the label must reclaim the width.
+ROW_BACK=$(label_right_px "Notification profile" || true)
+if [ -n "$ROW_BACK" ] && [ -n "$ROW_OFF" ]; then
+    [ $((ROW_BACK - ROW_OFF)) -le 4 ] && [ $((ROW_BACK - ROW_OFF)) -ge -4 ] \
+        && pass "turning it off removed the drill-in affordance" \
+        || fail "the chevron stayed after the channel was deleted ($ROW_OFF -> $ROW_BACK px)"
+else
+    fail "could not re-measure the row's trailing edge after switching off"
+fi
 send_wait "$FROM" "${MARK}c" || fail "the third message never arrived"
 block=$(record_block "$CID" || true)
 printf '%s' "$block" | grep -qE "channel=messages_(direct|group|unknown)_" \

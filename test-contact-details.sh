@@ -69,7 +69,7 @@ c=$(center_of "Details") || c=""
 [ -n "$c" ] && adb_ shell input tap $c; sleep 2
 dump_ui >/dev/null 2>&1
 
-if grep -q 'text="Notifications"' "$TMP/ui.xml"; then
+if grep -q 'text="Notification profile"' "$TMP/ui.xml"; then
     pass 'reached the conversation-details screen'
 else
     fail 'could not open the conversation-details screen'
