@@ -76,6 +76,28 @@ printf '%s' "$widgets" | grep -qF "com.anindra.messages.widget.UnreadWidgetRecei
     && ok "both providers ask the launcher for a 30-minute refresh" \
     || bad "updatePeriodMillis=1800000 not declared by both providers"
 
+# Without android:previewLayout the launcher's picker falls back to the app
+# icon; with it, Launcher3 inflates the layout as the widget's picture.
+info "Widget picker previews"
+APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+AAPT2="${AAPT2:-$HOME/android/build-tools/36.0.0/aapt2}"
+if [ -x "$AAPT2" ]; then
+    for name in messages_list unread; do
+        info_xml="res/xml/widget_${name}_info.xml"
+        tree=$("$AAPT2" dump xmltree "$APK" --file "$info_xml" 2>/dev/null)
+        case "$tree" in
+            *previewLayout*) ok "$name provider declares a preview layout" ;;
+            *) bad "$name provider has no android:previewLayout" ;;
+        esac
+        layout="widget_${name}_preview"
+        "$AAPT2" dump resources "$APK" 2>/dev/null | grep -qF "layout/$layout" \
+            && ok "$name preview layout is packaged" \
+            || bad "layout/$layout is missing from the apk"
+    done
+else
+    bad "aapt2 not found at $AAPT2"
+fi
+
 info "Seed one read, one unread and one archived conversation"
 TS=$(date +%s000)
 sql "INSERT INTO conversations(address,name,snippet,timestamp,unread_count) VALUES('$READ_NUM','Read One','read marker',$TS,0);" >/dev/null 2>&1
@@ -109,6 +131,14 @@ case "$unread_part" in
     *"$UNREAD_ID|$UNREAD_NUM|Unread Two|2"*)
         ok "unread widget carries the row's conversation id and unread count" ;;
     *) bad "unread widget does not carry '$UNREAD_ID|$UNREAD_NUM|Unread Two|2' (saw '$unread_part')" ;;
+esac
+# The inbox draws PersonAvatar(groupTitle.ifBlank { address }); the widget has
+# to key its avatar on the same value, or the row shows a number instead of the
+# person the inbox shows.
+case "$unread_part" in
+    *"$UNREAD_ID|$UNREAD_NUM|Unread Two|2|$UNREAD_NUM"*)
+        ok "the unread row keys its avatar the way the inbox does" ;;
+    *) bad "unread row avatar key is not the address (saw '$unread_part')" ;;
 esac
 expected_total=""
 for i in 1 2 3; do
