@@ -5,6 +5,27 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #405 every blocked number is reachable (2026-11-08)
+
+Reporter follow-up: Inbox settings said "164 blocked" while the dialog showed
+about 14 rows and offered no way to see the rest. Both numbers come from the
+same list, so the count was right and the rest were clipped.
+
+- `BlockedNumbersDialog` (new file) renders every entry of the list the row
+  counts inside `heightIn(max = 400.dp).verticalScroll(...)`. A plain `Column`
+  in a dialog's text slot is clipped by its finite height: rows past the first
+  screenful are measured with zero height and cannot be scrolled to.
+- Extracted out of `InboxSettingsScreen`, whose whole body
+  `SettingsScrollStateTest` scans and would otherwise see a second
+  `rememberScrollState()` on a route screen. `internal` so the debug preview
+  can render it.
+- JUnit: `BlockedNumbersListTest` pins that the subtitle and the dialog use one
+  list, the dialog applies no `take/drop/subList`, and the rows sit in a
+  bounded scroll container. Full suite 1308 green.
+- `scripts/test-blocked-numbers-list.sh` (8 checks): 8/0 on the fix; 7/1 on
+  the pre-fix build, failing on "the last blocked number cannot be reached by
+  scrolling".
+
 ## The notification row says it also opens a page (2026-11-07)
 
 Reporter follow-up on #421: the merged "Notification profile" row behaved
