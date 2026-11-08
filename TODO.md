@@ -5,6 +5,30 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #405 the forward list paints the provider's separators (2026-11-08)
+
+Reporter follow-up: the forward list showed "091-210-4456", "300-033-03" and
+"671-5014" while the same phone-book entries were saved without separators.
+The extra dashes were the Contacts provider's stored spelling: the picker
+painted `Contact.number` verbatim, so it disagreed with the phone book it had
+just read.
+
+- Both number slots in `ForwardPicker` go through `formatPhoneNumber()`, the
+  locale-aware NATIONAL formatting every other number row uses; the row still
+  hands back the stored number on tap. `formatPhoneNumber()` now takes the
+  region and leaves dial strings (`* # , ;`) untouched — libphonenumber reads
+  "*21*2258#" as the digits 212258 and would paint "021 2258".
+- JUnit: `ForwardNumberDisplayTest` pins the IR spellings from the report, the
+  landline spacing, the dial-string guard, and that the picker paints the
+  formatted number while sending the stored one. `ForwardPickerDirectionTest`
+  now anchors on `formatPhoneNumber(target.number)` for both slots. Full suite
+  1314 green.
+- `scripts/test-forward-picker-numbers.sh` (6 checks): seeds a contact stored
+  as "555.010.1234", opens the picker, and asserts the row paints
+  "(555) 010-1234" with the dotted spelling gone. 6/0 on the fix; 5/1 on the
+  pre-fix build. `test-forward-picker-rtl.sh` still 6/0, so the isolate
+  wrapping and the dial-string passthrough hold together.
+
 ## #405 every blocked number is reachable (2026-11-08)
 
 Reporter follow-up: Inbox settings said "164 blocked" while the dialog showed
