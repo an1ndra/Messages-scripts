@@ -173,6 +173,11 @@ if wait_layout_has "$MARK" 8; then
 else
     bad "bubble intent did not open the conversation"
 fi
+if layout_has "Start chat"; then
+    bad "the bubble shows the conversation list instead of the chat"
+else
+    ok "the bubble shows the conversation, not the list"
+fi
 if adb_ shell cmd notification list 2>/dev/null | tr -d '\r' | grep -q "|$PKG|"; then
     ok "notification survives while the bubble is open"
 else
@@ -187,13 +192,22 @@ if adb_ shell cmd notification list 2>/dev/null | tr -d '\r' | grep -q "|$PKG|";
 else
     bad "Back dismissed the notification and closed the bubble"
 fi
-# Back collapses the bubble to its floating icon — that is the platform's
-# gesture, and the app cannot keep it expanded. What the app controls is whether
-# the bubble still *exists*, which is the surface plus its notification.
 if adb_ shell dumpsys window windows 2>/dev/null | tr -d '\r' | grep -q "Bubbles!"; then
-    ok "the bubble still exists after Back (collapsed to its icon)"
+    ok "the bubble still exists after Back"
 else
     bad "Back removed the bubble surface entirely"
+fi
+# A bubble hosts one conversation, so Back must stay on that chat. The list's
+# "Start chat" action is the landmark; the chat screen has no such action.
+if layout_has "Start chat"; then
+    bad "Back navigated to the conversation list inside the bubble"
+else
+    ok "Back stays on the conversation inside the bubble"
+fi
+if wait_layout_has "$MARK" 4; then
+    ok "the conversation is still on screen after Back"
+else
+    bad "the conversation left the bubble after Back"
 fi
 
 info "With 'Close bubble with Back' on, Back closes it"

@@ -5,6 +5,26 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #354 Back inside a bubble stays on the chat (2026-11-08)
+
+Reporter follow-up: with "Close bubble with Back" off (the default), Back at the
+chat root in a bubble ran `navRoute = "list"` — the bubble stayed up but showed
+the app's whole conversation list inside it. Android's bubbles guide says a
+bubble represents one conversation, so the list does not belong there.
+
+- `BubbleBack` gains `STAY`; `bubbleBackAction()` returns it for a bubble with
+  the setting off. `MainActivity`'s Back path is now a three-way `when`:
+  `FINISH` closes the bubble, `SHOW_LIST` leaves for the list only outside a
+  bubble, `STAY` leaves the chat in place. The setting-on path is unchanged.
+- Unit: `BubbleBackTest` pins the STAY mapping and the source branches; full
+  `testDebugUnitTest` green.
+- `scripts/test-notification-bubbles.sh` (20): 20/0 on the fix; 19/1 on the
+  pre-fix build, failing first on "Back navigated to the conversation list
+  inside the bubble". The list's "Start chat" action is the landmark; the
+  message text alone is not, because the list row shows it as a snippet.
+- `scripts/test-bubble-foreground.sh` (11): 11/0 — the real-bubble path still
+  opens in its own task and keeps the notification after Back.
+
 ## The notification row says it also opens a page (2026-11-07)
 
 Reporter follow-up on #421: the merged "Notification profile" row behaved
@@ -52,7 +72,6 @@ like a freshly received message and the effect scrolled to that row.
   from the top, archives it from the long-press sheet, taps Undo, and asserts
   the two newer chats are still on screen. 3/1 on the pre-fix build (fails on
   the scroll assertion), 4/0 after.
-
 ## #421 one row for a chat's notification settings (2026-11-05)
 
 Reporter follow-up on #339: the "Notifications" switch read as a master switch
