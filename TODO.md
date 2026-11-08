@@ -5,6 +5,38 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #405 A chat revived from the Trash goes back to the Inbox (2026-11-08)
+
+Reporter: the conversation with "Kami 0910" was moved to the Trash, the Trash
+was emptied, and afterwards new messages from that number only showed in the
+notification shade, never in the Inbox; a sent reply was invisible in the main
+list too; the number was not on the Blacklist.
+
+Root cause: `archived` is a folder flag that outlived every revive path. A chat
+that was archived, then emptied and trashed (leaving it trashes an emptied chat)
+kept `archived=1` when `restoreFromTrashSuspend` or the inbound
+`getOrCreateConversationBlocking` restore branch cleared only `deleted_at`. The
+Inbox and its search drop archived rows, so messages, notifications and sends
+kept working while the conversation stayed invisible. Reproduced on the AVD:
+conversation with `deleted_at=0, archived=1`, notification posted, zero hits on
+the home list.
+
+- All three revive paths now clear `archived` with `deleted_at`:
+  `restoreFromTrashSuspend`, the inbound/new-chat restore branch, and the
+  backup-import un-trash (an imported trashed chat lands in the Inbox).
+  Sending in an archived (not trashed) chat still leaves it archived.
+- Unit: `TrashRestoreClearsArchiveTest` anchors the three SQL/ContentValues
+  sites; full `testDebugUnitTest` green.
+- `scripts/test-trash-restore-archive.sh` (9): 9/0 on the fix; 5/4 on the
+  pre-fix build, failing on "Restore left deleted_at=0 archived=1" and
+  "inbound left deleted_at=0 archived=1" (plus the two missing-from-Inbox
+  assertions). Restore target is picked by the row that carries the number, not
+  the first Restore icon, because the Trash lists older rows too.
+- `scripts/test-trash.sh`: ALL PASSED. `test-empty-chat-removal.sh` (1/10) and
+  `test-archive-undo.sh` fail identically on a stashed pre-fix build (stale
+  `Delete` label vs the current "Move to trash" selection bar, and the FAB
+  matched as a row) — pre-existing, not from this change.
+
 ## #354 Back inside a bubble stays on the chat (2026-11-08)
 
 Reporter follow-up: with "Close bubble with Back" off (the default), Back at the
