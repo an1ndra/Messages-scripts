@@ -5,6 +5,51 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #405 the forward list paints the provider's separators (2026-11-08)
+
+Reporter follow-up: the forward list showed "091-210-4456", "300-033-03" and
+"671-5014" while the same phone-book entries were saved without separators.
+The extra dashes were the Contacts provider's stored spelling: the picker
+painted `Contact.number` verbatim, so it disagreed with the phone book it had
+just read.
+
+- Both number slots in `ForwardPicker` go through `formatPhoneNumber()`, the
+  locale-aware NATIONAL formatting every other number row uses; the row still
+  hands back the stored number on tap. `formatPhoneNumber()` now takes the
+  region and leaves dial strings (`* # , ;`) untouched — libphonenumber reads
+  "*21*2258#" as the digits 212258 and would paint "021 2258".
+- JUnit: `ForwardNumberDisplayTest` pins the IR spellings from the report, the
+  landline spacing, the dial-string guard, and that the picker paints the
+  formatted number while sending the stored one. `ForwardPickerDirectionTest`
+  now anchors on `formatPhoneNumber(target.number)` for both slots. Full suite
+  1314 green.
+- `scripts/test-forward-picker-numbers.sh` (6 checks): seeds a contact stored
+  as "555.010.1234", opens the picker, and asserts the row paints
+  "(555) 010-1234" with the dotted spelling gone. 6/0 on the fix; 5/1 on the
+  pre-fix build. `test-forward-picker-rtl.sh` still 6/0, so the isolate
+  wrapping and the dial-string passthrough hold together.
+
+## #405 every blocked number is reachable (2026-11-08)
+
+Reporter follow-up: Inbox settings said "164 blocked" while the dialog showed
+about 14 rows and offered no way to see the rest. Both numbers come from the
+same list, so the count was right and the rest were clipped.
+
+- `BlockedNumbersDialog` (new file) renders every entry of the list the row
+  counts inside `heightIn(max = 400.dp).verticalScroll(...)`. A plain `Column`
+  in a dialog's text slot is clipped by its finite height: rows past the first
+  screenful are measured with zero height and cannot be scrolled to.
+- Extracted out of `InboxSettingsScreen`, whose whole body
+  `SettingsScrollStateTest` scans and would otherwise see a second
+  `rememberScrollState()` on a route screen. `internal` so the debug preview
+  can render it.
+- JUnit: `BlockedNumbersListTest` pins that the subtitle and the dialog use one
+  list, the dialog applies no `take/drop/subList`, and the rows sit in a
+  bounded scroll container. Full suite 1308 green.
+- `scripts/test-blocked-numbers-list.sh` (8 checks): 8/0 on the fix; 7/1 on
+  the pre-fix build, failing on "the last blocked number cannot be reached by
+  scrolling".
+
 ## The notification row says it also opens a page (2026-11-07)
 
 Reporter follow-up on #421: the merged "Notification profile" row behaved
