@@ -144,6 +144,19 @@ home_has() {
     return 1
 }
 
+# Type $1 into the Inbox search and report whether the results contain $2.
+# A restored chat has no messages, so its timestamp is 0 and it sorts to the
+# very bottom of the list; search reaches it from the same archived filter.
+inbox_search_has() {
+    adb_ shell am start -n "$ACT" >/dev/null
+    sleep 4
+    tap_layout "Search" >/dev/null || return 1
+    sleep 1.5
+    adb_ shell input text "$1" >/dev/null 2>&1
+    sleep 2
+    layout_has "$2"
+}
+
 # Settings -> Trash. Returns non-zero when the Trash screen did not open.
 open_trash() {
     adb_ shell am force-stop "$PKG"; sleep 1
@@ -229,13 +242,14 @@ else
 fi
 
 adb_ shell am force-stop "$PKG"; sleep 1
-adb_ shell am start -n "$ACT" >/dev/null
-sleep 5
-if home_has "$ROWA"; then
-    pass "restored chat is visible on the Inbox list"
+if inbox_search_has "${NUM:7}" "$ROWA"; then
+    pass "restored chat is findable in the Inbox"
 else
-    fail "restored chat is missing from the Inbox list (it sits in Archived)"
+    fail "restored chat is missing from the Inbox (it sits in Archived)"
 fi
+# Leave search so the next step starts from the conversation list.
+adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
+adb_ shell input keyevent 4 >/dev/null 2>&1; sleep 1
 
 info "4. Seed, archive and trash a second chat for the inbound path"
 adb_ shell am force-stop "$PKG"; sleep 1

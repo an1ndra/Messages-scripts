@@ -31,7 +31,9 @@ the home list.
   pre-fix build, failing on "Restore left deleted_at=0 archived=1" and
   "inbound left deleted_at=0 archived=1" (plus the two missing-from-Inbox
   assertions). Restore target is picked by the row that carries the number, not
-  the first Restore icon, because the Trash lists older rows too.
+  the first Restore icon, because the Trash lists older rows too. The restored
+  chat's Inbox check is a search, not a scroll: emptied chats have timestamp 0
+  and sort to the very bottom of a long list.
 - `scripts/test-trash.sh`: ALL PASSED. `test-empty-chat-removal.sh` (1/10) and
   `test-archive-undo.sh` fail identically on a stashed pre-fix build (stale
   `Delete` label vs the current "Move to trash" selection bar, and the FAB
