@@ -97,46 +97,6 @@ open_chat() {
 
 mic_center() { center_of "Record voice message"; }
 
-# A deliberate lock, the way a hand does it: hold, drag up slowly until the
-# finger is on the padlock, and rest there. The padlock is a target, not a
-# distance, and the app logs where it is (`VoiceLock: icon=[x1,y1][x2,y2]`), so
-# the drag aims at the drawn icon instead of guessing its geometry — and the
-# note only locks after LOCK_DWELL_MS on it. `input swipe` cannot express this:
-# it lifts the finger at the end of the travel.
-LOCK_ICON=""
-lock_mic() {
-    local c x y ix iy step rect
-    c=$(mic_center) || return 1
-    x=${c% *}; y=${c#* }
-    ix=""; iy=""
-    LOCK_ICON=""
-    adb_ shell input motionevent DOWN "$x" "$y" >/dev/null 2>&1
-    sleep 0.6
-    for _ in 1 2 3 4 5; do
-        adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
-        rect=$(grep -o 'VoiceLock: icon=\[[0-9]*,[0-9]*\]\[[0-9]*,[0-9]*\]' "$TMP/logcat.txt" | tail -1)
-        [ -n "$rect" ] && break
-        sleep 0.3
-    done
-    if [ -n "$rect" ] && [[ "$rect" =~ \[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\] ]]; then
-        ix=$(( (${BASH_REMATCH[1]} + ${BASH_REMATCH[3]}) / 2 ))
-        iy=$(( (${BASH_REMATCH[2]} + ${BASH_REMATCH[4]}) / 2 ))
-        LOCK_ICON="$rect"
-    else
-        # Never silently guess: the caller reports the missing report.
-        iy=$(( y - 120 ))
-    fi
-    for step in 40 80 120 160 200; do
-        [ -n "$iy" ] && [ $((y - step)) -le "$iy" ] && break
-        adb_ shell input motionevent MOVE "$x" "$((y - step))" >/dev/null 2>&1
-        sleep 0.12
-    done
-    [ -n "$ix" ] || ix=$x
-    adb_ shell input motionevent MOVE "$ix" "$iy" >/dev/null 2>&1
-    sleep 0.8
-    adb_ shell input motionevent UP "$ix" "$iy" >/dev/null 2>&1
-}
-
 # "true" while the IME is on screen. The recording bar is drawn over the text
 # field rather than replacing it, because removing the field from the
 # composition drops its focus and closes the keyboard under the user's finger.
@@ -147,49 +107,16 @@ ime_shown() {
 
 sent_notes() { grep -c 'D VoiceNote: sent' "$TMP/logcat.txt" 2>/dev/null || true; }
 
-info "The first run explains the gesture, once"
+info "Setup: a fresh install with the SMS role"
 adb_ shell pm clear "$PKG" >/dev/null 2>&1
 for p in SEND_SMS RECEIVE_SMS READ_SMS READ_CONTACTS READ_PHONE_STATE POST_NOTIFICATIONS RECORD_AUDIO; do
     adb_ shell pm grant "$PKG" android.permission.$p 2>/dev/null
 done
 adb_ shell cmd role add-role-holder android.app.role.SMS "$PKG" 2>/dev/null
-open_chat
-if grep -qF 'text="Send a voice message"' "$TMP/ui.xml"; then
-    ok "a fresh install is told what the record button does"
-else
-    bad "no first-run guide on a fresh install"
-fi
-if grep -qF 'Swipe up to lock' "$TMP/ui.decoded.xml"; then
-    ok "the guide names the lock gesture"
-else
-    bad "the guide does not mention the lock"
-fi
-tap_text "Got it" >/dev/null 2>&1
-# The card goes away on the next frame; poll so a slow dump cannot read the
-# screen that was there when the button was tapped.
-DISMISSED=0
-for _ in 1 2 3 4 5 6; do
-    sleep 0.4
-    dump_ui >/dev/null 2>&1 || continue
-    if ! grep -qF 'text="Send a voice message"' "$TMP/ui.xml"; then DISMISSED=1; break; fi
-done
-if [ "$DISMISSED" = "1" ]; then
-    ok "the guide closes when dismissed"
-else
-    bad "the guide stayed after being dismissed"
-fi
-adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
-adb_ shell am start -n "$ACT" --es open_conversation_address "$NUM" >/dev/null 2>&1
-sleep 4
-dump_ui >/dev/null 2>&1
-if grep -qF 'text="Send a voice message"' "$TMP/ui.xml"; then
-    bad "the guide came back on the next open"
-else
-    ok "the guide does not come back"
-fi
+open_chat && ok "the conversation opened" || bad "could not open the conversation"
 
 info "An empty composer shows the mic; typing brings Send back"
-open_chat && ok "the conversation opened" || bad "could not open the conversation"
+open_chat || bad "could not open the conversation"
 if dump_ui >/dev/null 2>&1 && grep -qF 'content-desc="Record voice message"' "$TMP/ui.xml"; then
     ok "an empty composer offers the voice button"
 else
@@ -208,16 +135,22 @@ fi
 for _ in 1 2 3 4 5; do adb_ shell input keyevent KEYCODE_DEL >/dev/null 2>&1; done
 sleep 1
 
-info "The record disc matches Google Messages' palette"
+info "The record disc matches WhatsApp's composer"
 adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
-VB=$(grep -o "VoiceButton: fill=#[0-9A-F]* ink=#[0-9A-F]* pill=#[0-9A-F]* recording=false" "$TMP/logcat.txt" | tail -1)
+VB=$(grep -o "VoiceButton: fill=#[0-9A-F]* ink=#[0-9A-F]* pill=#[0-9A-F]* accent=#[0-9A-F]* mode=Record glyph=Wave recording=false" "$TMP/logcat.txt" | tail -1)
 FILL=$(sed -n 's/.*fill=#\([0-9A-F]*\).*/\1/p' <<< "$VB")
 INK=$(sed -n 's/.*ink=#\([0-9A-F]*\).*/\1/p' <<< "$VB")
 PILL=$(sed -n 's/.*pill=#\([0-9A-F]*\).*/\1/p' <<< "$VB")
-if [ -n "$FILL" ] && [ "$FILL" = "$PILL" ]; then
-    ok "idle, the record disc is the composer's own fill"
+ACCENT=$(sed -n 's/.*accent=#\([0-9A-F]*\).*/\1/p' <<< "$VB")
+if [ -n "$FILL" ] && [ -n "$ACCENT" ] && [ "$FILL" = "$ACCENT" ]; then
+    ok "idle, the record disc uses the send circle's accent"
 else
-    bad "the idle record disc does not match the composer fill (fill=$FILL pill=$PILL)"
+    bad "the idle record disc is not the accent (fill=$FILL accent=$ACCENT)"
+fi
+if [ -n "$FILL" ] && [ "$FILL" != "$PILL" ]; then
+    ok "it no longer borrows the input pill's fill"
+else
+    bad "the record disc still matches the pill (fill=$FILL pill=$PILL)"
 fi
 if [ -n "$INK" ] && [ "$INK" != "$FILL" ]; then
     ok "its glyph uses a different ink than the disc"
@@ -290,17 +223,21 @@ else
     bad "no recording bar appeared while the keyboard was open"
 fi
 # Google Messages draws the bin mid-hold as the target the slide is aimed at,
-# but it is not a button until the recording is locked; a clickable-looking bin
-# under a held finger is the thing that read as broken.
+# not a button; a clickable-looking bin under a held finger is the thing that
+# read as broken.
 bin_clickable() {
     grep -oE 'content-desc="Cancel recording"[^>]*clickable="[^"]+"' "$TMP/ui.xml" |
         grep -oE 'clickable="[^"]+"' | head -1 | cut -d'"' -f2
 }
-if grep -qF 'content-desc="Swipe up to lock recording"' "$TMP/ui.xml" &&
-   grep -qF 'text="Slide to cancel"' "$TMP/ui.xml"; then
-    ok "the bar teaches both exits: slide to cancel and the lock stalk"
+if grep -qF 'text="Slide to cancel"' "$TMP/ui.xml"; then
+    ok "the bar offers the slide while the note is held"
 else
-    bad "no lock stalk above the button while recording"
+    bad "the recording bar does not offer the slide"
+fi
+if grep -qF 'content-desc="Swipe up to lock recording"' "$TMP/ui.xml"; then
+    bad "the removed lock stalk is still drawn above the button"
+else
+    ok "there is no lock stalk above the button"
 fi
 if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml"; then
     if [ "$(bin_clickable)" = "false" ]; then
@@ -362,6 +299,12 @@ if grep -q "VoiceNote: sent .* mime=audio/mp4" "$TMP/logcat.txt"; then
 else
     bad "the note is not sent as audio/mp4"
 fi
+LAST_BUBBLE=$(grep -o 'VoiceBubble: .*' "$TMP/logcat.txt" | tail -1)
+if [ "$LAST_BUBBLE" = "VoiceBubble: peak=0.00 armed=false" ]; then
+    ok "a note sent without a slide leaves the cancel bubble at rest"
+else
+    bad "the bubble moved without a slide ($LAST_BUBBLE)"
+fi
 
 info "Sliding left cancels instead of sending"
 # Take both readings fresh: a dump left over from the previous section can miss
@@ -388,111 +331,18 @@ if dump_ui >/dev/null 2>&1 && grep -qF 'content-desc="Record voice message"' "$T
 else
     bad "the composer did not return to the mic after cancelling"
 fi
-
-info "Swiping up locks the recording hands-free"
-COUNT_BEFORE=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
-# A hand that drifts up and comes back must not go hands-free on its own.
-C=$(mic_center) || { bad "voice button vanished before the lock test"; exit 1; }
-X=${C% *}; Y=${C#* }
-adb_ shell logcat -c >/dev/null 2>&1
-adb_ shell input motionevent DOWN "$X" "$Y" >/dev/null 2>&1
-sleep 0.6
-adb_ shell input motionevent MOVE "$X" "$((Y - 100))" >/dev/null 2>&1
-sleep 1.5
-dump_ui >/dev/null 2>&1
-if grep -qF 'text="Recording hands-free"' "$TMP/ui.xml"; then
-    bad "an upward drift short of the padlock still locked the recording"
+# The bubble's stretch is drawn, not laid out, so the pull that reached it is
+# what can be asserted from a text dump.
+PEAK=$(grep -o 'VoiceBubble: peak=[0-9.]*' "$TMP/logcat.txt" | tail -1 | cut -d= -f2)
+if [ -n "$PEAK" ] && awk "BEGIN{exit !($PEAK >= 0.99)}"; then
+    ok "the cancel bubble was pulled all the way (peak=$PEAK)"
 else
-    ok "drifting up without reaching the padlock does not lock"
+    bad "the cancel bubble never reached the arm (peak=${PEAK:-none})"
 fi
-# The disc's glyph has no text equivalent, so the app logs the armed state.
-adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
-if ! grep -q 'VoiceLock: arm=' "$TMP/logcat.txt"; then
-    bad "the disc's armed state is not reported, so this check says nothing"
-elif grep -q 'VoiceLock: arm=LOCK' "$TMP/logcat.txt"; then
-    bad "a 100px lift armed the padlock, so the disc already looked locked"
+if grep -q 'VoiceBubble: .*armed=true' "$TMP/logcat.txt"; then
+    ok "the bubble armed the cancel before the release"
 else
-    ok "a lift short of the padlock does not even arm it"
-fi
-adb_ shell input motionevent UP "$X" "$((Y - 100))" >/dev/null 2>&1
-sleep 1.5
-lock_mic || { bad "voice button vanished before the lock test"; exit 1; }
-if [ -n "$LOCK_ICON" ]; then
-    ok "the app reports the padlock's own target ($LOCK_ICON)"
-else
-    bad "the padlock's target is not reported, so this drag is a guess"
-fi
-sleep 1.5
-dump_ui >/dev/null 2>&1
-if grep -qF 'content-desc="Cancel recording"' "$TMP/ui.xml" &&
-   grep -qE 'text="[0-9]{2}:[0-9]{2}"' "$TMP/ui.decoded.xml"; then
-    ok "the swipe locked the recording while the finger was released"
-else
-    bad "the recording did not survive the finger being lifted"
-fi
-if [ "$(bin_clickable)" = "true" ]; then
-    ok "the bin becomes a button once the recording is locked"
-else
-    bad "the bin stayed inert after locking"
-fi
-# #364: a locked note has no finger on the screen, so a bar still offering
-# "Slide to cancel" is describing a gesture nobody can make — and the note
-# running hands-free has to say so.
-if grep -qF 'text="Recording hands-free"' "$TMP/ui.xml"; then
-    ok "the locked bar says the note is still recording hands-free"
-else
-    bad "the locked bar does not say it is recording hands-free"
-fi
-if grep -qF 'text="Slide to cancel"' "$TMP/ui.xml"; then
-    bad "the locked bar still offers a slide nobody can make"
-else
-    ok "the locked bar drops the slide hint"
-fi
-if grep -qF 'content-desc="Send"' "$TMP/ui.xml"; then
-    ok "a locked recording offers Send on the circle"
-else
-    bad "no way to send a locked recording"
-fi
-adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
-LOCKED_BYTES=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
-
-info "The bin drops a locked recording"
-tap_text "Cancel recording" >/dev/null 2>&1
-sleep 1.5
-dump_ui >/dev/null 2>&1
-COUNT_AFTER=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
-adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
-AFTER_BYTES=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
-if [ "$COUNT_AFTER" = "$COUNT_BEFORE" ] && [ "$AFTER_BYTES" = "$LOCKED_BYTES" ]; then
-    ok "the bin discarded the locked recording instead of sending it"
-else
-    bad "a discarded locked recording was sent anyway"
-fi
-
-info "A locked recording sends from the circle"
-lock_mic || { bad "voice button vanished after the discard"; exit 1; }
-sleep 1.5
-dump_ui >/dev/null 2>&1
-if grep -qF 'content-desc="Send"' "$TMP/ui.xml"; then
-    adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
-    BYTES_BEFORE=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
-    tap_text "Send" >/dev/null 2>&1
-    # The bubble and the log line are both evidence; poll rather than sampling
-    # once, because the row only appears after the recorder has closed the file.
-    POSTED=0
-    for _ in 1 2 3 4 5 6; do
-        sleep 0.5
-        dump_ui >/dev/null 2>&1 || continue
-        COUNT_SENT=$(grep -c 'content-desc="Play voice message"' "$TMP/ui.xml" 2>/dev/null)
-        if [ "$COUNT_SENT" -gt "$COUNT_BEFORE" ]; then POSTED=1; break; fi
-        adb_ shell logcat -d > "$TMP/logcat.txt" 2>/dev/null || true
-        BYTES_NOW=$(sed -n 's/.*VoiceNote: sent bytes=\([0-9]*\).*/\1/p' "$TMP/logcat.txt" | tail -1)
-        if [ -n "$BYTES_NOW" ] && [ "$BYTES_NOW" != "$BYTES_BEFORE" ]; then POSTED=1; break; fi
-    done
-    [ "$POSTED" = "1" ] && ok "tapping Send posted the locked recording" \
-        || bad "the locked recording was not posted"
-else
-    bad "the locked recording never offered Send"
+    bad "the bubble never armed, so the slide could not have cancelled"
 fi
 
 info "The recorded note plays back"
@@ -662,22 +512,14 @@ if [ "$FOUND" = "1" ]; then
     else
         bad "the report does not report the recorded size"
     fi
-    # The store, the player and the waveform each report themselves, because a
-    # silent bubble looks the same whether it was never decoded or never sent.
-    if grep -qE "Voice messages: [0-9]+ sent, [0-9]+ received" "$TMP/ui.decoded.xml"; then
-        ok "the report counts the voice notes in the store"
+    # The format, the cap and the newest note (its size and source) are what this
+    # branch's report emits. The store/player/waveform counters belonged to the
+    # unmerged feat/364-voice-messages report; asserting them here only ever
+    # tested the script's own expectations.
+    if grep -qE 'Last voice note: [1-9][0-9]* B \(content:' "$TMP/ui.decoded.xml"; then
+        ok "the report names the stored note by its content URI"
     else
-        bad "the report does not count the voice notes"
-    fi
-    if grep -qE "Voice playback: (idle|playing|paused)" "$TMP/ui.decoded.xml"; then
-        ok "the report names what the player is doing"
-    else
-        bad "the report does not name the player's state"
-    fi
-    if grep -qE "Voice waveform: (none|decoded|placeholder)" "$TMP/ui.decoded.xml"; then
-        ok "the report says whether the waveform decoded"
-    else
-        bad "the report does not say whether the waveform decoded"
+        bad "the report does not say where the last note is stored"
     fi
 else
     bad "could not reach Diagnostics"
