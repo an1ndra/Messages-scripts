@@ -449,6 +449,53 @@ scheduled Security Scan since 2026-10-19.
 - `scripts/test-security-workflow.sh` (5): 2 fail pre-fix (the mixed pins and
   the JUnit case), 5/5 after. Static assertions; no UI driving.
 
+## #364 composer: WhatsApp's swap, no guide, no lock, a cancel bubble (2026-11-10)
+
+The maintainer asked for the record/send swap to behave like WhatsApp, then for
+two of #364's own additions to go: the first-run "Send a voice message" card and
+the swipe-up-to-lock hands-free recording. The slide-to-cancel bar then gained
+the bubble the brief asked for.
+
+- **One circle, two glyphs.** `ComposerButton` is the single decision point:
+  `modeFor(micMode)` picks Record/Send, `glyphFor` picks the wave or the send
+  arrow, and `usesAccentFill` says only a running note leaves `primary`. The
+  disc no longer borrows `inputPill`, so the button used to change shape *and*
+  colour as it swapped. `ComposerSwap` holds the morph constants: a 90° turn, a
+  0.5 pinch, damping 0.55, stiffness 1500.
+- **The swap is glyph-only.** `AnimatedContent` on `ComposerGlyph` rotates the
+  incoming glyph from −90° and the outgoing to +90° while both pinch, so the
+  disc stays put and only the drawing turns. `ChatScreen` logs the resolved
+  values under `VoiceButton` (`fill=#… ink=#… pill=#… accent=#… mode=… glyph=…
+  recording=…`), which is what the device script asserts.
+- **Guide removed.** `VoiceGuide.kt`, its previews and `VoiceGuideTest` are
+  gone, along with the `voiceGuideSeen` flag in `SettingsStore`; the seven
+  guide/lock strings were dropped from all 14 `values*/strings_chat.xml`.
+- **Lock removed.** `VoiceArm.LOCK`, `VoiceBarMode.LOCK`, `VoiceLockTab`, the
+  dwell constants, the stalk, the pulsing dot, the clickable bin and the
+  locked-send path are all gone. The gesture reads horizontal travel only, so
+  an upward drift neither arms nor locks anything.
+- **Cancel bubble.** The bin, chevron and hint sit in a rounded bubble that pops
+  in from 0.72 on a spring, follows the pull, stretches 10% wide and gives 6%
+  vertically (`VoiceBar.bubbleProgress/bubbleScaleX/bubbleScaleY`), and
+  cross-fades to `errorContainer`/`onErrorContainer` at the arm. The pull is
+  read in the `graphicsLayer` pass, so a drag still costs no recomposition; the
+  peak pull is logged as `VoiceBubble: peak=… armed=…` for the script.
+- JUnit: `ComposerButtonTest` new; `ComposerRecordButtonTest`,
+  `ComposerShapeTest`, `ScheduleHoldAnimationTest`, `VoiceBarTest` and
+  `VoiceGestureTest` rewritten to the one-circle/two-arm contract. Full suite
+  1317 green.
+- `scripts/test-composer-swap.sh` (13) is new: fresh install, no guide, idle
+  Record/Wave accent disc, typing swaps to Send without recolouring or moving
+  its column, clearing swaps back. 13/0 on the new build; 7 failed on the
+  pre-change APK.
+- `scripts/test-voice-message.sh` (44) no longer seeds a guide or asserts a lock
+  stalk; it asserts there is none, pins the palette from the `VoiceButton` log,
+  and checks an unslid send leaves the bubble at rest (`peak=0.00`) while a
+  slide reaches the arm (`peak=1.00 armed=true`). 44/0.
+- The three "Voice messages/Voice playback/Voice waveform" report lines belonged
+  to the unmerged `feat/364-voice-messages` branch; those assertions now check
+  this branch's real Diagnostics output (format, cap, size, content URI).
+
 ## #363 Gregorian companion row in Message details (2026-11-05)
 
 Reporter follow-up on #363: instead of a full secondary-calendar system, the
