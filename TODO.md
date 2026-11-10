@@ -78,8 +78,133 @@ Tests:
   AOSP 12 names `mResumedActivity`. The guard and double-back-exit were
   instead checked by hand via `dumpsys activity activities` (single Back kept
   `MainActivity` resumed, double Back reached the launcher).
+- Manual end-to-end on `emulator-5558` (2026-11-10): a photo added through the
+  Contacts editor (Change photo → Choose photo → crop → SAVE → SAVE) saved
+  against the contact (`photo_uri=content://com.android.contacts/contacts/277/photo`);
+  the running app published `Photo Probe|PHOTO|a8013f06}` and logged
+  `BubbleIcon: … source=PHOTO`. Replacing the photo with the app still running
+  republished `Photo Probe|PHOTO|a2e92e01}`
+  (`NotificationBubble: shortcut conversation_163 icon=…`), so a PHOTO→PHOTO
+  edit is followed too.
+- Re-run on 2026-11-10 after removing the manual test data:
+  `testDebugUnitTest` 1314/0; `test-441-bubble-photo-back.sh` 14/0 on
+  `emulator-5558` (conversation 164, `AVATAR|7d131503` → `PHOTO|c34d7601`).
 - Shortcut publishing is rate limited (10/day). The script calls
   `cmd shortcut reset-throttling` before its assertions.
+
+### #441 follow-up: Back now collapses the expanded bubble (2026-11-10)
+
+Reporter: *"the back gesture is still not collapsing the bubble (when close
+with back disabled, that close with back switch works fine)"* — with **Close
+bubble with Back OFF**, Back should collapse the expanded bubble back to its
+floating icon instead of doing nothing.
+
+Third defect: the app was consuming Back even when the setting said not to.
+`bubbleBackAction` returned `STAY`, and a `STAY`-answering handler still counts
+as handled, so SystemUI never saw the press. But from Android 12 the platform
+already collapses an expanded bubble when Back reaches the root of its task:
+`TaskViewTaskController.setInterceptBackPressedOnTaskRoot` →
+`BubbleTaskViewHelper.onBackPressedOnTaskRoot` → `BubbleExpandedView` →
+`BubbleStackView.onBackPressed()` → `mBubbleData.setExpanded(false)`. The app
+answering the gesture was what made it dead. (API 30 has no such interception:
+an unhandled Back finishes the chat and the task removal dismisses the bubble,
+which is why the setting "off" used to mean nothing.)
+
+Fixes:
+
+- `bubbleBackHandled(bubbleMode, backClosesBubble, sdk)` — the app answers Back
+  inside a bubble only when the setting is on, or below API 31 where leaving it
+  unhandled would close the bubble.
+- `ChatScreen` takes `backHandled` and gates its leave-chat handler with it;
+  both `ConversationsScreen` variants take the same flag and gate all four of
+  their handlers. The real culprit in testing was the list: it stays composed
+  behind the chat, so its fallback handler swallowed Back the moment the chat
+  declined it.
+- The outer `MainActivity` handler no longer answers `"opening"` in a bubble
+  when the setting is off, so an early Back reaches the platform too.
+- `settings_bubble_back_closes_subtitle` is now "Off: Back leaves the bubble
+  open" in all 14 locales — true on every API level, unlike the old "returns to
+  the chat list".
+
+Tests:
+
+- Unit: `BubbleBackTest` gained `backIsLeftToThePlatformSoItCanCollapseTheBubble`
+  (sdk 31/36 off → unhandled, sdk 30 off → handled, setting on and non-bubble →
+  handled) and `theChatLetsThePlatformCollapseTheBubble` (the `backHandled`
+  wiring plus no ungated list handler). `testDebugUnitTest` 1316/0.
+- `test-441-bubble-photo-back.sh` 13/0 on `emulator-5558`, and 12/1 with
+  `bubbleBackHandled` forced to `true` (the new "Back reached the platform"
+  assertion is the red one). With the setting off it now also asserts the
+  activity is not resumed after Back.
+- Real bubble on `emulator-5558` (final build), setting off: expanded
+  (`BubbleChatActivity` resumed) → Back → launcher resumed, notification count
+  1, Bubbles window touchable region back to the collapsed icon
+  `(-41,363,190,594)`.
+- Real bubble, setting on: expanded → Back → launcher resumed, notification
+  count 0, no Bubbles window — close still wins when asked for.
+
+### #441 follow-up: the bubble's back arrow opens the list (2026-11-10)
+
+With Back left to the platform the toolbar arrow had no route (`STAY` meant
+"do nothing"), which is a dead control. It now opens the conversation list in
+the same bubble window: `ChatScreen.openConversationList()` saves the draft and
+calls `onOpenConversationList` when the bubble owns no Back, otherwise the old
+`onBack()`. `MainActivity` passes the callback only for
+`bubbleMode && !bubbleBackCloses`. Sub-screens keep using `onBack()`, so their
+arrow still returns to the chat.
+
+The outer dispatcher is now enabled only when `bubbleBackHandled`, so Back on
+the list in a platform-owned bubble reaches SystemUI (collapse) instead of
+being consumed by the `"list"` no-op; on API 30 it returns to the chat.
+
+Tests:
+
+- Unit: `BubbleBackTest.theBackArrowOpensTheListInAPlatformOwnedBubble` pins the
+  callback, the arrow wiring and the list branch. `testDebugUnitTest` 1317/0.
+- `test-441-bubble-photo-back.sh` 15/0 on `emulator-5558`: the new section taps
+  the dumped `Back` node and asserts `text="Messages"`. With the
+  `onOpenConversationList` wiring removed and the APK rebuilt/reinstalled it is
+  14/1, failing on "the back arrow did not open the conversation list".
+- The emulator now boots with `-gpu swangle`; `swiftshader_indirect` kept
+  wedging the guest graphics stack, and `-gpu host` segfaults on this host.
+  `AGENTS.md` records the change.
+
+### #441 follow-up: choosing a chat in the bubble's list kept the bubble (2026-11-10)
+
+Reporter: send a message, press Back, reopen the conversation from the floating
+bubble, and the bubble "crashed" — it vanished and dropped to the launcher with
+no crash dialog.
+
+Root cause: the conversation list's `onOpenConversation` in `MainActivity`
+called `NotificationHelper.retireBubbleForFullChat` unconditionally. That is
+correct for a full-screen open (the live bubble would duplicate the chat), but
+the arrow now renders the same list **inside** the bubble, so retiring it
+called `BubbleHost.leave` and cancelled the notification that hosts the bubble.
+Cancelling the notification removes the bubble from SystemUI — a vanish with no
+FC and nothing in the crash buffer.
+
+Fix: the list opens through `retireFullChatBubble(id)`, which skips the retire
+when `bubbleMode` is set. Both the new and legacy lists use it. Opening a
+conversation full-screen still retires its bubble, and tapping the hosted chat
+in the in-bubble list now lands on the chat with the bubble and its
+notification intact.
+
+Tests:
+
+- Unit: `BubbleBackTest.tappingAChatInTheBubbleListKeepsTheBubble` pins the
+  guarded helper and both call sites;
+  `NotificationBubbleFullChatRetireTest.openingTheListThreadRetiresItsBubbleInBothUis`
+  now expects the guarded path. `testDebugUnitTest` 1318/0.
+- `test-441-bubble-photo-back.sh` 18/0 on `emulator-5558` and on
+  `emulator-5556` (Android 16). New section: post a notification, open the
+  bubble window, arrow to the list, tap the row, assert the notification
+  survives and the window stays. With the guard removed, rebuilt and
+  reinstalled it is 17/1, failing on "opening a chat from the in-bubble list
+  cancelled the bubble's notification".
+- Real SystemUI bubble on `emulator-5556`: SMS → icon → arrow → list → tap the
+  conversation → `BubbleChatActivity` still resumed, notification count 1,
+  crash buffer empty; Back collapsed to the launcher with the icon still
+  present, and tapping the icon reopened the chat.
 
 ## #405 A chat revived from the Trash goes back to the Inbox (2026-11-08)
 

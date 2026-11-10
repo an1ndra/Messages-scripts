@@ -11,13 +11,26 @@
 # Back:
 #   * the installed APK declares enableOnBackInvokedCallback=true, so a bubble
 #     window on Android 16 has an OnBackInvokedCallback to receive Back at all,
-#   * with "Close bubble with Back" off, Back stays on the conversation,
+#   * with "Close bubble with Back" off, the app stops answering Back so the
+#     platform can collapse the expanded bubble (a bubble task intercepts Back
+#     at its root and SystemUI collapses it there), and the toolbar arrow opens
+#     the conversation list in place because the platform owns the gesture;
+#     choosing a chat from that list must not retire the bubble that hosts it
+#     (opening full-screen retires it, and inside the bubble that cancelled the
+#     notification and made the bubble vanish),
 #   * with it on, Back finishes the bubble and cancels its notification.
 #
 # The photo assertions fail on the pre-fix build (the shortcut was never
-# refreshed); the manifest assertion fails there too. The two gesture checks
-# pass on both, since the emulator's legacy path delivered Back already — they
-# guard the behaviour rather than reproduce the Android 16 report.
+# refreshed), the manifest assertion fails there too, and the setting-off Back
+# assertion fails there as well because the app swallowed the gesture. The
+# in-bubble list assertion fails on that build because the list's open path
+# retired the hosting bubble's notification. The setting-on check guards
+# behaviour rather than reproducing the Android 16 report.
+#
+# The Back section launches BubbleChatActivity directly: there is no SystemUI
+# bubble task to collapse, so it asserts the app-level precondition (Back is not
+# consumed) rather than the collapse itself; the real bubble window is covered
+# by the manual run recorded in scripts/TODO.md.
 #
 # Run: scripts/test-441-bubble-photo-back.sh
 source "$(dirname "$0")/env.sh"
@@ -213,7 +226,8 @@ else
 fi
 
 # --- Back ------------------------------------------------------------------
-info "Back stays on the bubble's conversation by default"
+SDK=$(adb_ shell getprop ro.build.version.sdk | tr -d '\r')
+info "Back is left to the platform so it can collapse the bubble (setting off)"
 # No force-stop here: the app is still running with the notification from the
 # photo section, and stopping it would cancel that notification before Back can
 # be judged on it.
@@ -223,15 +237,119 @@ adb_ shell am start -a android.intent.action.VIEW -d "messages://conversation/$C
 sleep 4
 adb_ shell input keyevent KEYCODE_BACK >/dev/null 2>&1
 sleep 3
-if adb_ shell cmd notification list 2>/dev/null | tr -d '\r' | grep -q "|$PKG|"; then
-    ok "Back kept the bubble's notification"
+if [ "${SDK:-0}" -ge 31 ]; then
+    if adb_ shell dumpsys activity activities 2>/dev/null | tr -d '\r' | grep "ResumedActivity" | grep -q "BubbleChatActivity"; then
+        bad "Back was consumed, so SystemUI never sees it and cannot collapse the bubble"
+    else
+        ok "Back reached the platform instead of being swallowed"
+    fi
 else
-    bad "Back dismissed the bubble even though the setting is off"
+    if adb_ shell cmd notification list 2>/dev/null | tr -d '\r' | grep -q "|$PKG|"; then
+        ok "Back kept the bubble's notification on API $SDK"
+    else
+        bad "Back dismissed the bubble on API $SDK, where the platform cannot collapse it"
+    fi
+    if adb_ shell dumpsys activity activities 2>/dev/null | tr -d '\r' | grep "ResumedActivity" | grep -q "BubbleChatActivity"; then
+        ok "Back left the bubble on its conversation on API $SDK"
+    else
+        bad "Back took the bubble off its conversation on API $SDK"
+    fi
 fi
-if adb_ shell dumpsys activity activities 2>/dev/null | tr -d '\r' | grep "ResumedActivity" | grep -q "BubbleChatActivity"; then
-    ok "Back left the bubble on its conversation"
+
+info "The back arrow opens the conversation list (setting off)"
+# The arrow is the only route to the list from a bubble whose Back belongs to
+# the platform. Relaunch: the Back check above finished this window.
+adb_ shell am start -a android.intent.action.VIEW -d "messages://conversation/$CONVO" \
+    -n "$BUBBLE_ACT" -f 0x10000000 \
+    --es open_conversation_address "$NUM" --ez open_in_bubble true >/dev/null 2>&1
+sleep 4
+dump_ui >/dev/null 2>&1
+ARROW=$(python3 - "$TMP/ui.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+for n in ET.parse(sys.argv[1]).getroot().iter("node"):
+    if n.get("content-desc") == "Back":
+        b = [int(v) for v in re.findall(r"\d+", n.get("bounds", ""))]
+        if len(b) == 4:
+            print((b[0] + b[2]) // 2, (b[1] + b[3]) // 2)
+            break
+PY
+)
+if [ -n "$ARROW" ]; then
+    ok "the bubble shows a back arrow"
+    adb_ shell input tap $ARROW >/dev/null 2>&1
+    sleep 3
+    dump_ui >/dev/null 2>&1
+    if grep -q 'text="Messages"' "$TMP/ui.xml"; then
+        ok "the back arrow opened the conversation list"
+    else
+        bad "the back arrow did not open the conversation list"
+    fi
 else
-    bad "Back took the bubble off its conversation"
+    bad "the bubble shows no back arrow"
+fi
+
+info "Choosing a chat in the in-bubble list keeps the bubble (setting off)"
+# Opening a conversation full-screen retires its bubble, but the list inside a
+# bubble is that bubble's own window: retiring it cancelled the notification
+# that hosts it and the bubble vanished under the app (#441 follow-up).
+post_message
+if ! adb_ shell cmd notification list 2>/dev/null | tr -d '\r' | grep -q "|$PKG|"; then
+    bad "no notification to judge before opening the in-bubble list"
+fi
+adb_ shell am start -a android.intent.action.VIEW -d "messages://conversation/$CONVO" \
+    -n "$BUBBLE_ACT" -f 0x10000000 \
+    --es open_conversation_address "$NUM" --ez open_in_bubble true >/dev/null 2>&1
+sleep 4
+dump_ui >/dev/null 2>&1
+ARROW=$(python3 - "$TMP/ui.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+for n in ET.parse(sys.argv[1]).getroot().iter("node"):
+    if n.get("content-desc") == "Back":
+        b = [int(v) for v in re.findall(r"\d+", n.get("bounds", ""))]
+        if len(b) == 4:
+            print((b[0] + b[2]) // 2, (b[1] + b[3]) // 2)
+            break
+PY
+)
+[ -n "$ARROW" ] && adb_ shell input tap $ARROW >/dev/null 2>&1
+sleep 3
+dump_ui >/dev/null 2>&1
+ROW=$(python3 - "$TMP/ui.xml" "$MARK" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+needle = sys.argv[2]
+rows = []
+for n in ET.parse(sys.argv[1]).getroot().iter("node"):
+    s = (n.get("content-desc") or "") + " " + (n.get("text") or "")
+    if needle not in s:
+        continue
+    b = [int(v) for v in re.findall(r"\d+", n.get("bounds", ""))]
+    if len(b) != 4:
+        continue
+    w, h = b[2] - b[0], b[3] - b[1]
+    if h >= 80 and w >= 300:
+        rows.append((w * h, b))
+if rows:
+    rows.sort()
+    b = rows[0][1]
+    print((b[0] + b[2]) // 2, (b[1] + b[3]) // 2)
+PY
+)
+if [ -n "$ROW" ]; then
+    ok "the in-bubble list shows the conversation"
+    adb_ shell input tap $ROW >/dev/null 2>&1
+    sleep 3
+    if adb_ shell cmd notification list 2>/dev/null | tr -d '\r' | grep -q "|$PKG|"; then
+        ok "opening a chat from the in-bubble list kept the bubble's notification"
+    else
+        bad "opening a chat from the in-bubble list cancelled the bubble's notification"
+    fi
+    if adb_ shell dumpsys activity activities 2>/dev/null | tr -d '\r' | grep "ResumedActivity" | grep -q "BubbleChatActivity"; then
+        ok "the bubble stayed open on the chosen chat"
+    else
+        bad "the bubble's window went away with the notification"
+    fi
+else
+    bad "the in-bubble list showed no row for '$MARK'"
 fi
 
 info "With 'Close bubble with Back' on, Back closes the bubble"
