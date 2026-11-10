@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Regression for CodeQL action pinning across .github/workflows/.
+# Regression for CodeQL action pinning across .github/workflows/, and for the
+# data-object source rule that keeps java/local-variable-is-never-read quiet.
 #
 # github/codeql-action/analyze reads the configuration written by
 # github/codeql-action/init and refuses to run when their versions differ.
@@ -63,14 +64,26 @@ else
     fail "dependabot does not group github/codeql-action - a split bump will break analyze again"
 fi
 
-info "4. SecurityWorkflowTest agrees"
-cd "$PROJECT_DIR" || exit 1
-# --rerun: the test reads the workflow file at runtime, which Gradle does not
-# know about, so without it the task is UP-TO-DATE and "passes" on stale input.
-if ./gradlew --quiet :app:testDebugUnitTest --tests "com.anindra.messages.ci.SecurityWorkflowTest" --rerun; then
-    pass "SecurityWorkflowTest passes"
+info "4. main sources declare no data object"
+offenders=$(grep -rnE '^[[:space:]]*(public |internal |private |protected )?data object[[:space:]]+' \
+    "$PROJECT_DIR/app/src/main/java" "$PROJECT_DIR/mms/src/main/java" 2>/dev/null || true)
+if [ -z "$offenders" ]; then
+    pass "no data object declarations in main sources"
 else
-    fail "SecurityWorkflowTest fails"
+    fail "data object generates the unread equals temporary CodeQL reports (github/codeql#22987); use object:"
+    printf '%s\n' "$offenders" | sed 's/^/       /'
+fi
+
+info "5. workflow and source-rule tests agree"
+cd "$PROJECT_DIR" || exit 1
+# --rerun: the tests read the workflow and sources at runtime, which Gradle does
+# not know about, so without it the task is UP-TO-DATE and "passes" on stale input.
+if ./gradlew --quiet :app:testDebugUnitTest \
+    --tests "com.anindra.messages.ci.SecurityWorkflowTest" \
+    --tests "com.anindra.messages.ci.CodeQlDataObjectTest" --rerun; then
+    pass "SecurityWorkflowTest and CodeQlDataObjectTest pass"
+else
+    fail "SecurityWorkflowTest or CodeQlDataObjectTest fails"
 fi
 
 printf '\n[RESULT] %d passed, %d failed\n' "$PASS" "$FAIL"

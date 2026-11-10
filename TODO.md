@@ -5,6 +5,26 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## CodeQL unread locals from Kotlin `data object` (2026-11-10)
+
+Three open alerts (#508, #499, #497) reported `tmp0_other_with_cast` locals
+that no source file declares. They are the `equals` temporaries Kotlin
+generates for `data object` declarations: the generated loop reads
+`other_with_cast` once per constructor property, and a data object has none.
+CodeQL attaches the diagnostic without a source region, so GitHub renders it at
+line 1 of the declaring file ([github/codeql#22987](https://github.com/github/codeql/issues/22987),
+open upstream since 2026-11-03).
+
+Fix: the ten declarations are now plain `object`s — `AppLockVerdict` (3),
+`FitOutcome` (2), `SendReqOutcome` (3), `FitAllOutcome` (2). They are
+singletons compared by identity, so the generated `equals`/`hashCode` carried
+nothing. `toString` now prints the class name instead of the member name, which
+only changes test failure messages.
+
+Tests: `CodeQlDataObjectTest` fails if a `data object` reappears in
+`app/src/main` or `mms/src/main`; `test-security-workflow.sh` gained the same
+check. Both fail on the pre-fix tree and pass after.
+
 ## #441 Bubbles kept a stale photo and ignored Back (2026-11-10)
 
 Reporter on Android 16 (Xiaomi Redmi Note 9 Pro): changing a contact's picture
