@@ -59,7 +59,10 @@ cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1
     sql "DELETE FROM messages WHERE body LIKE '%$MARK%';" >/dev/null 2>&1
     sql "DELETE FROM conversations WHERE address='$NUM';" >/dev/null 2>&1
-    adb_ shell "content delete --uri content://com.android.contacts/raw_contacts --where \"sourceid='$SID'\"" >/dev/null 2>&1
+    # `content delete` on raw_contacts silently no-ops on these images, so the
+    # probe contact would outlive every run.
+    adb_su "sqlite3 $DB \"DELETE FROM data WHERE raw_contact_id IN (SELECT _id FROM raw_contacts WHERE sourceid='$SID');
+        DELETE FROM raw_contacts WHERE sourceid='$SID';\"" >/dev/null 2>&1
     adb_ shell cmd notification set_bubbles "$PKG" 0 >/dev/null 2>&1
     pref_bool bubble_back_closes false
 }
