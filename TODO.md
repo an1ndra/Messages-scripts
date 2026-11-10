@@ -5,6 +5,62 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #441 Bubbles kept a stale photo and ignored Back (2026-11-10)
+
+Reporter on Android 16 (Xiaomi Redmi Note 9 Pro): changing a contact's picture
+did not change it in the bubble or its notification, and the Back gesture did
+nothing to a bubble — it could only be dismissed by tapping outside it.
+
+Two independent defects:
+
+1. **Stale photo.** Three caches held the picture and none followed a contacts
+   edit. `ConversationAvatar` caches the drawn icon for ten minutes,
+   `ensureShortcut` returned early whenever the shortcut already existed, and
+   the posted notification's large icon is a bitmap fixed at post time. The
+   contacts ContentObserver refreshed names only.
+2. **Dead Back.** The app opted out of predictive back
+   (`android:enableOnBackInvokedCallback="false"`). On Android 16 the system
+   reads the gesture through `OnBackInvokedDispatcher`, so an opted-out app in
+   an embedded bubble window had no callback to receive it at all. On AOSP 16
+   with Back pressed immediately after the bubble launch, the activity also
+   stayed resumed with its notification up, so the `"opening"` phase had no
+   Back path either.
+
+Fixes:
+
+- The shortcut now stores a fingerprint of what it draws
+  (`name|PHOTO|hash` in its extras), and `ensureShortcut` republishes when that
+  fingerprint differs — pixels included, so a replaced photo never collides.
+- The observer's debounced refresh now also invalidates `ConversationAvatar`,
+  re-publishes every conversation shortcut, and reposts unread notifications
+  (`NotificationHelper.refreshContactAvatars`).
+- Diagnostics gained `Bubble icons: <id> <signature>` so a photo edit is
+  readable from the Advanced settings text instead of from a masked pixel.
+- The app opts into predictive back. Every back exit is a Compose
+  `BackHandler`, so the dispatcher path covers them.
+- The `"opening"` route now answers through `bubbleBackAction`, and
+  `onDestroy` releases the bubble's notification even when the conversation id
+  has not resolved yet (`bubbleLaunchAddress` fallback).
+
+Tests:
+
+- Unit `BubbleContactRefreshTest` (4) pins the fingerprint and all three
+  refresh steps; `BubbleBackTest` gained 3 (manifest opt-in, the opening
+  branch, the finish-time release). `testDebugUnitTest` green.
+- `scripts/test-441-bubble-photo-back.sh` (14): on the fix 14/0 on both
+  `emulator-5558` (API 31) and `emulator-5556` (API 36); on a stashed pre-fix
+  build 8/6 — no fingerprint on the shortcut, no republish after the photo
+  edit, avatar cache still serving the monogram, and the manifest still opted
+  out.
+- `scripts/test-notification-bubbles.sh`: 20/0 on the fix. `test-back-nav.sh`
+  and `test-back-stack.sh` could not run on this AVD: `uiautomator dump` is
+  SIGKILLed (exit 137) and both scripts grep `topResumedActivity`, which
+  AOSP 12 names `mResumedActivity`. The guard and double-back-exit were
+  instead checked by hand via `dumpsys activity activities` (single Back kept
+  `MainActivity` resumed, double Back reached the launcher).
+- Shortcut publishing is rate limited (10/day). The script calls
+  `cmd shortcut reset-throttling` before its assertions.
+
 ## #405 A chat revived from the Trash goes back to the Inbox (2026-11-08)
 
 Reporter: the conversation with "Kami 0910" was moved to the Trash, the Trash
