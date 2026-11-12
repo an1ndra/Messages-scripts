@@ -17,6 +17,7 @@
 source "$(dirname "$0")/env.sh"
 
 NUM="+15558809449"
+DELETE_LABEL=$(res_string sheet_delete)
 BODY="restart probe $(date +%s)"
 PASS=0; FAIL=0
 ok()  { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
@@ -26,7 +27,24 @@ info() { echo -e "\n=== $* ==="; }
 sql() { echo "$1" | adb_ shell "run-as $PKG sqlite3 databases/messages.db" 2>/dev/null | tr -d '\r'; }
 psql() { adb_su "sqlite3 /data/data/com.android.providers.telephony/databases/mmssms.db \"$1\"" 2>/dev/null | tr -d '\r'; }
 
+# The linkage table is keyed on the provider's `_id`, and SQLite reuses that id
+# once a row is deleted. A linkage row left behind by an earlier run therefore
+# makes the NEXT run's provider row look already imported: the sync reports
+# 0 pending, never calls getOrCreateConversationBlocking, and this script goes
+# green on a build that still resurrects the conversation. That is exactly how
+# it passed once against the unfixed build. Every path that deletes a message
+# or a provider row here drops the matching linkage row first.
+unlink_by_sys_id() {
+    local ids
+    ids=$(psql "SELECT group_concat(_id) FROM sms WHERE address='$NUM';" | tr -d '\r')
+    [ -n "$ids" ] && [ "$ids" != "null" ] && sql "DELETE FROM message_provider_ids WHERE sys_id IN ($ids);" >/dev/null 2>&1
+    ids=$(sql "SELECT group_concat(sys_id) FROM messages WHERE sys_id>0 AND conversation_id IN (SELECT id FROM conversations WHERE address='$NUM');" | tr -d '\r')
+    [ -n "$ids" ] && [ "$ids" != "null" ] && sql "DELETE FROM message_provider_ids WHERE sys_id IN ($ids);" >/dev/null 2>&1
+}
+
 cleanup() {
+    unlink_by_sys_id
+    sql "DELETE FROM message_provider_ids WHERE message_id IN (SELECT id FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$NUM'));" >/dev/null 2>&1
     sql "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$NUM');" >/dev/null 2>&1
     sql "DELETE FROM conversations WHERE address='$NUM';" >/dev/null 2>&1
     psql "DELETE FROM sms WHERE address='$NUM';" >/dev/null 2>&1
@@ -77,10 +95,18 @@ fi
 
 info "Leave the durable unlinked state and delete the row"
 # Exactly the state a send/receive leaves when the app is not around to link it.
+# Deleting by `message_id` alone is not enough: an orphaned linkage row from an
+# earlier run can carry the same `sys_id` this run's provider row was given when
+# SQLite reused the id, and the sync would then read the row as imported.
+SID=$(sql "SELECT sys_id FROM messages WHERE conversation_id=$CID AND sys_id>0 ORDER BY id DESC LIMIT 1;")
 sql "DELETE FROM message_provider_ids WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=$CID);" >/dev/null
-REMAINING=$(sql "SELECT count(*) FROM message_provider_ids WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=$CID);")
-[ "$REMAINING" = "0" ] && ok "provider linkage removed (the state sync cannot repair)" \
-    || bad "could not remove the provider linkage"
+[ -n "$SID" ] && sql "DELETE FROM message_provider_ids WHERE sys_id=$SID;" >/dev/null
+REMAINING=$(sql "SELECT count(*) FROM message_provider_ids WHERE sys_id=${SID:-0} AND transport='sms';")
+if [ -n "$SID" ] && [ "$REMAINING" = "0" ]; then
+    ok "provider linkage removed (the state sync cannot repair)"
+else
+    bad "could not remove the provider linkage (sys_id=$SID still linked=$REMAINING)"
+fi
 
 # Long-press -> Delete, not a swipe: the swipe action is a user setting and
 # defaults to Archive on this build, which hides the row without trashing it.
@@ -93,7 +119,7 @@ for attempt in 1 2 3; do
         + $(sed -E 's/\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]/\4/' <<< "$B")) / 2 ))
     adb_ shell input swipe 540 "$YMID" 540 "$YMID" 1000 >/dev/null 2>&1
     sleep 2
-    tap_text "Delete" >/dev/null 2>&1
+    tap_text "$DELETE_LABEL" >/dev/null 2>&1
     sleep 2
     DELETED=$(sql "SELECT deleted_at FROM conversations WHERE id=$CID;")
     [ -n "$DELETED" ] && [ "$DELETED" != "0" ] && break
