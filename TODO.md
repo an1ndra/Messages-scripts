@@ -5,6 +5,35 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #449 Deleted conversations came back after a restart (2026-11-12)
+
+Reporter: "just delete a conversation, reboot or force close the app, and you
+will see it is there still".
+
+The sync treats any provider row missing from `message_provider_ids` as never
+imported. Received SMS, sent SMS and imported MMS recorded only
+`messages.sys_id`, so once that linkage row was absent (the normal state after
+the app is killed for longer than the 120 s body-match window) a restart read
+those rows as pending: the re-insert failed on the unique index, and the
+address still went through `getOrCreateConversationBlocking`, which un-trashes
+a deleted thread. The provider purge had the same blind spot, so a permanent
+delete left the row behind to be imported again.
+
+Fixes:
+
+- `linkStoredProviderIds()` backfills `message_provider_ids` from
+  `messages.sys_id>0` at the start of every sync, before the pending set is
+  read. A row the app already stores can no longer read as new traffic.
+- The MMS import links the provider row it consumed, so a permanent delete can
+  purge it.
+- `purgeProviderMessages` also collects `messages.sys_id`, and the hard-delete
+  paths drop the conversation's linkage rows.
+
+Tests: `DeletedConversationRestartTest` (4 assertions, all red on the pre-fix
+tree) and `test-delete-survives-restart.sh` (7/0; red-green verified — the
+pre-fix build un-trashes the row and puts it back on the home list after the
+force-stop).
+
 ## CodeQL unread locals from Kotlin `data object` (2026-11-10)
 
 Three open alerts (#508, #499, #497) reported `tmp0_other_with_cast` locals
