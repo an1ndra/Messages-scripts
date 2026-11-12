@@ -37,6 +37,28 @@ shot() {
     echo "[screenshot] $SHOTS_DIR/$1.png"
 }
 
+# Resolve an app string the way the device's locale would, so a script that
+# taps a localized label works on a Persian (fa-IR, RTL) AVD too. The labels
+# are read from the checked-out resources rather than the APK: the qualifier
+# only has to pick the same values directory the device's configuration does.
+# Usage: res_string chat_forward
+res_string() {
+    local name="$1" loc lang dir
+    loc=$(adb_ shell getprop persist.sys.locale 2>/dev/null | tr -d '\r')
+    case "$loc" in ""|null) loc=$(adb_ shell getprop ro.product.locale 2>/dev/null | tr -d '\r') ;; esac
+    lang="${loc%%-*}"
+    case "$loc" in
+        zh-CN*|zh-Hans*) dir=values-zh-rCN ;;
+        zh-TW*|zh-Hant*) dir=values-zh-rTW ;;
+        pt-BR*) dir=values-pt-rBR ;;
+        *) dir="values-$lang" ;;
+    esac
+    [ -d "$PROJECT_DIR/app/src/main/res/$dir" ] || dir=values
+    grep -hoE "<string name=\"$name\">[^<]*</string>" \
+        "$PROJECT_DIR/app/src/main/res/$dir"/strings*.xml 2>/dev/null \
+        | head -1 | sed -E "s#.*<string name=\"$name\">##; s#</string>##"
+}
+
 # Type text into the focused field (handles spaces)
 type_text() {
     local t="${1// /%s}"

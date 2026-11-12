@@ -23,6 +23,8 @@ bad() { echo "[FAIL] $1"; FAIL=$((FAIL + 1)); }
 info() { echo -e "\n=== $* ==="; }
 
 MARK="fwdnum$(date +%s)$$"
+FORWARD_LABEL=$(res_string chat_forward)
+FORWARD_TO=$(res_string chat_forward_to)
 CONTACT="NumberFormat$MARK"
 STORED="555.010.1234"        # the provider's spelling
 PAINTED="(555) 010-1234"     # libphonenumber NATIONAL, region US
@@ -92,7 +94,7 @@ BUBBLE=$(center_of "$MARK") || { bad "could not locate the bubble"; exit 1; }
 adb_ shell input swipe $BUBBLE $BUBBLE 800; sleep 3
 FWD=""
 for _ in $(seq 1 6); do
-    FWD=$(center_of "Forward" 2>/dev/null) && [ -n "$FWD" ] && break
+    FWD=$(center_of "$FORWARD_LABEL" 2>/dev/null) && [ -n "$FWD" ] && break
     sleep 1
 done
 if [ -n "$FWD" ]; then
@@ -103,7 +105,7 @@ else
 fi
 adb_ shell input tap $FWD; sleep 3
 
-if wait_for_text "Forward to" 8; then
+if wait_for_text "$FORWARD_TO" 8; then
     ok "Forward opened the target picker"
 else
     bad "Forward did not open the target picker"
