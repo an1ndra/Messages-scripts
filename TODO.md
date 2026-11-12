@@ -34,6 +34,24 @@ tree) and `test-delete-survives-restart.sh` (7/0; red-green verified — the
 pre-fix build un-trashes the row and puts it back on the home list after the
 force-stop).
 
+## #452 Notification actions stayed English in a Persian app (2026-11-12)
+
+Reporter: "Notification actions shows English translations instead of selected
+language — all buttons except Delete action", with the app set to Persian.
+
+`SmsSupport.show` built the Reply action, its `RemoteInput` hint and the Mark
+as read action from English literals (`"Reply"`, `"Mark as read"`), so
+`getString` never ran and only Delete — already `R.string.notif_action_delete`
+— followed the app's language. The labels are now `R.string.notif_action_reply`
+and `R.string.notif_action_mark_read`, defined in the base file and in all 13
+locales.
+
+Tests: `NotificationActionLabelsTest` (5 assertions: the two resources are
+wired, no literal is left, every shipped locale defines and translates all
+three labels) and `test-notification-action-labels.sh` (7/0; red-green verified
+— the pre-fix build posts `"Reply"` / `"Mark as read"` under a Persian
+configuration while Delete stays Persian).
+
 ## CodeQL unread locals from Kotlin `data object` (2026-11-10)
 
 Three open alerts (#508, #499, #497) reported `tmp0_other_with_cast` locals
