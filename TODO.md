@@ -5,6 +5,33 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #460 zoom and save in the picture viewer (2026-11-14)
+
+Reporter: "zoom and download MMS image". The full-screen viewer was a fixed
+fit-to-screen picture with one Close control: a screenshot or a photographed
+document could not be read, and the only way to keep the picture was to back
+out and use the selection toolbar's "Save image".
+
+- `ViewerZoom` holds the gesture maths as plain floats: 1x..5x, a double tap
+  toggling fit and 2.5x, pan limited to the picture's own overhang (so a fitted
+  picture cannot be nudged off centre), and a pinch anchored on the fingers.
+- `ImagePreview` drives a `graphicsLayer` transform rather than re-laying out.
+  Taps are decided inside the viewer: with `onDoubleTap` registered, the parent
+  backdrop's `clickable` fired on the first tap of a double tap and closed the
+  viewer, so `onTap` dismisses now and the two-tap gesture reaches the zoom.
+- A Save control (Download glyph) sits beside Close in the existing round
+  buttons and calls `saveMessageImage`, the same path the toolbar uses, so no
+  new strings or locales were needed.
+- Taps carry the message row instead of its URI (`onImageTap: (Message) -> Unit`,
+  `AlbumGrid(messages = ...)`), so Save on the third picture of an album writes
+  that picture rather than the bubble's first.
+- JUnit: `ViewerZoomTest` (9 cases) and `ImagePreviewWiringTest` (row state,
+  pinch/double-tap wiring, save wiring). Full suite 1399 green.
+- `scripts/test-image-viewer.sh` seeds one picture message from the device's own
+  screenshot (no provider fixture, no root) and asserts Save/Close presence, a
+  double tap zooming to 2.5x and back, a single tap still dismissing, and the
+  file MediaStore actually wrote.
+
 ## #449 Deleted conversations came back after a restart (2026-11-12)
 
 Reporter: "just delete a conversation, reboot or force close the app, and you
