@@ -29,12 +29,12 @@ command -v sqlite3 >/dev/null 2>&1 || true
 ADDRESS="+1555$(date +%s | tail -c 8)"
 STAMP=$(date +%s)
 PHOTO="/data/data/$PKG/files/viewer-probe.png"
-SAVED="Viewer probe_${STAMP}000.png"
+SAVED_STAMP="${STAMP}000"
 
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
     app_sql "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE address='$ADDRESS'); DELETE FROM conversations WHERE address='$ADDRESS';" >/dev/null 2>&1 || true
-    adb_ shell rm -f "/sdcard/Pictures/Messages/$SAVED" >/dev/null 2>&1 || true
+    adb_ shell "ls /sdcard/Pictures/Messages/*'$SAVED_STAMP'* 2>/dev/null | while read -r f; do rm -f \"\$f\"; done" >/dev/null 2>&1 || true
     adb_ shell "run-as '$PKG' rm -f files/viewer-probe.png" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -168,10 +168,12 @@ adb_ shell ls /sdcard/Pictures/Messages 2>/dev/null | tr -d '\r' > "$TMP/before.
 tap_layout "$save_label" >/dev/null 2>&1 || true
 sleep 3
 adb_ shell ls /sdcard/Pictures/Messages 2>/dev/null | tr -d '\r' > "$TMP/after.txt"
-if grep -qF "$SAVED" "$TMP/after.txt"; then
-    ok "Save wrote $SAVED"
+# The name carries the conversation label when one resolves and the address
+# otherwise, so the picture's own timestamp is what identifies the file.
+if grep -qF "$SAVED_STAMP" "$TMP/after.txt"; then
+    ok "Save wrote $(grep -F "$SAVED_STAMP" "$TMP/after.txt" | head -1)"
 else
-    bad "Save wrote no file (expected $SAVED); got: $(tr '\n' ' ' < "$TMP/after.txt")"
+    bad "Save wrote no file for timestamp $SAVED_STAMP; got: $(tr '\n' ' ' < "$TMP/after.txt")"
 fi
 if diff -q "$TMP/before.txt" "$TMP/after.txt" >/dev/null 2>&1; then
     bad "the Save control did nothing"
