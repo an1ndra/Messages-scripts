@@ -5,6 +5,35 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #461 a video MMS arrives as a clip (2026-11-14)
+
+Reporter: "download MMS image … download video". A clip-only MMS was stored as
+one message row reading "[MMS: 1 additional/unsupported attachment(s) not
+displayed]": `MmsSupport.content()` kept only `image/*` parts, the part index
+used the same test, and `mediaKind` had no video case. Nothing played, and the
+file could not be saved at all.
+
+- `MmsSupport.isVideo` (mp4, 3gpp, 3gpp2, webm, x-matroska, quicktime),
+  `Content.videoIds`, and `mediaRows()` now carry clips beside pictures; the
+  "unsupported attachments" notice counts only what is still unshowable (a
+  document, another app's voice note). `mediaKind` maps a clip to "video", so an
+  outgoing clip keeps its own bubble instead of becoming a plain file.
+- `MmsProviderReader` imports a video part and no longer skips a video-only MMS
+  (it used to require an image part or a caption).
+- `VideoBubble` draws the clip's first frame through `MediaMetadataRetriever`
+  with a play badge; tapping opens `VideoPlayerDialog`, a platform `VideoView`
+  (no new dependency) with Save and Close. Save writes through the shared
+  attachment path into Movies/Messages via `DownloadsStore.writeVideo`.
+- Selecting a clip reads "Save video" (`SelectionToolbar.saveLabelRes(count,
+  hasVideo)`), and the four new strings are in all 14 locales.
+- JUnit: `MmsSupportTest` (video-only, picture+clip, unsupported-only notice,
+  mime mapping, saved extensions) and `SelectionToolbarTest` (save label).
+  Full suite 1405 green.
+- `scripts/test-mms-video.sh` — 11/11 on `emulator-5558`: a provider fixture
+  proves the import keeps a video row with no notice, then a real ffmpeg clip in
+  the app's files proves the bubble, the player and Save to Movies/Messages.
+  Red-green verified: the pre-change build fails at "no video row was imported".
+
 ## #460 zoom and save in the picture viewer (2026-11-14)
 
 Reporter: "zoom and download MMS image". The full-screen viewer was a fixed
