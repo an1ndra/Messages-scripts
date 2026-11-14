@@ -59,7 +59,7 @@ CHAT_ID=$(q "select id from conversations where address='$SARAH'" || true); CHAT
 sql "INSERT INTO conversation_recipients(conversation_id,address) VALUES($CHAT_ID,'$SARAH');" >/dev/null
 sql "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,media_type) VALUES($CHAT_ID,'private words',$(date +%s)000,0,'received','text');" >/dev/null
 
-sql "INSERT INTO conversations(address,name,snippet,timestamp,last_is_me,group_title) VALUES('$SARAH','Sarah','group talk',$(date +%s)000,1,'Sarah +Dad');" >/dev/null
+sql "INSERT INTO conversations(address,name,snippet,timestamp,last_is_me,group_title) VALUES('$SARAH','Sarah','group talk',$(date +%s)000,1,'Sarah, Dad');" >/dev/null
 GROUP_ID=$(q "select id from conversations where address='$SARAH' AND id<>$CHAT_ID" || true); GROUP_ID=${GROUP_ID:--1}
 sql "INSERT INTO conversation_recipients(conversation_id,address) VALUES($GROUP_ID,'$SARAH');" >/dev/null
 sql "INSERT INTO conversation_recipients(conversation_id,address) VALUES($GROUP_ID,'$DAD');" >/dev/null
@@ -84,7 +84,9 @@ xml=open('$TMP/ui.xml').read()
 for n in re.findall(r'<node[^>]*>',xml):
     d=re.search(r'content-desc=\"([^\"]+)\"',n)
     if d and 'group talk' in d.group(1):
-        print(d.group(1)); break
+        t=d.group(1)
+        for c in ('\u2066','\u2067','\u2068','\u2069'): t=t.replace(c,'')
+        print(t); break
 ")
     if [ -z "$row" ]; then
         fail "no group row on screen with use_new_ui=$got"
@@ -92,11 +94,13 @@ for n in re.findall(r'<node[^>]*>',xml):
         continue
     fi
 
+    # The title is bidi-isolated (U+2066..U+2069) so a number inside it cannot be
+    # reordered by an RTL paragraph; the words are what is asserted.
     title=${row%%.*}
-    if [ "$title" = "Sarah +Dad" ]; then
+    if [ "$title" = "Sarah, Dad" ]; then
         pass "the group row is titled by its members (use_new_ui=$got)"
     else
-        fail "the group row is titled '$title', expected 'Sarah +Dad' (use_new_ui=$got)"
+        fail "the group row is titled '$title', expected 'Sarah, Dad' (use_new_ui=$got)"
     fi
 
     # And the private chat must still be titled by the contact, not the group.
