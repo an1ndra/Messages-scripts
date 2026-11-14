@@ -106,14 +106,16 @@ else
 fi
 sleep 4
 
-info "The provider holds one row per recipient (expected)"
-# This is the shape that used to produce the duplicate: one tap, two Sent rows.
-adb_ shell content query --uri content://sms --projection _id:body:type 2>/dev/null \
-    | grep -c "body=$BODY" | tr -d '\r' > "$TMP/prov.txt"
-PROV=$(cat "$TMP/prov.txt")
-[ "${PROV:-0}" -ge 2 ] \
-    && ok "one provider row per recipient ($PROV)" \
-    || bad "expected >=2 provider rows, got ${PROV:-0} — cannot prove the fix here"
+info "The group send is one outbox MMS addressed to every member (#448)"
+# A group text leaves as a single MMS now, so the provider holds one PDU whose
+# To headers name every recipient — not one SMS row per person.
+OUT=$(adb_ shell content query --uri content://mms/part --projection mid:text 2>/dev/null \
+    | grep "text=$BODY" | sed -E 's/.*mid=([0-9]+).*/\1/' | head -1 | tr -d '\r')
+TO=$(adb_ shell "content query --uri content://mms/$OUT/addr --projection address:type" 2>/dev/null \
+    | grep -c "type=151" | tr -d '\r')
+[ "${TO:-0}" -ge 2 ] \
+    && ok "one outbox MMS addressed to all $TO members" \
+    || bad "outbox MMS has ${TO:-0} To address(es), expected 2"
 
 info "Re-syncing and counting local messages"
 adb_ shell am force-stop "$PKG"; sleep 1
@@ -125,12 +127,12 @@ else
     bad "one tap produced ${LOCAL:-0} messages, expected 1"
 fi
 
-info "Every provider row is mapped to that one message"
+info "The outbox row is mapped to that one message"
 MAPPED=$(q "SELECT count(*) FROM message_provider_ids p JOIN messages m
-           ON m.id=p.message_id WHERE m.body='$BODY' AND p.transport='sms'")
-[ "${MAPPED:-0}" -ge 2 ] \
-    && ok "all $MAPPED provider ids map to the single message" \
-    || bad "only ${MAPPED:-0} provider id(s) mapped; the rest would re-import"
+           ON m.id=p.message_id WHERE m.body='$BODY' AND p.transport='mms'")
+[ "${MAPPED:-0}" -ge 1 ] \
+    && ok "provider id $OUT is mapped to the single message" \
+    || bad "no provider id mapped; the sent MMS would import again"
 
 info "A second sync must not grow it"
 adb_ shell am force-stop "$PKG"; sleep 1
