@@ -53,6 +53,7 @@ SHOTS = [
     ("09-spam-blocked-messages.png", "Filtered messages", "Review what was blocked.", True),
     ("10-auto-delete.png", "Auto-delete", "Decide how long messages stay.", True),
     ("10-settings-scroll-dark.png", "Privacy and app lock", "Further down the settings list.", True),
+    ("11-notification-grouped.png", "Notifications that group", "One summary per conversation.", True),
     ("11-scheduled-dark.png", "Scheduled messages", "Write now, send later.", True),
     ("13-trash-dark.png", "Trash", "Restore a chat you removed.", True),
     ("15-contact-details-dark.png", "Chat details", "Notifications and blocking per chat.", True),
