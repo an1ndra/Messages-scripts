@@ -5426,3 +5426,43 @@ Follow-ups from issue #347 after the first dynamic theme shipped in 1.0.31-rc1.
   test-chat-pinch-zoom.sh wait_for_chat rework rode along in the submodule
   commit (it could not be committed selectively without unusable -p surgery);
   its content is #354, not #347.
+
+## #405 forward-list contact refresh (2026-11-14)
+
+The reporter's last remaining item on 1.0.32 was a "Dijikala 405" row stuck in
+the Forward picker: not in their contacts, SIM or Google account, and impossible
+to delete. It is not a phantom — the row is contact-backed, and it survives
+because the picker's contact list was the snapshot taken when `AppViewModel`
+was built.
+
+### What changed
+
+- `AppViewModel` re-reads Contacts when the provider reports a change
+  (`Contacts` + `Data` URIs, 500 ms debounce), and drops the observer in
+  `onCleared`. Chat is a route inside `MainActivity`, so that ViewModel outlives
+  every screen: a contact deleted mid-session stayed offered as a forward
+  target, and one added never appeared, until the process died.
+- The launch-time inline query loop moved to `readContacts`, with the
+  personal/work-profile merge in `ui/ContactRoster.merge` so it is testable.
+  `contacts` is only re-published when the roster actually differs, so the
+  screens collecting it do not recompose for provider churn.
+
+### Tests
+
+- Unit: ContactRosterTest (4), ContactsReloadWiringTest (3). testDebugUnitTest
+  green (1400).
+- `scripts/test-405-contact-list-refresh.sh` (4): inserts a contact with the app
+  running and expects it in New chat without a restart, then deletes it and
+  polls it out. Fails on the pre-fix build ("added contact never reached the
+  picker"), passes after: verified on the iQOO Neo7 (ANDROID_SERIAL set, ADB
+  override) as well as by code path on the emulators.
+
+### Traps worth remembering
+
+- The picker can only be as fresh as the Contacts provider. A deleted raw
+  contact stays aggregated for a few seconds — once 20 s+ on the iQOO — so the
+  "gone" assertion polls instead of asserting once. That lag is also why some
+  phones make a deleted contact look undeletable for far longer.
+- `uiautomator` on a locked phone returns the keyguard, which reads as "the app
+  never started". Wake + `wm dismiss-keyguard` first, as test-rtl-direction.sh
+  already does.
