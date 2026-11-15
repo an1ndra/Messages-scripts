@@ -82,6 +82,14 @@ for want in "Keyword" "Sender" "Word or sender" "Personal" "Transactions" "OTP" 
     fi
 done
 
+# "+" must not steal the screen: the sheet opens with the keyboard down, so the
+# whole form is visible at once and the list behind it is still readable.
+if [ "$(adb_ shell dumpsys input_method 2>/dev/null | grep -c 'mInputShown=true')" = "0" ]; then
+    ok "the sheet opens without the keyboard"
+else
+    bad "the keyboard opens by itself when + is tapped"
+fi
+
 # The picture the user asked for: match kind above the field, tabs underneath.
 if printf '%s' "$UI" | python3 -c '
 import re, sys
