@@ -5,6 +5,76 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #405 follow-up: the forward picker listed one person twice (2026-11-15)
+
+Reporter (point 1 of the 2026-11-15 comment): "some numbers are duplicated in
+the forward list" — there since earlier versions.
+
+Cause: `ForwardTargets` keyed its rows on the raw digits of each number. A
+person arrives twice, once from the address book and once from an existing
+thread, and the two spellings carry different digits — a phone book entry
+"0912 123 4567" (digits `09121234567`) and its thread `+989121234567` (digits
+`989121234567`) — so the map saw two keys and the picker listed the same person
+twice, each row painting a different rendering of one number.
+
+- `ForwardTargets` keys rows on `AddressIdentity.canonical()` (E.164 where the
+  region can parse it, digits otherwise) instead of raw digits, and takes the
+  region as a parameter so a test can pin it.
+- An alphanumeric sender ID is no longer offered at all
+  (`AddressIdentity.isReplyable`): "A1-SRB" used to survive as the digit "1"
+  and could be picked as a forward target, where the SMS can never be sent.
+- JUnit: `aContactSavedNationallyIsNotOfferedTwiceForItsInternationalConversation`
+  (region IR), `theInternationalSpellingOfAUSContactIsTheSamePerson` and
+  `aNumberForwardCannotReachIsNotOffered` — all three fail on the old keying.
+- `scripts/test-forward-picker-duplicates.sh` — 5/5 on `emulator-5558`; on the
+  unfixed build it reports "the person is listed 2 times" and "the number
+  appears 2 times".
+- Still open: typing a *national* number does not find a target stored in E.164
+  (`ForwardTargets.matches` compares raw digits). `AddressIdentity.matchesNumber`
+  would fix it, but it is a search change, not the duplication report.
+- Two scripts in this area had drifted red and were fixed while verifying:
+  `test-forward.sh` picked its target row by looking for a literal `+`, which
+  the picker stopped producing when it moved to `formatPhoneNumber` (rows read
+  "(555) 900-0001"); it now picks a dialable row. `test-forward-contacts.sh`
+  asserted `ui_tags | grep -q …` under `set -o pipefail`, so `grep -q` exiting
+  on the first match killed the writer with SIGPIPE and the *successful* check
+  reported failure — it only began failing once 80 seeded contacts made the
+  dump big enough to matter. Both use the env.sh `grep -c` convention now.
+
+## #405 follow-up: a message that is only a number stays left to right (2026-11-15)
+
+Reporter (point 2 of the 2026-11-15 comment): in a received bubble a phone
+number "appears swapped (only in the display) — when copying and sending them
+they are correct"; the screenshot shows `+21 0123 456 7899` painted
+`7899 456 0123 +21`.
+
+Cause: two different answers to "which direction is this line". `BidiText` calls
+a line with no strong character LTR and emitted nothing for it — a pin only
+existed when the message also had an RTL line. The renderer uses
+`TextDirection.Content`, which resolves through `FIRSTSTRONG_RTL` under an RTL
+locale, so a body of nothing but digits and punctuation (no letter anywhere) is
+laid out right to left and its digit groups are reversed. Copy reads the raw
+body, and the composer sets the direction itself, which is why both looked fine.
+
+- `BidiText.isolateNumberRuns` pins every LTR line that holds no strong
+  character, mixed message or not (`hasStrongCharacter` shares the voting rule
+  with `firstStrongDirection`: links never vote).
+- JUnit: `BidiTextTest.aMessageThatIsOnlyAPhoneNumberPaintsLeftToRight` and
+  `aBareTimestampMessagePaintsLeftToRight` assert the pinned string *and* the
+  painted order through `java.text.Bidi`; `+155589935615` and `90007872` moved
+  to the pinned shape (a bare `+` painted at the far end before).
+- `scripts/test-bidi-phone-number-only.sh` — 9/9 on `emulator-5558`, in both an
+  English and a Persian locale; against the unfixed build it reports 3 failures
+  (both bodies not pinned, no isolate holding the number).
+- Checked in pixels, not just in the dump: with the AVD switched to `fa-IR`,
+  the unfixed build paints "7899 456 0123 21+" and "16:59 - 1405/07/30" in the
+  bubble, and the fixed build paints "+21 0123 456 7899" and
+  "1405/07/30 - 16:59". The dump cannot show that order — the isolates are
+  already applied to the string it reports — so this one is a screenshot.
+- `test-bidi-within-number.sh` counted the app bar's own isolated address as a
+  bubble span and had been failing on an unmodified build (3/5); it now only
+  reads text that carries a message body. 5/5.
+
 ## #481 attach an audio file, not just a voice note (2026-11-15)
 
 Reporter: the attach sheet could only hand over a picture or a camera shot, so a

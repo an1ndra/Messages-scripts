@@ -116,16 +116,27 @@ if [ -n "$FWD" ] && ui_tags | grep -q 'content-desc="Forward"'; then
     adb_ shell input tap $FWD; sleep 2
     dump_ui || true
     TARGET=$(python3 - "$TMP/ui.xml" <<'PY'
-import re, sys
+import html, re, sys
 xml = open(sys.argv[1], encoding="utf-8").read()
 rows = []
 for tag in re.findall(r'<node[^>]*>', xml):
     t = re.search(r'text="([^"]+)"', tag)
     b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', tag)
-    if t and b:
-        x1, y1, x2, y2 = map(int, b.groups())
-        if y1 > 800 and y2 < 1650 and '+' in t.group(1) and len(t.group(1)) > 6:
-            rows.append((y1, (x1 + x2) // 2, (y1 + y2) // 2))
+    if not (t and b):
+        continue
+    text = html.unescape(t.group(1))
+    x1, y1, x2, y2 = map(int, b.groups())
+    # A target row: a dialable number under the search box. The picker paints it
+    # through formatPhoneNumber, so it is "(555) 900-0001" on a US device and
+    # never carries a literal '+'; a USSD string like "*21*2258#" is a
+    # conversation but not a forward destination.
+    if not (y1 > 640 and y2 < 1650):
+        continue
+    if any(c.isalpha() for c in text) or '*' in text or '#' in text:
+        continue
+    if len(re.sub(r'\D', '', text)) < 7:
+        continue
+    rows.append((y1, (x1 + x2) // 2, (y1 + y2) // 2))
 if rows:
     rows.sort()
     print(rows[0][1], rows[0][2])

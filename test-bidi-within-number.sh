@@ -50,19 +50,28 @@ render() {
     sleep 6
     dump_ui 2>/dev/null || return 1
     python3 - "$TMP/ui.xml" "$LRI" "$PDI" <<'PY'
-import sys
+import re, sys
 xml = open(sys.argv[1], encoding='utf-8', errors='replace').read()
 lri, pdi = sys.argv[2], sys.argv[3]
-spans, i = [], 0
-while True:
-    a = xml.find(lri, i)
-    if a < 0:
-        break
-    b = xml.find(pdi, a)
-    if b < 0:
-        break
-    spans.append(xml[a + 1:b])
-    i = b + 1
+# The chat's app bar prints the conversation's own address in its own LTR
+# isolate ("+1555…"), so only text that actually carries a message body takes
+# part — every body this script seeds is Persian or Hebrew.
+def rtl_letter(s):
+    return any('\u0590' <= c <= '\u08ff' for c in s)
+spans = []
+for text in re.findall(r'text="([^"]*)"', xml):
+    if not rtl_letter(text):
+        continue
+    i = 0
+    while True:
+        a = text.find(lri, i)
+        if a < 0:
+            break
+        b = text.find(pdi, a)
+        if b < 0:
+            break
+        spans.append(text[a + 1:b])
+        i = b + 1
 print("\x1f".join(spans), end="")
 PY
 }

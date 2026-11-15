@@ -107,9 +107,24 @@ if ! wait_for_text "$MARK" 8; then
 fi
 ok "seeded message is in the chat"
 BUBBLE=$(center_of "$MARK")
+echo "DEBUG bubble=[$BUBBLE]"
 adb_ shell input swipe $BUBBLE $BUBBLE 800; sleep 2
 dump_ui
-if ui_tags | grep -q 'content-desc="Forward"'; then
+echo "DEBUG dump rc=$? size=$(wc -c < "$TMP/ui.xml")"
+python3 - "$TMP/ui.xml" <<'PY'
+import html, re, sys
+xml = open(sys.argv[1], encoding="utf-8").read()
+for tag in re.findall(r'<node[^>]*>', xml):
+    t = re.search(r'text="([^"]+)"', tag)
+    b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', tag)
+    if t and b:
+        print("DBG", b.group(0)[8:], repr(html.unescape(t.group(1)))[:40])
+print("DBG forward nodes:", len(re.findall(r'content-desc="Forward"', xml)))
+PY
+# grep -c, not -q: under `set -o pipefail` a -q exits on the first match and
+# kills ui_tags with SIGPIPE, so the pipeline reports failure even though the
+# node is there. It only showed up once the seeded contacts made the picker big.
+if ui_tags | grep -c 'content-desc="Forward"' >/dev/null; then
     ok "long-press opened the selection toolbar with a Forward button"
 else
     bad "no Forward button on the selection toolbar"
