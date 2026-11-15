@@ -34,7 +34,7 @@ adb_ logcat -c >/dev/null 2>&1 || true
 
 info "A code arrives"
 if [ "$INJECT" = "yes" ]; then
-    adb_ -s "$ANDROID_SERIAL" emu sms send "$SENDER" "Your one-time code is 482913. Do not share it." >/dev/null 2>&1
+    adb_ emu sms send "$SENDER" "Your one-time code is 482913. Do not share it." >/dev/null 2>&1
 else
     cat <<MSG
   Send a text to this phone now, or have someone send one, containing a code, e.g.
@@ -56,7 +56,7 @@ if [ "$INJECT" != "yes" ]; then
     echo "  skipped: needs a second text, only automatic on an emulator"
 else
 adb_ logcat -c >/dev/null 2>&1 || true
-adb_ -s "$ANDROID_SERIAL" emu sms send +1555771010 "Picking up milk on the way home." >/dev/null 2>&1
+adb_ emu sms send +1555771010 "Picking up milk on the way home." >/dev/null 2>&1
 sleep 4
 quiet=$(adb_ logcat -d 2>/dev/null | grep -c "OtpNotification sensitive=true" || true)
 [ "$quiet" = "0" ] && ok "a plain text did not get marked" || bad "a plain text was marked ($quiet)"
