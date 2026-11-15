@@ -5,6 +5,107 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #481 attach an audio file, not just a voice note (2026-11-15)
+
+Reporter: the attach sheet could only hand over a picture or a camera shot, so a
+recording already on the phone (a saved call, a song, a memo from another app)
+could not be sent at all. Voice notes were a separate, hold-to-record path.
+
+- `ChatScreen` gets an "Audio" row in `AttachSheet` backed by
+  `ActivityResultContracts.OpenDocument` with `audio/*`: the photo picker cannot
+  return audio, so DocumentsUI is the only picker that can.
+- The picked uri joins `pendingMedia` like any other attachment and rides the
+  existing MMS media path, which already mapped `audio/*` to `audio/mp4` and
+  knew the `m4a` extension — no new sending code, no second way to attach.
+- The attach sheet now has four entries in one column: Contact, Location, Audio,
+  Camera, under Gallery.
+- JUnit: `AudioAttachmentTest` (the sheet's rows and the launcher's mime).
+- `scripts/test-audio-attach.sh` — 2/2 on `emulator-5558`: the sheet lists
+  "Audio" and tapping it brings up DocumentsUI rather than the photo picker.
+
+## #480 send a contact card from the attach sheet (2026-11-15)
+
+Reporter: sharing someone's number meant typing it out. The app had no way to
+hand over a contact.
+
+- `ContactShare` builds a vCard 3.0 block (`FN`, `N`, `TEL;TYPE=CELL`) and reads
+  the name and first number behind a contact uri.
+- The card travels as the **message body**, not as a `text/vcard` MMS part: a
+  part the recipient's app ignores leaves an empty bubble, while a `BEGIN:VCARD`
+  block is offered for saving by every messaging app that reads cards and still
+  reads as a card everywhere else.
+- The attach sheet's "Contact" row opens the platform contact picker
+  (`PickContact`), so no contacts permission of its own is needed.
+- JUnit: `ContactShareTest` (the vCard body, the number guard, the read path).
+- `scripts/test-contact-card.sh` — 3/3 on `emulator-5558`: the sheet lists
+  "Contact", the picker opens, and picking the demo contact "Alex" puts a
+  `BEGIN:VCARD … FN:Alex … TEL;TYPE=CELL:+…  END:VCARD` bubble in the chat.
+
+## #479 share a location from the attach sheet (2026-11-15)
+
+Reporter: there was no way to send where you are.
+
+- `LocationShare` writes a `geo:` link (6 decimals, about 10 cm) and refuses to
+  touch the network: a pinned map picture would not survive forwarding and
+  would cost an MMS.
+- `LocationDialog` is a text field first and a button second — the link is what
+  gets sent, and the person can see and correct it. "Use my location" fills it
+  from the last fix the device already holds rather than waking GPS for a single
+  text; with no fix the field stays empty and the hint says what to do.
+- The attach sheet's "Location" row opens that dialog.
+- JUnit: `LocationShareTest` (geo formatting, the label encoding, the URL-safe
+  separators), plus the dialog's permission and send path.
+- `scripts/test-location-attach.sh` — 3/3 on `emulator-5558`, one step skipped
+  with its reason: the emulator has no GPS fix, so "Use my location" correctly
+  leaves the field empty (`geo fix` injects only into live listeners, and this
+  design deliberately registers none); the script then proves the path every
+  share takes — a typed `geo:` link is sent into the chat.
+
+## #477 show progress while a picture message downloads (2026-11-15)
+
+Reporter: a slow picture message was indistinguishable from a lost one.
+
+- `MmsDownloadNotice` posts one indeterminate notice per announced message
+  ("Downloading message" / "Your carrier is fetching it") on a low-importance,
+  silent, non-badging channel, keyed on the row id so two arriving at once both
+  show.
+- `MmsDownloader.request` posts it once the platform accepts the transfer;
+  `MmsDownloadReceiver` cancels it the moment the result lands, before the
+  import runs — so it disappears on success and on failure alike.
+- Indeterminate on purpose: `downloadMultimediaMessage` hands the job to the
+  carrier, which reports only at the end, so there is no byte count to show.
+- JUnit: `MmsDownloadNoticeTest` (id derivation from `content://mms/<id>`, the
+  per-row offset, the negative/missing cases).
+- `scripts/test-mms-download-notice.sh` — 3/3 on `emulator-5558`: seeds a
+  pending inbound MMS pointed at a host that never answers, sees the notice as a
+  live record in `dumpsys notification`, then delivers the transfer result and
+  sees the record gone. The completion broadcast goes out as root because the
+  receiver is not exported and `am broadcast` from the shell uid is dropped
+  silently (result=0, nothing received).
+
+## #476 mark one-time-code notifications as sensitive (2026-11-15)
+
+Reporter: an OTP in a text was readable by any notification listener.
+
+- `OtpNotificationPolicy` decides whether a body carries a code using
+  `OtpDetector` — the same pattern the app already highlights for tap-to-copy,
+  so the two cannot disagree — and redacts the digits for the public version.
+- `SmsSupport`'s notification path marks such a message
+  `VISIBILITY_PRIVATE` with the redacted public version: the lock screen still
+  says "Your code is 000000, do not share it" (sender, purpose, and no code),
+  and the app itself shows the real text. `setSensitive` has no `NotificationCompat`
+  equivalent, so private-plus-redacted is what Android 16's SMS OTP protection
+  actually reads.
+- Only the code is redacted, not the sender's wording, so the notification stays
+  useful.
+- JUnit: `OtpNotificationPolicyTest` (detection, redaction, plain texts left
+  alone, blank input).
+- `scripts/test-otp-notification.sh` — 2/2 on `emulator-5558`: a texted code is
+  marked, an ordinary text is not. The script's logcat pattern had been written
+  with a space where logcat prints `OtpNotification: sensitive=…`, so it waited
+  the full two minutes and reported a false failure; it now filters the tag and
+  finishes in about three seconds.
+
 ## #461 a video MMS arrives as a clip (2026-11-14)
 
 Reporter: "download MMS image … download video". A clip-only MMS was stored as

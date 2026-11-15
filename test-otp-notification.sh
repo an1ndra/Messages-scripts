@@ -44,10 +44,10 @@ MSG
 fi
 
 marker=""
-for _ in $(seq 1 120); do
-    marker=$(adb_ logcat -d 2>/dev/null | grep -m1 "OtpNotification sensitive=true" || true)
+for _ in $(seq 1 40); do
+    marker=$(adb_ logcat -d -s OtpNotification 2>/dev/null | grep -m1 "sensitive=true" || true)
     [ -n "$marker" ] && break
-    sleep 1
+    sleep 0.25
 done
 if [ -n "$marker" ]; then ok "the notification was marked for a code"; else bad "no OtpNotification log line"; fi
 
@@ -57,8 +57,8 @@ if [ "$INJECT" != "yes" ]; then
 else
 adb_ logcat -c >/dev/null 2>&1 || true
 adb_ emu sms send +1555771010 "Picking up milk on the way home." >/dev/null 2>&1
-sleep 4
-quiet=$(adb_ logcat -d 2>/dev/null | grep -c "OtpNotification sensitive=true" || true)
+sleep 2
+quiet=$(adb_ logcat -d -s OtpNotification 2>/dev/null | grep -c "sensitive=true" || true)
 [ "$quiet" = "0" ] && ok "a plain text did not get marked" || bad "a plain text was marked ($quiet)"
 fi
 
