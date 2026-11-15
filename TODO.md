@@ -5693,3 +5693,30 @@ was built.
 - `uiautomator` on a locked phone returns the keyguard, which reads as "the app
   never started". Wake + `wm dismiss-keyguard` first, as test-rtl-direction.sh
   already does.
+
+## #482 follow-up: rules grouped by tab, one sheet to add one (2026-11-16)
+
+The rules page was a flat list of rows with a "Keyword · Spam" subtitle: one
+pile that had to be read line by line, and the add form hid it behind a dialog.
+
+- **A section per tab.** Personal, Transactions, OTP and Spam each get a card
+  with its own coloured heading and the rules that file into it; a tab nobody
+  has a rule for says so instead of vanishing. Grouping lives once in
+  `InboxCategoryRules.group()` — `RuleGroupingTest` covers tab order, empty tabs
+  and keeping the user's own rule order. Design mock (Photocraft):
+  `docs/design/482-rules-version-b.png`.
+- **"+" in the top-right corner** opens a Material bottom sheet: Keyword/Sender
+  as a segmented control at the top, the word field under it (focused at once,
+  so the keyboard comes up and the sheet sits above it), then the four tabs as
+  the same radio option rows the settings pages use, then Add.
+- The tab colour is decided once, in `categoryAccent()`, because the section
+  heading and the picker must not disagree about what Spam looks like.
+- `scripts/test-482-rule-sections.sh` — 17 checks in 20 s on the phone: the four
+  headings, a rule's match kind, every control in the sheet, and the order
+  (match kind above the field, tabs below it).
+
+The page is now built out of the app's own settings parts — `SettingsGroup` and
+`SettingsRow`, the same cards every other settings page draws, so the tab
+heading and its rules are cards separated by the usual gap instead of one
+custom surface with hairlines and coloured dots. Tabs keep their order and a
+tab with no rules says so in its subtitle.
