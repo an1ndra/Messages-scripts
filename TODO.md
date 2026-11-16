@@ -5,6 +5,33 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Database from a newer build: explain it, never crash (2026-11-17)
+
+Installing a build from an older branch over one from a newer branch left the
+app unopenable: the schema only moves forward, so `SQLiteOpenHelper` answered
+`Can't downgrade database from version 35 to 33` from a background worker in
+`MessagesApplication.onCreate` — the process died before any screen existed and
+the launcher came back, which reads as "the app does not open". Develop is at
+v33; `fix/476-481` is at v35, so trying that branch on a phone and coming back
+reproduced it every time.
+
+- `DatabaseCompatibility.check()` reads `PRAGMA user_version` read-only before
+  the helper is ever constructed, and `MessagesApplication` parks a newer file
+  as `messages.newer-v<version>.db` (with `-wal`/`-shm`/`-journal`) and starts
+  this build on a fresh database. Nothing is deleted: reinstalling the newer
+  build finds the data waiting in that file.
+- `NewerDataDialog` says so once — both versions, the file's name, and that the
+  build starts empty — instead of a crash with nothing to act on.
+- JUnit: `DatabaseCompatibilityTest` — a newer file is refused, an equal or
+  older one is not, a fresh install is not, and the parked name carries the
+  version.
+- `scripts/test-db-schema-downgrade.sh` — 13 checks: the app is still running
+  and explains itself, SQLite is never asked to downgrade, the file is kept, the
+  notice names it, dismissing leaves a working app on a v33 database, and the
+  notice does not come back on the next launch.
+- Still true: a *release* build on a device cannot be inspected with `run-as`,
+  so the script fakes the state by bumping `user_version` on a debug build.
+
 ## Attachment tray: the panel takes the keyboard's place (2026-11-16)
 
 Attach opened a `ModalBottomSheet`: it slid up from the bottom edge, dimmed the
