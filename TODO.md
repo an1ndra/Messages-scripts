@@ -36,6 +36,11 @@ shortcuts where the keyboard was, with the conversation still on screen.
   the tray's tiles, attach again brings the keyboard back, Back closes the tray,
   a tile whose app is missing does not crash the chat, and picking Gallery
   closes the tray and hands over to the picker.
+- `scripts/test-tray-follows-keyboard.sh` — the tray follows a *different*
+  keyboard. Changing the display density changes the AOSP keyboard's height in
+  dp (it sizes itself as a fraction of the screen): 295 dp at 420 dpi, 374 dp at
+  320 dpi. At both, the tray equals the slot and the composer moves 0-1 px. The
+  density is restored by an EXIT trap even if the run dies.
 - Audio, Location and Contact were built here as well: audio through the
   document picker (staged as an MMS part, drawn as a note chip), location
   behind a confirmation dialog that requests the permission only when it is
