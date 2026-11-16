@@ -78,6 +78,14 @@ wait_kb() {
     return 1
 }
 
+# Bounds of the composer's text field.
+bounds_of_edittext() {
+    dump_ui >/dev/null 2>&1 || return 1
+    grep -oE 'class="android.widget.EditText"[^>]*bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' \
+        "$TMP/ui.xml" 2>/dev/null | head -1 \
+        | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]'
+}
+
 # "x1 y1 x2 y2" of the first node whose text contains $1, or nothing.
 bounds_of_text() {
     dump_ui >/dev/null 2>&1 || return 1
@@ -157,6 +165,8 @@ if wait_kb up; then ok "typing brings the keyboard up"; else bad "no keyboard wh
 if ui_has "$DRAFT"; then ok "the draft is in the field"; else bad "the draft never landed"; fi
 
 # ── tap attach ───────────────────────────────────────────────────────────────
+# The bar's position with the keyboard up, to compare against the tray's slot.
+BEFORE_PX=$(bounds_of_edittext)
 tap_text "$ATTACH" >/dev/null || { bad "no attach button in the composer"; exit 1; }
 
 if wait_kb down; then
@@ -187,6 +197,34 @@ if ui_has "$DRAFT"; then
     ok "the draft survives the keyboard going away"
 else
     bad "the draft was lost when the tray opened"
+fi
+
+# The tray is built to the keyboard's own height, so swapping the two must not
+# move the composer by a pixel.
+AFTER_PX=$(bounds_of_edittext)
+if [ -z "$BEFORE_PX" ] || [ -z "$AFTER_PX" ]; then
+    bad "could not measure the composer before and after"
+else
+    before_top=$(sed -E 's/^\[([0-9]+),([0-9]+)\].*/\2/' <<< "$BEFORE_PX")
+    after_top=$(sed -E 's/^\[([0-9]+),([0-9]+)\].*/\2/' <<< "$AFTER_PX")
+    moved=$(( after_top - before_top ))
+    [ "$moved" -lt 0 ] && moved=$(( -moved ))
+    if [ "$moved" -le 24 ]; then
+        ok "the tray is the keyboard's height, so the composer holds still (${moved}px)"
+    else
+        bad "the composer jumped ${moved}px: the tray is not the keyboard's slot"
+    fi
+fi
+
+# The app names the height it chose, so the two can be compared without pixels.
+# Only the tray's own line: the chat screen logs the same tag without a height.
+HEIGHT_LOG=$(adb_ shell logcat -d 2>/dev/null | grep AttachTrayHeight | grep "tray=" | tail -1)
+TARGET=$(sed -E 's/.*target=([0-9.]+).*/\1/' <<< "$HEIGHT_LOG" | cut -d. -f1)
+TRAY=$(sed -E 's/.*tray=([0-9.]+).*/\1/' <<< "$HEIGHT_LOG" | cut -d. -f1)
+if [ -n "$TARGET" ] && [ "$TARGET" = "$TRAY" ] && [ "$TARGET" != "0" ]; then
+    ok "the tray reports the keyboard's height (${TRAY}dp)"
+else
+    bad "the tray is ${TRAY:-?}dp for a ${TARGET:-?}dp keyboard"
 fi
 
 # The chat has to stay visible: the last message must end above the tray.

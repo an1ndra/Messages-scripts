@@ -20,16 +20,22 @@ shortcuts where the keyboard was, with the conversation still on screen.
 - Opening clears the field's focus and hides the IME; the attach button turns
   into a crossed ring, which closes the tray and hands focus back, as does
   tapping the field. Back closes the tray before it leaves the chat.
-- The tray is 272 dp, about a keyboard's height, so swapping the two does not
-  move the composer. Geometry lives in `AttachTrayMetrics.sizes()`, scaled from
-  the design so a narrower screen shrinks the grid instead of spilling off it.
+- The tray is built to the keyboard's own height, so swapping the two does not
+  move the composer (measured: 0 px). The IME inset arrives in animation frames,
+  so the settled height is read 450 ms after the keyboard appears and
+  remembered; every keyboard open re-reads it, which is what makes the tray
+  follow a resized or taller keyboard. `AttachTrayHeight` in logcat names both
+  numbers. Geometry lives in `AttachTrayMetrics.sizes()`, scaled from the design
+  so a narrower screen shrinks the grid instead of spilling off it.
 - JUnit: `AttachTrayMetricsTest` — the approved geometry at 412 dp, the columns
   and gaps filling the content width at four widths, the camera column keeping
   its ratio, and a narrow screen still getting tappable tiles.
 - `scripts/test-attach-tray.sh` — keyboard hides on attach, the draft survives,
-  both tiles appear, the message's bottom edge stays above the tray's tiles,
-  attach again brings the keyboard back, Back closes the tray, and picking
-  Gallery closes it and hands over to the picker.
+  all five tiles appear, the composer measures the same position before and
+  after (the tray is the keyboard's slot), the message's bottom edge stays above
+  the tray's tiles, attach again brings the keyboard back, Back closes the tray,
+  a tile whose app is missing does not crash the chat, and picking Gallery
+  closes the tray and hands over to the picker.
 - Audio, Location and Contact were built here as well: audio through the
   document picker (staged as an MMS part, drawn as a note chip), location
   behind a confirmation dialog that requests the permission only when it is
