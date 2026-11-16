@@ -5,6 +5,35 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## Attachment tray: the panel takes the keyboard's place (2026-11-16)
+
+Attach opened a `ModalBottomSheet`: it slid up from the bottom edge, dimmed the
+conversation behind a scrim and left the keyboard up under it. The ask was the
+opposite — tapping attach while typing should put the keyboard away and show the
+shortcuts where the keyboard was, with the conversation still on screen.
+
+- `AttachTray` (new, `ui/AttachTray.kt`) is a plain strip at the bottom of the
+  chat's own column: a tall camera tile beside a grid of the other actions, a
+  the same `chatBar` fill the composer sits in, so it
+  reads as the keyboard's slot instead of a card over the chat. Design mocks:
+  `docs/design/attach-tray.png` (dark/light + composer states).
+- Opening clears the field's focus and hides the IME; the attach button turns
+  into a crossed ring, which closes the tray and hands focus back, as does
+  tapping the field. Back closes the tray before it leaves the chat.
+- The tray is 272 dp, about a keyboard's height, so swapping the two does not
+  move the composer. Geometry lives in `AttachTrayMetrics.sizes()`, scaled from
+  the design so a narrower screen shrinks the grid instead of spilling off it.
+- JUnit: `AttachTrayMetricsTest` — the approved geometry at 412 dp, the columns
+  and gaps filling the content width at four widths, the camera column keeping
+  its ratio, and a narrow screen still getting tappable tiles.
+- `scripts/test-attach-tray.sh` — keyboard hides on attach, the draft survives,
+  both tiles appear, the message's bottom edge stays above the tray's tiles,
+  attach again brings the keyboard back, Back closes the tray, and picking
+  Gallery closes it and hands over to the picker.
+- Only Camera and Gallery exist as attach actions on `Develop`; Audio, Location
+  and Contact attach live on unmerged `fix/476-481`. The tray takes a list, so
+  those slot in as rows of two when that branch lands.
+
 ## #405 follow-up: the forward picker listed one person twice (2026-11-15)
 
 Reporter (point 1 of the 2026-11-15 comment): "some numbers are duplicated in
