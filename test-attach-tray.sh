@@ -266,6 +266,27 @@ else
     bad "the location prompt would not close"
 fi
 
+# ── a tile whose app is missing must not crash the chat ──────────────────────
+# This AVD has no camera app, which is the case that used to take the process
+# down with ActivityNotFoundException.
+tap_text "$ATTACH" >/dev/null
+wait_present "$CAMERA" >/dev/null
+sleep 1
+tap_text "$CAMERA" >/dev/null
+sleep 2
+alive=$(adb_ shell dumpsys activity activities | grep -m1 mResumedActivity | grep -c "$PKG")
+if [ "$alive" = "1" ]; then
+    ok "tapping $CAMERA without a camera app leaves the chat running"
+else
+    bad "tapping $CAMERA without a camera app left the app"
+fi
+dump_ui >/dev/null 2>&1
+if grep -qF 'class="android.widget.EditText"' "$TMP/ui.xml"; then
+    ok "the composer is still there after the missing-app tap"
+else
+    bad "the chat did not survive the missing-app tap"
+fi
+
 # ── a tile runs its action and closes the tray ───────────────────────────────
 tap_text "$ATTACH" >/dev/null
 wait_present "$CAMERA" >/dev/null

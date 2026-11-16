@@ -30,9 +30,19 @@ shortcuts where the keyboard was, with the conversation still on screen.
   both tiles appear, the message's bottom edge stays above the tray's tiles,
   attach again brings the keyboard back, Back closes the tray, and picking
   Gallery closes it and hands over to the picker.
-- Only Camera and Gallery exist as attach actions on `Develop`; Audio, Location
-  and Contact attach live on unmerged `fix/476-481`. The tray takes a list, so
-  those slot in as rows of two when that branch lands.
+- Audio, Location and Contact were built here as well: audio through the
+  document picker (staged as an MMS part, drawn as a note chip), location
+  behind a confirmation dialog that requests the permission only when it is
+  needed, and a contact sent as a vCard (`ContactCard`). All three strings
+  landed in the 13 translated locales.
+- Each tile carries one of the scheme's three accents on its icon, cycled, so a
+  dynamic palette keeps them related instead of turning the tray into a paint
+  chart.
+- A tile that opens another app is launched through `launchOrExplain`: this
+  AVD's camera app was removed, and an unguarded `launch()` threw
+  `ActivityNotFoundException` and took the chat down on the Camera tap.
+  `LaunchGuardWiringTest` holds every picker inside the guard, and
+  `scripts/test-attach-tray.sh` taps Camera and asserts the composer survives.
 
 ## #405 follow-up: the forward picker listed one person twice (2026-11-15)
 
