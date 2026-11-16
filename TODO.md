@@ -13,9 +13,9 @@ opposite — tapping attach while typing should put the keyboard away and show t
 shortcuts where the keyboard was, with the conversation still on screen.
 
 - `AttachTray` (new, `ui/AttachTray.kt`) is a plain strip at the bottom of the
-  chat's own column: a tall camera tile beside a grid of the other actions, a
-  the same `chatBar` fill the composer sits in, so it
-  reads as the keyboard's slot instead of a card over the chat. Design mocks:
+  chat's own column: a tall camera tile beside a grid of the other actions,
+  painted in the page's own colour instead of a band under the chat. Design
+  mocks:
   `docs/design/attach-tray.png` (dark/light + composer states).
 - Opening clears the field's focus and hides the IME; the attach button turns
   into a crossed ring, which closes the tray and hands focus back, as does
