@@ -5857,3 +5857,60 @@ The page is now built out of the app's own settings parts — `SettingsGroup` an
 heading and its rules are cards separated by the usual gap instead of one
 custom surface with hairlines and coloured dots. Tabs keep their order and a
 tab with no rules says so in its subtitle.
+
+## #485 search filter operators (2026-11-18)
+
+The home search now understands four combinable operators: `from:`, which
+narrows to who the chat is with (a quoted value spans spaces), `has:attachment`,
+and `before:`/`after:` which read message time. Everything the operators did not
+consume stays plain text, so an unrecognised query behaves exactly as before —
+`from: Dad` (space after the colon) is still a text search.
+
+### What changed
+- `SearchFilters.parse()` — the pure tokenizer (object, no state): operator
+  spans, quoted values, and digits in any script (Persian/Arabic) folded to
+  ASCII before the `y/m/d` match. A date stays a `CalendarDayInput` until
+  `rememberSearchQueryFilters` converts it through `IcuCalendarMonths.utcMillisOf`,
+  so a typed date means the day the resolved calendar shows everywhere else —
+  the same seam the schedule grid reads. `before:` closes at the end of that
+  day, `after:` starts at its beginning.
+- `ConversationList.senderMatches` — the `from:` rule, reusing
+  `AddressIdentity.matchesNumber` so `from:+1555…` finds a thread stored as a
+  bare national number too.
+- `ConversationList.filter(..., snippetIsAMatch = false)` — when a message-level
+  filter is active, the snippet (just the newest message's body) must not
+  surface a thread on its own; only a scan hit that satisfied the filter may.
+  Without this, `has:attachment` showed every chat whose newest message
+  contained the word.
+- Repository `conversationIdsMatchingMessage` / `starredMessages` take the
+  filters as SQL clauses (`media_uri != ''`, timestamp bounds); the LIKE stays a
+  prefilter, `MessageSearch.matchesVisible` still owns visibility.
+- Chips under the search field, one per operator, tapping one removes exactly
+  that operator (`Parsed.without`) and keeps everything else; a plain query
+  draws nothing. Four new strings × 13 locales.
+
+### Tests
+- `SearchFiltersTest` 13, `ConversationListTest` +5 (senderMatches, snippet
+  rule), `StarredMessagesTest` anchor widened to the clause-list query.
+- `scripts/test-search-filters.sh` — 18 checks: seeded three conversations, one
+  message timestamped 2010-06-15 (that is what makes before/after distinguishable
+  from text search at all), one with `media_uri` set. Red on the Develop
+  baseline (5 failures: every message-level operator), green on the build 18/0.
+- Row visibility is asserted through the row title, never a bare substring —
+  the search field itself holds the query, which shares the address strings,
+  so a naive grep reads a filtered-out row as visible (uiautomator dumps only
+  the visible window, and node order puts `text=""` before `content-desc`, so
+  the matcher must test both attributes).
+
+### Traps worth remembering
+- **The headless AVD sleeps between searches.** A tap meant for the app's
+  Search icon then lands on the lock screen or the launcher's app-list search,
+  and every later `input text` goes into that box — the failure looks like the
+  feature ignoring operators. `svc power stayon true` at setup plus wake +
+  `wm dismiss-keyguard` in every launch.
+- **The home list flow can emit after the dump** — a "missing" row needs a
+  retrying presence check, and an absence check needs three independent dumps,
+  or a slow emission reads as a correct filter.
+- `pm clear`-free seeding through `run-as` sqlite3 works, but a NEWER database
+  on the AVD (v35, from a newer install) crashes the app at startup with
+  "Can't downgrade database from version 35 to 33" — `pm clear` first.
