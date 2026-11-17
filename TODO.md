@@ -5,6 +5,66 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The keyboard's lie: the composer stays on the keyboard whatever the inset says (2026-11-18)
+
+MIUI 14 with an enlarged display size reports an IME inset far larger than the
+real keyboard to an edge-to-edge window: the composer's `imePadding` reserved
+nearly the whole screen, and the issue's video shows the input row pinned to
+the top of the window — behind the header, where tapping it opened the contact
+sheet instead — with the reserved height blank below and the conversation gone
+with it. Frame-by-frame, the video's send circle sits at y16-52 of a 1600px
+portrait screen while the keyboard draws at y930+.
+
+- `ImeGuard` (`ui/ImeGuard.kt`) clamps the reported inset to what the window's
+  own visible display frame says the keyboard covers — the number the OEM
+  itself places its UI by — so a dishonest report can only lose. On a truthful
+  report the two agree and nothing changes. `ImeGuard` in logcat names both
+  numbers, so a dishonest phone is diagnosable without a debugger.
+- The emulator reports honest insets, so the dishonest state is driven through
+  the debug probe: `--ei ime_probe_reported_bottom 2200` makes the app read
+  that number as the platform's report. On the probe-only build the forced
+  phase fails exactly like the video (composer at y0, no keyboard, conversation
+  gone); with the clamp all 11 checks pass.
+- JUnit: `ImeGuardTest` — an honest report stands, a smaller one stands too (a
+  window that resized), the dishonest one is clamped, negative overlaps mean
+  no keyboard, the overlap math including a window not starting at the screen
+  top, and the debug stand-in replaces the report until cleared.
+- `scripts/test-keyboard-ime-guard.sh` — 11 checks: honest insets behave
+  exactly as before, then a forced MIUI-style report still has the composer
+  on the keyboard, clear of the status bar, with the conversation readable.
+  Red on the probe-only build (4 failures in the forced phase), green after.
+
+## First launch: the role first, and only what it does not grant (2026-11-18)
+
+A new user met three system permission dialogs (SMS, contacts, notifications)
+before the app's own "Set as default SMS app" prompt — four yes-screens before
+a message. Holding the SMS role silently grants the whole SMS set, so the SMS
+dialog asked for something the role was about to hand over anyway.
+
+- `requestSmsPermissions()` at `onCreate` is gone. `LaunchPermissions`
+  (`data/LaunchPermissions.kt`) decides what is still worth asking for after
+  the role had its say: the SMS set only when the role was declined,
+  notifications where the OS makes them runtime, and never contacts.
+- The ask now fires from the role dialog's resolution (accept or decline) and
+  once at launch when the role is already held. Declining the role asks for
+  the SMS set immediately after — without it a non-default SMS app is useless
+  in silence.
+- Contacts moved to the first screen that needs them (`new`, `details`,
+  `add-people`): the list renders raw numbers until then, so nothing waits on
+  the answer.
+- `READ_MEDIA_IMAGES` left the manifest: the gallery attach went through the
+  system photo picker, which never needed it.
+- JUnit: `LaunchPermissionsTest` — the role covers the SMS set, a declined
+  role still asks for it, notifications are runtime only from API 33, granted
+  permissions are never re-asked, contacts are never in a launch ask.
+- `scripts/test-first-launch-permissions.sh` — 12 checks over a fresh install
+  (role handed to Google Messages, `pm clear`): no system permission dialog
+  ever takes the screen at launch, the app's own prompt is the first thing,
+  declining it asks for the SMS set afterwards and leaves a reachable inbox,
+  a new session repeats that, and the contacts dialog appears only when the
+  new-chat screen opens. Red on the pre-fix build at the launch check, green
+  after.
+
 ## Database from a newer build: explain it, never crash (2026-11-17)
 
 Installing a build from an older branch over one from a newer branch left the
