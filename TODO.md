@@ -5,6 +5,34 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #478 a two-pane layout on wide windows (2026-11-19)
+
+There was no window-size handling anywhere: a tablet, an unfolded foldable or
+Android 16's desktop window got the phone UI stretched, and opening a chat threw
+the list away. Android 16 makes resizable windows the default on large screens,
+so this was no longer an edge case.
+
+- `calculateWindowSizeClass(this)` decides: a compact window keeps exactly
+  today's single pane, and only an expanded one splits.
+- The split is a **layout of the one navigation stack**, not a second one. The
+  list is one composable lambda and the route stack is another, and both
+  layouts render the same two: a `Row` with the list in a 0.4-weight column and
+  the `AnimatedContent` in the rest, or the old overlay `Box`. `navRoute`,
+  `routeDepth` and the transitions are untouched, so nothing can drift.
+- With nothing open the right pane says "Choose a conversation to open it here"
+  instead of being blank, and Back from a chat returns to that pane with the
+  list still in place.
+- New dependency: `androidx.compose.material3:material3-window-size-class`, via
+  the existing Compose BOM. One new string in all 13 locales.
+- JUnit: `TwoPaneLayoutTest` — the width class decides, both layouts use the
+  same two lambdas, there is still exactly one `AnimatedContent` keyed on
+  `navRoute`, and the empty pane names itself.
+- `scripts/test-two-pane.sh` — 7 checks: a phone still shows the chat over the
+  list; an expanded window (display override) shows both, with the list's left
+  edge before the chat's; the placeholder appears when nothing is open and sits
+  in the right pane; Back returns to it. Red on the pre-fix build (4 failures —
+  no split at all), green after.
+
 ## #483 one-tap suggested replies in the composer and the notification (2026-11-19)
 
 The reply field started from nothing, and so did the notification's inline
