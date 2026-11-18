@@ -5,6 +5,43 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #475 a queued message is visible between scheduling and sending (2026-11-18)
+
+Scheduling a text hid it: the row lived in `scheduled_messages`, the alarm was
+in `AlarmManager`, and the shade showed nothing until the send landed. The only
+way to see the queue, change a time or drop one was Settings.
+
+- `ScheduledNotifications` posts one ongoing card per pending row, tagged
+  `scheduled` so a row id can never collide with a message id. The countdown is
+  a system chronometer (`setUsesChronometer` + `setChronometerCountDown`), so it
+  repaints every second without a wakeup of ours, and the two actions are the
+  row's own two: Send now and Cancel.
+- Its own channel (`messages_scheduled`, `IMPORTANCE_LOW`, no sound, no badge):
+  a countdown is state, not an arrival. Posting goes through the same
+  `NotificationHelper.canPost` every other notification does, and a private
+  body never reaches the lock screen.
+- On Android 16 the card is promoted (`ProgressStyle`, one static segment since
+  the chronometer is the real countdown, `FLAG_PROMOTED_ONGOING`,
+  `setShortCriticalText`), guarded by `canPostPromotedNotifications()`. API
+  29-35 keeps the plain ongoing card.
+- The shade is wiped by a reboot and by an app update, and the post at schedule
+  time can be refused with the row still waiting, so boot and app start both
+  reconcile: pending rows are re-posted, cards whose row is gone are dropped.
+- The receiver answers `SCHEDULED_SEND_NOW` and `SCHEDULED_CANCEL`; send-now
+  reads the row back (a card outlives a reschedule) and every send path retires
+  the card in a `finally`.
+- JUnit: `ScheduledNotificationTest` — the id mask, the countdown rounding, the
+  ongoing/chronometer/reminder shape, the two actions and their receiver
+  routing, send-now reading the row back, the card following
+  schedule/reschedule/cancel, the `finally` cancel, boot + app-start reconcile,
+  the silent channel, the master switch and privacy, and the promotion guards.
+- `scripts/test-scheduled-notifications.sh` — 16 checks: a seeded row produces
+  one ongoing card on the silent channel with the queued body and two actions;
+  Cancel drops row and card; Send now sends the text and retires both; two rows
+  produce two cards; app start drops the card of a row deleted behind its back
+  and keeps the live one. Red on the pre-fix build (13 failures — no card at
+  all), green after.
+
 ## The keyboard's lie: the composer stays on the keyboard whatever the inset says (2026-11-18)
 
 MIUI 14 with an enlarged display size reports an IME inset far larger than the
