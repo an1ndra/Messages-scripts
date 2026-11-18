@@ -5,6 +5,46 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #484 a nudge for the message that was read and forgotten (2026-11-19)
+
+Unread counts only cover messages nobody opened. The thread that gets lost is
+the opposite one: read, meant to be answered, and then forgotten. Nothing here
+brought it back, while Google Messages nudges after a day or two.
+
+- The decision is one pure function, `ReplyNudgePolicy.shouldNudge`: the newest
+  message must be inbound, the thread already read, at least the configured
+  interval old, and the thread not archived, blocked, trashed or muted (a chat
+  is muted through its Android channel). One nudge per conversation per day,
+  so a thread that stays unanswered is not re-posted on every check.
+- `ReplyNudge` posts one card per conversation, tagged `nudge`, on its own
+  silent channel (`messages_nudge`, `IMPORTANCE_LOW`, no sound, no badge, no
+  screen wake). It is a reminder, so it carries `CATEGORY_REMINDER`, private
+  visibility (privacy mode keeps the body off the lock screen), and tapping it
+  opens that chat. A pass of `reconcile` both posts what is due and drops cards
+  that stopped qualifying, so the shade cannot drift from the rule.
+- The question "is this chat muted?" is answered by `NotificationHelper
+  .messageChannelFor`, extracted out of `show()` so the poster and the nudge
+  cannot disagree about which channel a chat uses.
+- `ReplyNudgeScheduler` runs a Worker at WorkManager's 15-minute floor (the
+  policy decides what is due) and a one-shot check at app start and on every
+  switch change. Turning the switch off disarms both and clears the cards
+  already posted; the master notification switch and the runtime permission
+  gate it too, through the same `canPost` every other notification uses.
+- Replying is the answer being waited for, so `Repository.touchConversation
+  (isMe = true)` cancels the card — every send path ends there.
+- Off by default, with a switch and a 1/2/3-day interval beside the other
+  notification settings. Eleven new strings in all 13 translated locales.
+- JUnit: `ReplyNudgePolicyTest` (10 tests) — the age test, answered/unread,
+  every quiet state, the once-a-day cap, the interval bounds, the switch
+  owning the Worker, the cancel hook on the send path, the quiet card shape and
+  the worker asking the policy and the master switch.
+- `scripts/test-reply-nudge.sh` — 13 checks: with the switch off nothing is
+  posted; with it on the read-and-forgotten thread gets one card on the silent
+  channel whose body is the unanswered message and which stays private, while
+  the hour-old and the answered threads are left alone; tapping the card opens
+  that chat; replying retires it; turning the switch off clears what is left.
+  Red on the pre-fix build (8 failures — no card at all), green after.
+
 ## #475 a queued message is visible between scheduling and sending (2026-11-18)
 
 Scheduling a text hid it: the row lived in `scheduled_messages`, the alarm was
