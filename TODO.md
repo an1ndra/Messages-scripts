@@ -5,6 +5,38 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #483 one-tap suggested replies in the composer and the notification (2026-11-19)
+
+The reply field started from nothing, and so did the notification's inline
+reply, which is where most replies actually happen. "On my way" and "Thanks"
+cover most of what gets typed on a phone, and a few patterns recognise them.
+
+- `SuggestedReplies` is a pure local heuristic — no model, no network, no
+  dependency. A yes/no question offers Yes and No, "where are you" offers a
+  position, thanks offers a welcome, an arrival offers "on my way", a call
+  offers to call back, a greeting offers a greeting, and a plan offers
+  "sounds good". A plain statement offers nothing: a wrong suggestion is worse
+  than none.
+- The phrases are an enum of string resources, so every chip is translated and
+  the rule stays testable without a Context. Fourteen new strings in all 13
+  locales.
+- The composer shows the chips above the message box only while the field is
+  empty and the newest message is theirs; picking one fills the composer
+  rather than sending, so the user still sees what leaves their phone.
+- The notification's reply action carries the same choices as `RemoteInput`
+  choices, so the shade reply is one tap too.
+- On by default, with a switch in Notification settings next to the reply
+  actions; off removes both surfaces.
+- JUnit: `SuggestedRepliesTest` (6 tests) — yes/no vs other questions, the
+  everyday shapes, silence on a plain statement, the thread gate (newest
+  inbound text, switch, empty thread, photo), the string mapping, and the
+  composer/notification/settings wiring.
+- `scripts/test-suggested-replies.sh` — 8 checks: a yes/no question offers Yes
+  and No; picking one fills the composer and creates no message; the chips
+  stand down once the field has text; a plain statement gets none; the switch
+  removes them. Red on the pre-fix build (3 failures — no chips at all), green
+  after.
+
 ## #484 a nudge for the message that was read and forgotten (2026-11-19)
 
 Unread counts only cover messages nobody opened. The thread that gets lost is
