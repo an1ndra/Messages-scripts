@@ -23,9 +23,10 @@ fi
 
 adb_su "cmd role add-role-holder android.app.role.SMS $PKG" >/dev/null 2>&1
 cleanup() {
-    # Leave the device with MMS on, whatever happened here.
+    # Leave the device with MMS on, whatever happened here. The probe is read in
+    # onCreate, so the app has to be restarted for it to take effect.
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
-    adb_ shell am start -n "$ACT" --es mms_probe on >/dev/null 2>&1 || true
+    adb_ shell am start -W -n "$ACT" --es mms_probe on >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
