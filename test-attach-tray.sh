@@ -34,8 +34,9 @@ GALLERY=$(res_string chat_media_gallery)
 AUDIO=$(res_string chat_media_audio)
 LOCATION=$(res_string chat_media_location)
 CONTACT=$(res_string chat_media_contact)
-LOC_TITLE=$(res_string chat_location_title)
-CANCEL=$(res_string chat_cancel)
+# The dialog asks for the link before it sends anything, and its "Use my
+# location" button exists only there - a marker the composer never shows.
+LOC_PROMPT=$(res_string location_use_mine)
 
 # Every wait polls a condition 20 times a second instead of sleeping a fixed
 # few seconds per step: the whole run is dominated by `uiautomator dump`
@@ -287,7 +288,7 @@ else
 fi
 sleep 1
 tap_text "$LOCATION" >/dev/null
-if wait_present "$LOC_TITLE"; then
+if wait_present "$LOC_PROMPT"; then
     ok "the $LOCATION tile asks before sending where you are"
 else
     bad "the $LOCATION tile sent without asking"
@@ -297,8 +298,8 @@ if wait_gone "$CAMERA"; then
 else
     bad "the tray stayed up behind the location prompt"
 fi
-tap_text "$CANCEL" >/dev/null
-if wait_gone "$LOC_TITLE"; then
+adb_ shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+if wait_gone "$LOC_PROMPT"; then
     ok "the location prompt can be dismissed"
 else
     bad "the location prompt would not close"
