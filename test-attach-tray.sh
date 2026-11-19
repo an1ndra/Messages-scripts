@@ -8,6 +8,7 @@
 #   * the conversation stays on screen above the tray (the last message's
 #     bottom edge is above the tray's tiles, so nothing is covered),
 #   * tapping attach again brings the keyboard back and removes the tray,
+#     without the composer dropping to the window's bottom and climbing back,
 #   * Back closes the tray,
 #   * choosing a tile closes the tray and runs that action.
 #
@@ -131,11 +132,13 @@ if [ -z "$CONV" ]; then
 fi
 dbq "INSERT INTO messages (conversation_id,body,timestamp,is_me,status,media_type,media_uri,sub_id,transport,address) VALUES ($CONV,'$BODY',$NOW_MS,0,'received','text','',1,'sms','$NUM');" >/dev/null
 
-adb_ shell am start -n "$ACT" >/dev/null 2>&1
+# -W waits for the activity to draw: a Back pressed during a cold start
+# lands on the launcher and takes the app down with it.
+adb_ shell am start -W -n "$ACT" >/dev/null 2>&1
 
 # A leftover prompt or permission sheet sits on top of the list; dismiss
 # whatever is in front before looking for it.
-for i in 1 2 3; do
+for i in 1 2 3 4; do
     if wait_present "$(res_string access_start_chat)" 4; then break; fi
     adb_ shell input keyevent KEYCODE_BACK >/dev/null 2>&1
 done
@@ -246,6 +249,9 @@ else
 fi
 
 # ── tap attach again ─────────────────────────────────────────────────────────
+# The swap back to the keyboard is measured from the app's own log, so start it
+# clean: only the frames of this close are read below.
+adb_ shell logcat -c >/dev/null 2>&1
 tap_text "$CLOSE" >/dev/null
 if wait_gone "$CAMERA"; then
     ok "tapping the crossed button closes the tray"
@@ -256,6 +262,36 @@ if wait_kb up; then
     ok "the keyboard comes back with the field"
 else
     bad "the keyboard did not come back"
+fi
+
+# Closing swaps the two back the other way. The composer used to drop to the
+# bottom of the window for the first frames and climb back with the keyboard.
+# No dump catches that (it is over in a few frames), so the app's own height log
+# is read instead: while the keyboard is returning, the composer must hold the
+# slot the tray vacated rather than follow the keyboard up from zero.
+wait_kb up >/dev/null
+sleep 0.5
+SWAP=$(adb_ shell logcat -d 2>/dev/null | grep "AttachTrayHeight: ime=" | grep "open=false")
+seen=$(grep -c "composer=" <<< "$SWAP")
+dropped=$(awk -v slot="${TARGET:-0}" '
+    {
+        ime = ""; comp = ""
+        for (i = 1; i <= NF; i++) {
+            if ($i ~ /^ime=/) { split($i, a, "="); ime = a[2] }
+            if ($i ~ /^composer=/) { split($i, a, "="); comp = a[2] }
+        }
+        if (ime != "" && comp != "" && ime + 0 >= 60 && comp + 0 < slot - 2) {
+            print "ime=" ime " composer=" comp
+        }
+    }' <<< "$SWAP")
+if [ -z "${TARGET:-}" ] || [ "$TARGET" = "0" ]; then
+    bad "the tray never reported its height, so the swap back cannot be checked"
+elif [ "$seen" -eq 0 ]; then
+    bad "the app reported no composer height while the keyboard came back"
+elif [ -n "$dropped" ]; then
+    bad "the composer dropped below the tray's slot on the way back: $(head -1 <<< "$dropped")"
+else
+    ok "the composer holds the tray's slot while the keyboard comes back"
 fi
 
 # ── Back closes the tray ─────────────────────────────────────────────────────
