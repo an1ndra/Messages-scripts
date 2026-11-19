@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
-# Issue #480: the attach sheet offers a contact, the system contact picker opens,
-# and picking one sends that person's card as a vCard text into the chat.
+# Issue #480: the tray offers a contact, the system contact picker opens, and
+# picking one sends that person's card into the chat.
 #
-#   bash scripts/test-contact-card.sh
+# What it asserts, in the order a finger does it:
+#   * the tray lists a Contact tile and it opens the system contact picker,
+#   * picking someone stores the message as a contact card (a .vcf attachment),
+#     not as text with the vCard pasted into the body,
+#   * the chat draws it as a card — the name and number, not BEGIN:VCARD.
+#
+# A vCard pasted into the body is what a text message carries: the receiving
+# phone shows the properties, not a contact. Only the attachment form is a card.
+#
+# Run: scripts/test-contact-card.sh          (add -v to see every dump)
 set -uo pipefail
 cd "$(dirname "$0")"
 source ./env.sh
@@ -50,31 +59,37 @@ PY
 local_query() { adb_ shell "run-as '$PKG' sqlite3 databases/messages.db \"$1\"" | tr -d '\r'; }
 
 contact_label=$(res_string chat_media_contact)
-PICKED="Alex"                     # a demo contact, from demo-data.sh
+PICKED="Alex"                     # a demo contact, from insert-demo-contacts.sh
+
+# Runtime grants first: a permission dialog on top reads as "the tile did
+# nothing", and a denied READ_CONTACTS leaves the picker unable to hand back a
+# number at all.
+adb_su "pm grant $PKG android.permission.READ_CONTACTS" >/dev/null 2>&1 \
+    || adb_ shell pm grant "$PKG" android.permission.READ_CONTACTS >/dev/null 2>&1
 
 MAXID=$(local_query "SELECT IFNULL(MAX(id),0) FROM messages;")
 cleanup() {
     adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
-    local_query "DELETE FROM messages WHERE body LIKE 'BEGIN:VCARD%' AND id > ${MAXID:-0};" >/dev/null 2>&1 || true
+    local_query "DELETE FROM messages WHERE id > ${MAXID:-0} AND (media_type = 'contact' OR body LIKE 'BEGIN:VCARD%');" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 info "Open the first conversation"
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1
-adb_ shell am start -n "$ACT" >/dev/null 2>&1
-sleep 5
+adb_ shell am start -W -n "$ACT" >/dev/null 2>&1
+sleep 3
 row=$(first_row || true)
 [ -n "$row" ] && adb_ shell input tap ${row% *} ${row#* } && sleep 3 \
     || { bad "no conversation to open"; exit 1; }
 
-info "The attach sheet offers '$contact_label'"
+info "The tray offers '$contact_label'"
 attach=$(center_of "Attach" || true)
 [ -n "$attach" ] && adb_ shell input tap ${attach% *} ${attach#* } && sleep 2 \
     || bad "attach button not found"
 if dump_ui >/dev/null && grep -q "text=\"$contact_label\"" "$TMP/ui.decoded.xml"; then
-    ok "attach sheet lists '$contact_label'"
+    ok "the attach tray lists '$contact_label'"
 else
-    bad "attach sheet has no '$contact_label' entry"
+    bad "the tray has no '$contact_label' tile"
 fi
 
 info "Tapping it opens the system contact picker"
@@ -86,32 +101,45 @@ case "$focus" in
     *) bad "no contacts picker (focus: ${focus##*u0 })" ;;
 esac
 
-info "Picking '$PICKED' sends the card into the chat"
+info "Picking '$PICKED' sends a card"
 person=$(center_of "$PICKED" || true)
-if [ -n "$person" ]; then
-    adb_ shell input tap ${person% *} ${person#* }; sleep 4
-    # The bubble's text carries real newlines once the dump's entities are
-    # expanded, so the card is matched as one node rather than line by line.
-    dump_ui >/dev/null
-    if python3 - "$TMP/ui.xml" "$PICKED" <<'PY'
+if [ -z "$person" ]; then
+    bad "no '$PICKED' row in the picker (run scripts/insert-demo-contacts.sh)"
+    echo; echo "  PASS=$PASS FAIL=$FAIL"; exit 1
+fi
+adb_ shell input tap ${person% *} ${person#* }; sleep 4
+
+# ── the stored message is a card, not text ──────────────────────────────────
+row=$(local_query "SELECT media_type || '|' || media_uri FROM messages WHERE id > ${MAXID:-0} ORDER BY id DESC LIMIT 1;")
+kind=${row%%|*}
+uri=${row#*|}
+if [ "$kind" = "contact" ]; then
+    ok "the message is stored as a contact card"
+else
+    bad "the message is stored as '$kind', not a contact card"
+fi
+case "$uri" in
+    *.vcf) ok "the card travels as a .vcf attachment" ;;
+    *) bad "no .vcf attachment behind the card (uri: ${uri:-none})" ;;
+esac
+
+# ── the chat draws it as a card ─────────────────────────────────────────────
+dump_ui >/dev/null
+if python3 - "$TMP/ui.xml" "$PICKED" <<'PY'
 import re, sys
 from html import unescape
 xml = open(sys.argv[1]).read()
 picked = sys.argv[2]
-for m in re.finditer(r'text="([^"]*)"', xml):
-    text = unescape(m.group(1))
-    if (text.startswith("BEGIN:VCARD") and f"FN:{picked}" in text
-            and "TEL;TYPE=CELL:+" in text and text.rstrip().endswith("END:VCARD")):
-        sys.exit(0)
-sys.exit(1)
+texts = [unescape(m.group(1)) for m in re.finditer(r'text="([^"]*)"', xml)]
+has_name = any(t.strip() == picked for t in texts)
+has_number = any(t.strip().startswith("+") and t.strip()[1:].isdigit() for t in texts)
+raw = any(t.strip().startswith("BEGIN:VCARD") for t in texts)
+sys.exit(0 if (has_name and has_number and not raw) else 1)
 PY
-    then
-        ok "the chat holds a vCard for $PICKED with its number"
-    else
-        bad "no vCard for $PICKED reached the chat"
-    fi
+then
+    ok "the chat shows a card for $PICKED: name and number, no raw properties"
 else
-    bad "no '$PICKED' row in the picker (run insert-demo-contacts.sh?)"
+    bad "the chat did not draw a card (raw vCard text, or no number)"
 fi
 
 info "Result"
