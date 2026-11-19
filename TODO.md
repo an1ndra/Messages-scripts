@@ -5,6 +5,35 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## The participant write needed a SQLite Android 10 does not have (2026-11-19)
+
+`upsertParticipant` wrote its row with `INSERT … ON CONFLICT(…) DO UPDATE`.
+That syntax arrived in SQLite 3.24, and **Android 10 — the app's minimum —
+ships 3.22**, where the statement is a syntax error. Every path that touches a
+person went through it: the startup migration, `syncFromSystem`, and creating a
+conversation.
+
+The visible symptom was a blank inbox: the import threw on the first new
+number, `syncFromSystem` logged "syncFromSystem failed", and no conversation
+was ever created — so a fresh install on Android 10 showed an empty app while
+the system still held the messages. The startup migration threw the same error
+from a coroutine, which took the whole process down.
+
+- The write is an `UPDATE`, then an `INSERT` when nothing matched, with the
+  unique-constraint race caught and retried as an `UPDATE`. No statement needs
+  anything newer than the platform's own SQLite.
+- Every column the old upsert kept is still written (normalized, send and
+  display forms, comparable form, country code, sub id), and a non-phone sender
+  still gets no participant row.
+- JUnit: `ParticipantUpsertTest` — no upsert syntax anywhere in the repository,
+  the update-then-insert shape, every column, the concurrent-writer retry, and
+  the migration's own flag.
+- `scripts/test-participant-upsert.sh` — 8 checks: with the migration flag
+  cleared and the table empty, the app launches, the participants table fills,
+  a number stored without its `+` is normalised, the display form is written,
+  no crash report is produced and the pass marks itself done. Red on the
+  pre-fix build (the app never came up), green after.
+
 ## #478 a two-pane layout on wide windows (2026-11-19)
 
 There was no window-size handling anywhere: a tablet, an unfolded foldable or
