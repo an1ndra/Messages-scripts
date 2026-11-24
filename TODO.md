@@ -6117,3 +6117,44 @@ Left alone on purpose: the meta line still appears only on the newest message
 of a thread (`showTime = isLastMessage || isRevealed`). The reporter asked for
 time + status + SIM under *every* message; that is a chat redesign, not this
 fix, and it needs a decision before it ships.
+
+## #524: a private text from a group member notified on the group (2026-11-25)
+
+Reporter on Android 16 (Motorola razr+ 2024): one contact's private texts popped
+a **group's** notification, it survived deleting that group's messages, every
+other contact was fine, and the chat list itself was correct. The screenshots
+settled it — the group is titled after him, so it was started from his 1:1 and
+carries his number.
+
+`conversations.address` is not unique since #448: a group started from a chat
+takes the primary contact's address, and `conversationIdForAddressBlocking`
+settles that tie in favour of the single-recipient thread. The notifier did not
+use it. `Repository.conversationIdForAddress` ran its own
+`SELECT id … WHERE address=?` with no `ORDER BY`, so the older row — the group —
+won, and `show()` posted that record: group channel, group history, group id.
+Filing was always right, which is why the app looked fine and only the shade
+lied.
+
+- `SmsReceiver` now posts on the id `receiveMessage` returned, exactly like the
+  MMS import path already did — no second lookup to disagree with.
+- `Repository.conversationIdForAddress` delegates to the blocking (tie-breaking)
+  lookup, so mark-read, delete, send-failed and open-by-address agree too.
+- Pinned by `NotificationConversationLookupTest` (receiver passes the id, one
+  lookup rule, tie goes to the one-recipient chat) and
+  `scripts/test-notification-shared-address.sh` — 7 checks: seeds a group from
+  the contact first so it is the older row, texts the contact, asserts the
+  message lands in the private chat, the record exists under that id and carries
+  the body, and no record exists under the group's id. Verified honestly: with
+  both source changes reverted and the APK reinstalled it reports **4 passed, 3
+  failed**; restored, **7 passed, 0 failed**.
+
+Seeding note that cost time: a seeded 1:1 must also get its
+`conversation_recipients` row. Without it the app's own tie-break sees a
+member-less row and files the message into the group, so the script "proves"
+the wrong thing.
+
+Two pre-existing failures on `emulator-5556`, unrelated to this change and left
+alone: `test-grouped-notifications.sh` still asserts `number=1` (stale since
+#345 made the number the unread *message* count), and
+`test-notification-posts.sh` reads `cmd notification list`, which does not exist
+before API 33.
