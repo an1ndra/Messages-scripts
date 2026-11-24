@@ -6080,3 +6080,40 @@ consume stays plain text, so an unrecognised query behaves exactly as before —
 - `pm clear`-free seeding through `run-as` sqlite3 works, but a NEWER database
   on the AVD (v35, from a newer install) crashes the app at startup with
   "Can't downgrade database from version 35 to 33" — `pm clear` first.
+## #522: delivery reports reachable again, and the label follows the switch (2026-11-25)
+
+The redesigned Settings screen never grew the **Delivery reports** row that the
+legacy screen has, so from 1.0.31 (when the new UI became the default) the
+switch was unreachable. With it off the send path passes no delivery
+`PendingIntent` (`SmsSender.send`), so the row can only ever be "sent" and the
+bubble's status word — gated on the same switch — falls back to "SMS". The
+reporter's own screenshots show exactly that: a delivered-capable setup whose
+bubble reads `18:31 • SMS • SIM 1`.
+
+Reproduced on the installed 1.0.33 build with one stored row
+(`status='delivered'`, `delivered_at` set) and only the preference changed:
+`true` → `… • Delivered`, `false` → `… • SMS`. The send, receive and store paths
+are byte-identical between v1.0.31 and v1.0.33 (`git diff` on `SmsSupport.kt`,
+`SmsStatusReceiver.kt`, `markMessageStatusSuspend`, the `messages()` query), so
+no code change in 1.0.32/1.0.33 lost the status — the missing switch is the
+whole story.
+
+- The row is back in `ui/SettingsScreen.kt`, right below "Mark all as read",
+  reusing the existing title/subtitle strings (no new translations).
+- The chat read the switch with a keyless `remember { }`, so a chat already
+  composed never saw a change. It now reads through `vm.settings.revision`.
+- The status word moved out of the two inline copies in `ChatScreen` into
+  `MessageDetails.meta()`, with the truth table pinned by `MessageDetailsTest`
+  and the wiring (row present, live read, one owner) by
+  `DeliveryReportsWiringTest`.
+- `scripts/test-522-delivery-reports.sh` — 6 checks: the row exists, the row
+  stores the setting both ways, a delivered row reads "Delivered" with the
+  switch on, and the same row reads "SMS" with it off. Verified the honest way:
+  with only `SettingsScreen.kt` and `ChatScreen.kt` reverted and the APK
+  reinstalled it reports **3 passed, 3 failed**; restored, **6 passed, 0
+  failed**.
+
+Left alone on purpose: the meta line still appears only on the newest message
+of a thread (`showTime = isLastMessage || isRevealed`). The reporter asked for
+time + status + SIM under *every* message; that is a chat redesign, not this
+fix, and it needs a decision before it ships.
