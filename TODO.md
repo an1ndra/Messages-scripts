@@ -113,6 +113,23 @@ the settings alias, so its HyperOS behaviour was **not** verified; the fix
 follows Android's documented distinction between symbolic and actual URIs,
 not a guess about the other app.
 
+## #523: an MMS attachment send plays the sent tone (2026-11-28)
+
+The reporter meant the same little sound a text send makes. Texts and
+group-text-as-MMS already called `playSentSound`; the picture/video/contact-card
+path did not.
+
+- `sendMediaAlbum()` now calls the same helper with `source="mms"`.
+- `playSentSound` keeps its `send_sound_enabled` gate and logs the played path
+  as text (`SentSound: played source=mms`), which the device script asserts from
+  logcat. No screenshot or audio capture is involved.
+- `test-mms-send-sound.sh` drives the debug MMS probe with a tiny PNG and checks
+  both the switch on and off, restoring the preference and provider rows.
+
+Verification: with the fix **2 passed / 0 failed** on `emulator-5556`; with both
+source changes reverted and the APK reinstalled, **1 passed / 1 failed** (the
+only pass is that the muted case stays quiet). All JUnit tests green.
+
 ## Swipe the category row away (2026-11-27)
 
 The chips stayed on screen once pulled down, until the app restarted. A swipe
