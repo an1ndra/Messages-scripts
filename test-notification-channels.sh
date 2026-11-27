@@ -73,6 +73,16 @@ channel_sound() {
         | grep -oE "mSound=[^,]*" | head -1 | cut -d= -f2-
 }
 
+# A content://settings/system/... seed is a symbolic pointer, not a sound. Every
+# channel seeded with it shares the system setting, so changing one moves them
+# all (#535).
+sound_is_actual() {
+    case "$1" in
+        ""|content://settings/system/*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
 send_wait() {
     local num="$1" body="$2" try
     for try in 1 2 3; do
@@ -304,6 +314,21 @@ echo "  channel name: ${name:-<empty>}"
     && pass "the channel is named after the chat" \
     || fail "the channel is not named after the chat ('$name')"
 
+sound_before=$(channel_sound "$CH")
+echo "  channel sound: ${sound_before:-<empty>}"
+sound_is_actual "$sound_before" \
+    && pass "the chat's channel has its own concrete sound" \
+    || fail "the chat's channel points at the shared system sound ('$sound_before')"
+
+info "Category channels are seeded with concrete sounds too"
+for id in messages_direct_default messages_group_default messages_unknown_default; do
+    s=$(channel_sound "$id")
+    echo "  $id sound: ${s:-<empty>}"
+    sound_is_actual "$s" \
+        && pass "$id has a concrete sound" \
+        || fail "$id points at the shared system sound ('$s')"
+done
+
 info "A message now posts on that channel"
 send_wait "$FROM" "${MARK}b" || fail "the second message never arrived"
 block=$(record_block "$CID" || true)
@@ -326,7 +351,6 @@ adb_ shell input keyevent 4 >/dev/null 2>&1
 sleep 2
 
 info "The channel keeps its id and sound across a relaunch"
-sound_before=$(channel_sound "$CH")
 launch
 sleep 2
 CH_AFTER=$(convo_ch "$CID")
