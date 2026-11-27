@@ -4,6 +4,40 @@
 > task/tracking history — issues, verification notes, and the regression
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
+
+## #535: notification channels no longer share a system sound pointer (2026-11-28)
+
+Every channel was seeded with `RingtoneManager.getDefaultUri(TYPE_NOTIFICATION)`.
+Android's own reference says that returns a *symbolic* URI which resolves the
+actual sound when played; `dumpsys notification` on the emulator showed all our
+channels carrying `content://settings/system/notification_sound`. On HyperOS the
+report's channels carry the SMS variant of that alias, and picking a sound for
+one conversation writes through the shared pointer — so every channel and the
+global `Settings.System.SMS_RECEIVED_SOUND` move together. Nothing in our code
+writes that setting; the OS does, because we handed it a pointer instead of a
+sound.
+
+- Channels are now seeded with `getActualDefaultRingtoneUri()`, falling back to
+  the bundled `notification_sound` when a device reports no default. The audible
+  tone is unchanged; only the URI is concrete.
+- Channels already carrying a `content://settings/system/` alias are migrated
+  once at launch: delete + recreate with the same id, name, importance,
+  vibration, lights, lock-screen visibility, DND and bubble settings. A channel
+  the user customized no longer has the alias and is left untouched.
+- `test-notification-channels.sh` gained four assertions: the chat channel and
+  all three category channels must have a concrete sound.
+
+Verification: pre-fix `test-notification-channels.sh` **25 passed / 4 failed**,
+each failure naming the shared URI; with the fix **29 passed / 0 failed** on
+`emulator-5556`. Migration was observed directly: a channel created by the old
+build read `content://settings/system/notification_sound`, and after installing
+the new build and restarting it read
+`content://media/internal/audio/media/58?title=Pixie Dust`. All JUnit tests
+green. Google Messages' own channels on the AOSP 10 comparison image also use
+the settings alias, so its HyperOS behaviour was **not** verified; the fix
+follows Android's documented distinction between symbolic and actual URIs,
+not a guess about the other app.
+
 ## Swipe the category row away (2026-11-27)
 
 The chips stayed on screen once pulled down, until the app restarted. A swipe
