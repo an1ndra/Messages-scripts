@@ -6344,3 +6344,24 @@ alone: `test-grouped-notifications.sh` still asserts `number=1` (stale since
 #345 made the number the unread *message* count), and
 `test-notification-posts.sh` reads `cmd notification list`, which does not exist
 before API 33.
+
+## #532: ask once whether an archived chat stays archived (2026-11-28)
+
+Issue #468 chose Google Messages behaviour: a new message pulls an archived
+chat back to Inbox. This adds the one-time answer the reporter asked for.
+
+- The first archive action, from the inbox or the chat menu, now opens a modal
+  with "Bring to Inbox" and "Keep archived". Back dismisses it as "Bring to
+  Inbox", which keeps the current default.
+- Both facts are written together in `SettingsStore`: the prompt is asked and
+  the choice is kept. There is no settings row to change it later; clearing app
+  data is the only reset, as decided.
+- `Repository.unarchiveForInbound()` reads the same stored choice before it
+  clears the archive flag, so live SMS, imported SMS and MMS all agree.
+- `ArchiveInboundChoiceTest` pins the storage pair, the one-time trigger, both
+  callbacks and the chat-menu path.
+- `scripts/test-archive-inbound-choice.sh` — 18 checks on `emulator-5556`:
+  first archive shows both answers, "Keep archived" survives a live SMS, a
+  second archive never prompts, and clearing the choice makes the modal return
+  with "Bring to Inbox" restoring the old behaviour. It restores the original
+  preferences, seeded rows and SMS role at the end.
