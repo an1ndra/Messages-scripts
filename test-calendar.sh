@@ -11,9 +11,10 @@
 #   - Automatic again restores Gregorian.
 #
 # Before the feature there is no Calendar row and no Diagnostics calendar line,
-# so every Jalali/Hijri assertion fails. The fixed instant keeps the expected
-# strings constant: seeding relative to "now" would make them depend on the day
-# the script runs.
+# so every Jalali/Hijri assertion fails. The new UI keeps the row in Inbox
+# settings; the legacy UI keeps it on General. The fixed instant keeps the
+# expected strings constant: seeding relative to "now" would make them depend
+# on the day the script runs.
 source "$(dirname "$0")/env.sh"
 
 PASS=0; FAIL=0
@@ -185,9 +186,24 @@ open_advanced() {
     return 1
 }
 
+open_inbox() {
+    local i
+    open_settings || return 1
+    for i in 1 2 3 4 5 6 7 8; do
+        dump_ui >/dev/null 2>&1 || continue
+        if tap_row "Inbox settings"; then
+            sleep 2
+            return 0
+        fi
+        adb_ shell input swipe 540 1700 540 800 400 >/dev/null 2>&1; sleep 1
+    done
+    bad "could not open Inbox settings"
+    return 1
+}
+
 open_calendar_picker() {
     local i
-    open_advanced || return 1
+    open_inbox || return 1
     for i in 1 2 3 4 5 6 7 8; do
         dump_ui >/dev/null 2>&1 || continue
         if tap_row "Calendar"; then
@@ -197,7 +213,7 @@ open_calendar_picker() {
         fi
         adb_ shell input swipe 540 1700 540 800 400 >/dev/null 2>&1; sleep 1
     done
-    bad "no Calendar row in Advanced settings"
+    bad "no Calendar row in Inbox settings"
     return 1
 }
 
