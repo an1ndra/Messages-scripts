@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Per-direction swipe actions: each direction is configured independently.
-# Verifies the picker persists every action, that "None" makes a direction
+# Per-direction swipe actions on their own Inbox settings page: each direction
+# is configured independently. Verifies the picker persists every action, that "None" makes a direction
 # unswipeable rather than merely inert, that a legacy reverse_swipe install
 # migrates to the matching pair, and that a swipe is undoable.
 source "$(dirname "$0")/env.sh"
@@ -31,9 +31,22 @@ open_inbox_settings() {
     dump_ui >/dev/null
 }
 
+# The two direction rows moved off Inbox settings onto their own page.
+open_swipe_page() {
+    local i
+    open_inbox_settings || return 1
+    tap_row "Swipe actions" >/dev/null || return 1
+    for i in 1 2 3 4 5; do
+        sleep 1
+        dump_ui >/dev/null
+        grep -q 'Swipe left' "$TMP/ui.xml" && return 0
+    done
+    return 1
+}
+
 # The row's action is the text node right after its title.
-# The Inbox settings page is scrollable, so a row may be below the fold. Scroll
-# until it appears rather than assuming it is on screen.
+# The page is scrollable, so a row may be below the fold. Scroll until it
+# appears rather than assuming it is on screen.
 tap_row() {
     local i
     for i in 0 1 2 3 4 5 6; do
@@ -47,6 +60,7 @@ tap_row() {
 }
 
 row_action() {
+    open_swipe_page || return 1
     python3 - "$1" <<'PY'
 import re, sys
 xml = open('/tmp/opencode/messages-tests/ui.xml').read()
@@ -93,12 +107,16 @@ set_stored() {
 # summary and the store are all exercised together.
 pick() {
     local title="$1" label="$2"
-    open_inbox_settings || { fail "could not open Inbox settings"; return 1; }
+    open_swipe_page || { fail "could not open Swipe actions"; return 1; }
     tap_row "$title" || { fail "no '$title' row"; return 1; }
     sleep 2
     dump_ui >/dev/null
     tap_text "$label" >/dev/null || { fail "no '$label' option for $title"; return 1; }
     sleep 2
+    # The picker closes itself; go back to Inbox settings so callers can read
+    # the page again from a known place.
+    adb_ shell input keyevent 4 >/dev/null 2>&1
+    sleep 1
     dump_ui >/dev/null
 }
 
@@ -156,7 +174,7 @@ info "=== 0b. The option rows are spaced for a finger, not for a mouse ==="
 # The rows used to sit ~25dp apart, so each option's touch target overlapped its
 # neighbours and the list read as one crowded block. A choice row wants the
 # standard 48dp minimum, measured here as the pitch between option centres.
-open_inbox_settings || { fail "could not open Inbox settings"; exit 1; }
+open_swipe_page || { fail "could not open Swipe actions"; exit 1; }
 tap_row "Swipe left" || { fail "no 'Swipe left' row"; exit 1; }
 sleep 2
 dump_ui >/dev/null
@@ -190,6 +208,7 @@ else
     fi
 fi
 tap_contains "Close" >/dev/null 2>&1 || adb_ shell input keyevent 4
+adb_ shell input keyevent 4 >/dev/null 2>&1
 sleep 1
 
 info "=== 1. Every action is offered and persists for both directions ==="

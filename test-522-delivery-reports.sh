@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Regression for issue #522: delivery reports must be reachable from the
-# redesigned Settings screen, and a delivered message must show "Delivered" in
+# Regression for issue #522: delivery reports must be reachable from Inbox
+# settings, and a delivered message must show "Delivered" in
 # the chat when the switch is on — while the same row reads the message kind
 # when it is off, which is what the report saw.
 #
@@ -15,11 +15,22 @@ bad() { echo "[FAIL] $1"; FAIL=$((FAIL + 1)); }
 NUM="+1555$(date +%s | tail -c 8)"
 LABEL=$(res_string settings_delivery_reports_title)
 [ -n "$LABEL" ] || LABEL="Delivery reports"
+INBOX_LABEL=$(res_string settings_inbox_title)
+[ -n "$INBOX_LABEL" ] || INBOX_LABEL="Inbox settings"
 
 prefs() {
     adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null \
         | grep -o 'name="delivery_reports_enabled" value="[a-z]*"' \
         | grep -o '[a-z]*"$' | tr -d '"'
+}
+
+open_inbox_settings() {
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
+    adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1
+    sleep 3
+    scroll_to_layout "$INBOX_LABEL" >/dev/null 2>&1 || return 1
+    tap_layout "$INBOX_LABEL" >/dev/null 2>&1 || return 1
+    sleep 2
 }
 
 # Writes the switch through the Settings UI, never the prefs file: the point of
@@ -29,9 +40,7 @@ set_switch() {
     now=$(prefs)
     [ -n "$now" ] || now=false
     [ "$now" = "$want" ] && return 0
-    adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
-    adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1
-    sleep 3
+    open_inbox_settings || return 1
     scroll_to_layout "$LABEL" >/dev/null 2>&1 || return 1
     tap_layout "$LABEL" >/dev/null 2>&1 || return 1
     # Read the file while the app is alive: apply() writes to disk right away,
@@ -62,14 +71,21 @@ for p in android.permission.SEND_SMS android.permission.READ_SMS android.permiss
     adb_ shell pm grant "$PKG" "$p" >/dev/null 2>&1 || true
 done
 
-info "1. The redesigned Settings screen offers the Delivery reports switch"
+info "1. Inbox settings offers the Delivery reports switch"
+if open_inbox_settings && scroll_to_layout "$LABEL" >/dev/null 2>&1; then
+    ok "the Inbox settings row '$LABEL' is present"
+else
+    bad "no '$LABEL' row in Inbox settings"
+fi
+
+info "1b. General settings no longer carries the row"
 adb_ shell am force-stop "$PKG" >/dev/null 2>&1; sleep 1
 adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1
 sleep 3
-if scroll_to_layout "$LABEL" >/dev/null 2>&1; then
-    ok "the Settings row '$LABEL' is present"
+if wait_layout_has "$LABEL" 3; then
+    bad "'$LABEL' is still on the General settings screen"
 else
-    bad "no '$LABEL' row in the redesigned Settings screen"
+    ok "General settings no longer shows '$LABEL'"
 fi
 
 info "2. The row writes the setting the send path reads"

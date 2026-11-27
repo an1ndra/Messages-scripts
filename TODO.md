@@ -4,6 +4,54 @@
 > task/tracking history — issues, verification notes, and the regression
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
+## MMS support card matches Advanced settings (2026-11-27)
+
+The MMS support page drew its switch and carrier verdicts as a custom
+`MmsCardRow` inside one hairline-divided `GroupedRowList`. Everywhere else in
+settings the same kind of row is a `SettingsRow` in a `SettingsGroup`, with the
+shared horizontal padding, 2 dp gap and rounded first/middle/last corners. The
+MMS page now uses those rows too, so it no longer reads as a different card.
+
+Its footer no longer claims a carrier declaration is a tested service. The
+"0 of 1 SIMs have MMS enabled by their carrier" line is gone; in its place the
+page shows the plain-language warning — the check does not confirm SIM support,
+and an offline app cannot test the network or APN settings, so MMS is never
+guaranteed. `SettingsFooter` gained an optional horizontal padding so that note
+starts at the same x as the carrier row text (18 dp) instead of at the card
+edge. All 13 locales carry the shorter line and the old count string was
+removed.
+
+- `MmsDisabledComposerTest` now pins FIRST/MIDDLE/LAST `SettingsRow` wiring, the
+  plain-language footer, the absence of the count string, and the row-aligned
+  padding; the old preview for the deleted `MmsCardRow` is gone and the screen
+  preview covers the page.
+- `scripts/test-mms-support-card.sh` — 7 checks: both screens open, the short
+  footer is on screen and its left edge matches the carrier row text, the switch
+  is a FIRST row with 12/12/4/4 corners, and a carrier/no-SIM row closes the
+  group with 4/4/12/12 corners (read from `SettingsRowShape` logcat, not a
+  screenshot). Red on the pre-fix build (4 PASS / 2 FAIL — no shape marker for
+  the custom card and the long footer), red again with the old footer padding
+  (6 PASS / 1 FAIL — footer x=32 vs row x=79), green after (7 PASS / 0 FAIL).
+
+## Delivery reports and swipe actions moved into Inbox settings (2026-11-27)
+
+The maintainer asked for Delivery reports to leave General settings, and for
+the two per-direction swipe rows to become their own page. Inbox settings now
+carries one "Delivery reports" switch and one "Swipe actions" row; tapping the
+latter opens `SwipeActionsScreen`, which holds the left/right rows and the
+existing picker. Both choices still write `swipe_left_action` /
+`swipe_right_action`, and the chat still reads `delivery_reports_enabled`.
+
+- `DeliveryReportsWiringTest` now points at Inbox settings and asserts General
+  settings no longer owns the row; `SwipeActionsPageTest` pins the one-row entry
+  point and the page's two rows plus picker. A preview covers the new page.
+- `test-522-delivery-reports.sh` and `test-swipe-actions.sh` now navigate to the
+  new locations before touching a row. `scripts/test-inbox-settings-move.sh` is
+  a focused UI walk: General has no Delivery row, Inbox has both rows, the
+  switch writes the pref, the page opens with both directions, and a choice
+  persists. Red on the pre-move build (Delivery row still on General, neither
+  row in Inbox), green after (6 PASS / 0 FAIL).
+
 ## Swipe the category row away (2026-11-27)
 
 The chips stayed on screen once pulled down, until the app restarted. A swipe
