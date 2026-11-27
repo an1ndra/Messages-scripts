@@ -130,6 +130,35 @@ Verification: with the fix **2 passed / 0 failed** on `emulator-5556`; with both
 source changes reverted and the APK reinstalled, **1 passed / 1 failed** (the
 only pass is that the muted case stays quiet). All JUnit tests green.
 
+## Settings search, categories control and row moves (2026-11-28)
+
+Four small UI changes landed together because they share the settings tree:
+
+- The redesigned Advanced settings page has the legacy-style search icon, but
+  its results cover every redesigned settings screen. Picking a result opens
+  that screen and flashes the row; the jump is reported from logcat as
+  `SettingsSearch: jumped row=...` rather than read from a screenshot.
+- Categories & rules is now a real `inbox-rules` route, so it uses the same
+  animated navigation as the other settings sub-screens.
+- Show categories is a stored switch in Inbox settings, on by default. Off
+  disables the pull gesture and clears any active category filter.
+- General settings hides Scheduled messages while the queue is empty, and the
+  new UI's Calendar row moved from Advanced to Inbox settings. Legacy General
+  keeps its Calendar row unchanged.
+
+New scripts:
+
+- `test-advanced-settings-search.sh`: 5/5 with the fix; fails before it because
+  Advanced has no search icon.
+- `test-inbox-categories-control.sh`: 6/6 with the fix, including both
+  `NavTransition` directions; fails before it because the switch does not
+  exist.
+- `test-scheduled-row-visibility.sh`: 3/3 with the fix; 1/2 before it.
+
+`test-calendar.sh` now walks Settings → Inbox settings → Calendar on the new
+UI and still covers the legacy row; 19/19 with the fix, and fails before it
+with “no Calendar row in Inbox settings”.
+
 ## Swipe the category row away (2026-11-27)
 
 The chips stayed on screen once pulled down, until the app restarted. A swipe
