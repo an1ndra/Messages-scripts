@@ -4,6 +4,7 @@
 > task/tracking history — issues, verification notes, and the regression
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
+
 ## MMS support card matches Advanced settings (2026-11-27)
 
 The MMS support page drew its switch and carrier verdicts as a custom
@@ -51,6 +52,33 @@ existing picker. Both choices still write `swipe_left_action` /
   switch writes the pref, the page opens with both directions, and a choice
   persists. Red on the pre-move build (Delivery row still on General, neither
   row in Inbox), green after (6 PASS / 0 FAIL).
+
+## #533: iOS tapbacks land on the message they quote (2026-11-28)
+
+An iPhone sends its tapback as ordinary SMS text. Its notice wraps the quoted
+message in curly quotes and sometimes names the reaction in words —
+`Reacted 😂 to “…”`, `Questioned “…”`,
+`Removed a question mark from “…”`. The old parser demanded an unquoted emoji,
+so all three arrived as bubbles and no chip appeared.
+
+- `ReactionFallback.parse` now unwraps curly, straight and single quotes and
+  maps iOS's worded tapbacks (Liked / Loved / Disliked / Laughed at /
+  Questioned / Emphasized and their `Removed …` forms) to emoji.
+- A quote-free notice — the format this app sends itself — is deliberately
+  still left as an ordinary message, so the #188 decision is preserved while
+  iOS notices work.
+- `pdu.py` gained `build_ucs2`, so a regression script can inject the real
+  Unicode notice over a `SMS_DELIVER` broadcast; `adb emu sms send` strips
+  every non-ASCII character and cannot carry one.
+
+Tests: `ReactionFallbackTest` (+4 cases), `:app:testDebugUnitTest` green.
+New `test-ios-reactions.sh` **8/8** on `emulator-5556` with the fix installed;
+break-the-fix on the previous build was **1/7** (both quoted additions stored as
+bubbles, the quote-free notice wrongly consumed). Existing
+`test-reaction-roundtrip.sh` 5/5, `test-message-reactions.sh` 6/6,
+`test-reaction-cases.sh` 9/9, `test-album-reactions.sh` 6/6. Google Messages
+2024+ resources confirm the curly-quoted `Removed %1$s from “ %2$s ”` form; no
+physical iPhone was available, so the exact iOS wording is from the report.
 
 ## Swipe the category row away (2026-11-27)
 
