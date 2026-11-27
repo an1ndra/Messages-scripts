@@ -6,7 +6,8 @@
 # What it asserts:
 #   * scrolled a few screens down, the "Back to top" button is there,
 #   * tapping it returns the list to the top,
-#   * and the button is gone again once it is.
+#   * and the button is gone again once it is,
+#   * and Diagnostics states that it enters from the bottom edge, not the side.
 #
 # Run: scripts/test-back-to-top.sh
 source "$(dirname "$0")/env.sh"
@@ -127,6 +128,65 @@ if [ -n "$at" ]; then
     else
         bad "the list is not back at its first row"
     fi
+fi
+
+# The 200 ms entry animation is gone before a uiautomator dump returns, so the
+# direction is read from the app's own Diagnostics report. The line is printed
+# from the same constant the button's enter transition uses, not re-derived.
+row_centre() {
+    python3 - "$TMP/ui.xml" "$1" <<'PY'
+import re, sys
+xml, needle = open(sys.argv[1], encoding='utf-8', errors='replace').read(), sys.argv[2]
+i = xml.find(f'text="{needle}"')
+if i < 0:
+    raise SystemExit(0)
+hits = re.findall(r'clickable="true"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml[:i])
+if not hits:
+    raise SystemExit(0)
+x1, y1, x2, y2 = map(int, hits[-1])
+print((x1 + x2) // 2, (y1 + y2) // 2)
+PY
+}
+
+scroll_to_and_tap() {
+    local label="$1" c
+    for _ in 1 2 3 4 5 6 7 8; do
+        dump_ui >/dev/null 2>&1 || true
+        c=$(row_centre "$label")
+        if [ -n "$c" ]; then
+            set -- $c
+            adb_ shell input tap "$1" "$2" >/dev/null 2>&1
+            return 0
+        fi
+        adb_ shell input swipe 540 1800 540 700 300 >/dev/null 2>&1; sleep 1
+    done
+    return 1
+}
+
+info "Diagnostics states the edge the shortcut enters from"
+adb_ shell am start -n "$ACT" --ez open_settings true >/dev/null 2>&1; sleep 3
+if scroll_to_and_tap "Advanced settings"; then
+    sleep 3
+    if scroll_to_and_tap "Diagnostics"; then
+        sleep 5
+        found=0
+        for _ in 1 2 3 4; do
+            fresh_dump || true
+            if grep -q "Back-to-top entry: from bottom" "$TMP/ui.xml" 2>/dev/null; then
+                found=1; break
+            fi
+            adb_ shell input swipe 540 1800 540 800 300 >/dev/null 2>&1; sleep 1
+        done
+        if [ "$found" = 1 ]; then
+            ok "Diagnostics says the button enters from the bottom edge"
+        else
+            bad "Diagnostics does not report a bottom-edge entry"
+        fi
+    else
+        bad "could not open Diagnostics from Advanced settings"
+    fi
+else
+    bad "could not open Advanced settings from Settings"
 fi
 
 echo

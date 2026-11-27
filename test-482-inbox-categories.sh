@@ -28,6 +28,13 @@ must_dump() {
     fi
 }
 
+# A failed dump leaves the previous screen in ui.xml; chip bounds read from
+# that file land on a conversation row instead of the chip.
+fresh_dump() {
+    rm -f "$TMP/ui.xml" "$TMP/ui.decoded.xml"
+    dump_ui
+}
+
 MARK="cat$(date +%s)$$"
 SELF="+1555985${MARK: -4}"
 OTP_ADDR="+1555986001"
@@ -117,7 +124,9 @@ pull_down() {
 
 tap_chip() {
     local label="$1"
-    local xy
+    local xy attempt
+    for attempt in 1 2 3; do
+    fresh_dump >/dev/null 2>&1 || true
     xy=$(python3 - "$TMP/ui.xml" "$label" <<'PY'
 import re, sys, html
 xml = open(sys.argv[1], encoding="utf-8").read()
@@ -135,10 +144,17 @@ for tag in re.findall(r'<node[^>]*>', xml):
         break
 PY
 )
-    [ -z "$xy" ] && return 1
+    [ -z "$xy" ] && { sleep 1; continue; }
     adb_ shell input tap $xy
     sleep 2
-    must_dump
+    fresh_dump >/dev/null 2>&1 || true
+    if grep -qF 'text="All"' "$TMP/ui.xml"; then
+        return 0
+    fi
+    adb_ shell input keyevent 4 >/dev/null 2>&1
+    sleep 1
+    done
+    return 1
 }
 
 if tap_chip "OTP"; then
@@ -158,6 +174,11 @@ fi
 
 info "All brings everything back"
 if tap_chip "All"; then
+    # A chip tap can leave the list at an offset with no rows on screen.
+    for _ in 1 2; do
+        adb_ shell input swipe 540 700 540 1500 300 >/dev/null 2>&1
+        sleep 1
+    done
     wait_for_text "$PER_BODY" 8
     if grep -qF "$TXN_BODY" "$TMP/ui.xml" && grep -qF "$PER_BODY" "$TMP/ui.xml"; then
         ok "All restores the whole list"

@@ -4,6 +4,66 @@
 > task/tracking history — issues, verification notes, and the regression
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
+## Swipe the category row away (2026-11-27)
+
+The chips stayed on screen once pulled down, until the app restarted. A swipe
+up **on the chip row itself** now puts them away; a swipe on the list still
+changes the list. Hiding the row also clears the selected tab back to All, so
+nothing stays filtered behind a hidden row. Pulling down reveals it again.
+
+- `CategoryRowDismiss` owns the 48 dp upward threshold; `InboxCategoryChips`
+  uses `detectVerticalDragGestures` on the row, with an optional `onDismiss`
+  so previews keep working.
+- JUnit: `CategoryRowDismissTest` (direction and threshold, plus the call site
+  clearing both `inboxCategory` and `inboxCategoriesRevealed`).
+- `scripts/test-category-swipe-dismiss.sh` — 5 checks: pull reveals, swipe up
+  hides, pull reveals again. Red on the pre-fix build (4 PASS / 1 FAIL — the
+  row stayed), green after (5 PASS / 0 FAIL).
+- Unaffected: `test-482-inbox-categories.sh` 6/0, `test-otp-category.sh` 3/0,
+  `test-category-opening-message.sh` 5/0, `test-back-to-top.sh` 7/0.
+  `assembleDebug`, `:app:testDebugUnitTest` (1701 tests, 0 failures).
+
+## Inbox tabs read the message that opened the thread (2026-11-27)
+
+A thread's tab is documented as coming from the message that opened it, but
+`classifyInboxCategories` was handed `conversation.snippet` — the *newest*
+message. A code or a debit at the start of a thread was hidden by a later
+"Thanks", so OTP and Transactions could look empty on a phone with plenty of
+both.
+
+- `Repository.openingBody()` reads the oldest undeleted message in a thread;
+  `InboxCategoryRules.openingBody()` chooses it over the preview and falls
+  back to the preview for a thread with no messages. Both the file decision and
+  the OTP scan now use that text.
+- JUnit: `InboxCategoryTest` (opening message wins, preview only as fallback)
+  and `InboxCategoryImportTest` (the view model and repository are wired to
+  it, not to `convo.snippet`).
+- `scripts/test-category-opening-message.sh` — 5 checks: two threads opened by
+  a code and a debit, both previewing a later "Thanks", are filed under OTP
+  and Transactions. Red on the pre-fix build (3 PASS / 2 FAIL — both read
+  `personal`), green after (5 PASS / 0 FAIL).
+- `scripts/test-482-inbox-categories.sh` was hardened against stale dumps and
+  a list left at an offset: 6 PASS / 0 FAIL. `test-otp-category.sh`:
+  3 PASS / 0 FAIL. `assembleDebug`, `:app:testDebugUnitTest` (1697 tests,
+  0 failures).
+
+## Back-to-top rises from the bottom edge (2026-11-27)
+
+The inbox shortcut appeared with `AnimatedVisibility`'s default `expandIn`,
+which grew the disc sideways from its centre. It now has an explicit fade plus
+a vertical slide from a full height below the screen, and leaves the same way,
+using the app's motion tokens; reduce-motion still snaps.
+
+- JUnit: `BackToTopTest` checks the edge label Diagnostics reads and that the
+  transition source uses vertical-only slide functions; `DiagnosticsReportTest`
+  checks the report prints the line from the button's own constant.
+- `scripts/test-back-to-top.sh` gained one check: Diagnostics says
+  "Back-to-top entry: from bottom". A 200 ms slide is gone before uiautomator
+  can dump the screen, so the direction is read from the app's own report.
+  Red on the pre-fix build (6 PASS / 1 FAIL), green after (7 PASS / 0 FAIL).
+- Verified: `assembleDebug`, `:app:testDebugUnitTest` (1694 tests, 0 failures),
+  install on `emulator-5556`, `test-back-to-top.sh`. `lintDebug` still fails on
+  120 pre-existing errors elsewhere in the repo; none in the changed files.
 
 ## The participant write needed a SQLite Android 10 does not have (2026-11-19)
 
