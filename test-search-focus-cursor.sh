@@ -39,7 +39,7 @@ try:
     data = open(sys.argv[1], encoding="utf-8", errors="replace").read()
 except OSError:
     sys.exit(1)
-q = re.escape("Cursor" + sys.argv[2])
+q = re.escape(sys.argv[2])
 m = re.search(r'content-desc="[^"]*' + q + r'[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', data)
 if not m:
     sys.exit(1)
@@ -50,16 +50,16 @@ PY
 
 info "Seed a conversation"
 cleanup
-sql "INSERT INTO conversations(address,name,snippet,timestamp,last_is_me) VALUES('$NUM','Cursor$MARK','hello there',$TS,0);" >/dev/null
-sql "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,media_type) SELECT id,'first msg',$TS,0,'received','text' FROM conversations WHERE address='$NUM';" >/dev/null
-sql "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,media_type) SELECT id,'second msg',$((TS + 60000)),1,'sent','text' FROM conversations WHERE address='$NUM';" >/dev/null
+sql "INSERT INTO conversations(address,name,snippet,timestamp,last_is_me) VALUES('$NUM','Cursor$MARK','first $MARK',$TS,0);" >/dev/null
+sql "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,media_type) SELECT id,'first $MARK',$TS,0,'received','text' FROM conversations WHERE address='$NUM';" >/dev/null
+sql "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,media_type) SELECT id,'second $MARK',$((TS + 60000)),1,'sent','text' FROM conversations WHERE address='$NUM';" >/dev/null
 
 info "Search, then open the result"
 adb_ shell am force-stop "$PKG"; sleep 1
 adb_ shell am start -n "$ACT" >/dev/null 2>&1; sleep 6
 if ! tap_text "Search" >/dev/null 2>&1; then bad "no Search button"; exit 1; fi
 sleep 1
-type_text "880-0088" >/dev/null 2>&1
+type_text "$MARK" >/dev/null 2>&1
 sleep 2
 if [ "$(ime_shown)" = "mInputShown=true" ]; then
     ok "search field holds the IME while searching"
@@ -71,7 +71,7 @@ C=$(row_bounds) || { bad "seeded row not found in results"; exit 1; }
 adb_ shell input tap $C
 sleep 4
 
-if ui_has "Cursor$MARK"; then ok "chat opened for the searched thread"; else bad "chat did not open"; exit 1; fi
+if ui_has "$MARK"; then ok "chat opened for the searched thread"; else bad "chat did not open"; exit 1; fi
 
 info "The IME must be released once the chat is showing"
 sleep 2

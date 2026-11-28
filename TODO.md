@@ -5,6 +5,29 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #549 tapping a global-search result lets go of the keyboard (2026-11-28)
+
+The maintainer took only the keyboard part of the issue: per-conversation hit
+counts and carrying the query into the in-chat search bar are **not planned**.
+
+The home list stays composed behind the chat, so its search `TextField` kept
+the IME connection after a result was tapped. Typing straight away went into
+the old search field and showed up as extra query characters on return.
+
+- New `ui/SearchFocusRelease.kt` clears focus with `force = true`, hides the
+  software keyboard, and only then forwards the conversation id and query.
+  Both conversation lists use it for row taps, and the new UI uses it for
+  Starred hits too.
+- JUnit: `SearchFocusReleaseTest` (3 tests) pins the call order, the no-keyboard
+  case, and the wiring in both list files.
+- `scripts/test-search-focus-cursor.sh` now seeds a unique marker in the
+  snippet and searches for it; its old name-based matcher could not find the
+  row because unsaved contacts are announced by address. Red-green verified:
+  pre-fix APK `2 passed / 1 failed` (IME still served after opening the chat),
+  fixed APK `3 passed / 0 failed`.
+- Verified: `:app:testDebugUnitTest` 1742 tests, 0 failures;
+  `test-chat-search-highlight.sh` 5/0 and `test-in-chat-search.sh` 8/0.
+
 ## MMS support card matches Advanced settings (2026-11-27)
 
 The MMS support page drew its switch and carrier verdicts as a custom
