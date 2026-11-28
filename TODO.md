@@ -5,6 +5,34 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #530 the MMS submission now matches the platform composer (2026-11-28)
+
+A Telstra user got `code=4 httpStatus=500` for every MMS, image or text, while
+Quik and Fossify sent on the same phone and APN. Both hand their PDU to
+`SmsManager.sendMultimediaMessage`, so the difference is on the wire. The
+Diagnostics work that made the submission readable lived only in the working
+tree; it is landed with this fix.
+
+The submission now reports and writes what the AOSP/klinker composer writes:
+
+- `From` is always `insert-address-token`; the platform fills it from the SIM.
+  A hand-written MSISDN can differ from the line the carrier sees.
+- Every part carries a `content-location` equal to its name, including the
+  SMIL part.
+- `X-Mms-Message-Size` is no longer declared; the reference composer omits it.
+- Fields follow the reference submission order: `8c.98.8d.85.89.97.8a.88.8f.86.90`,
+  then `X-Mms-Content-Type` last.
+
+- JUnit: `SendReqBuilderTest` asserts the token, content-locations, absent size
+  header and exact field order; `SendPduFactsTest` asserts the report reads the
+  same facts. `:mms:testDebugUnitTest` 337 tests and `:app:testDebugUnitTest`
+  1740 tests, 0 failures.
+- `scripts/test-mms-submission-wire.sh` drives the existing debug send probe
+  with MMS enabled, reads the `send pdu` line from logcat, and asserts all four
+  differences. It needs no MMSC and no provider gate. Red-green verified on
+  `emulator-5556`: before the wire fix `1 passed / 5 failed`, after it
+  `6 passed / 0 failed`.
+
 ## #546 copy the number from conversation details (2026-11-28)
 
 QKSMS copies the recipient address when its details row is long-pressed; Fossify
