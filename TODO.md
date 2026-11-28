@@ -5,6 +5,30 @@
 > scripts that test them (all in this repo). Hand this file + `AGENTS.md`
 > (same folder) to any AI agent working on the scripts.
 
+## #546 copy the number from conversation details (2026-11-28)
+
+QKSMS copies the recipient address when its details row is long-pressed; Fossify
+offers a "Copy number to clipboard" action. This app showed the formatted
+number under the contact name but offered no way to copy it. The number row in
+conversation details now handles a long press (and the matching accessibility
+long-click action), writes the **raw conversation address** to the clipboard,
+and shows the existing "Copied" confirmation toast. The formatted text is kept
+for display, so the clipboard holds a usable number, not the bidi-wrapped
+`(555) 123-4567` label.
+
+- New `ui/NumberCopy.kt` keeps the write and the confirmation in order, and
+  `ContactDetailsScreen` calls it from `detectTapGestures`/`semantics`.
+- JUnit: `NumberCopyTest` pins the write-before-confirm order and the details
+  wiring, including that the raw address is passed rather than the display
+  text.
+- `scripts/test-copy-number-details.sh` seeds a saved contact plus a unique
+  conversation, long-presses the number in details, checks the toast window,
+  then pastes into home search and asserts the raw number. It kills a stale
+  `interact.instrumentation` process before each UI dump; that leftover process
+  makes `uiautomator dump` exit 137 with no output.
+- Red-green verified on `emulator-5556`: before the fix `2 passed / 1 failed`
+  (clipboard held no number) and after it `4 passed / 0 failed`.
+
 ## #549 tapping a global-search result lets go of the keyboard (2026-11-28)
 
 The maintainer took only the keyboard part of the issue: per-conversation hit
