@@ -15,6 +15,7 @@ STAMP=$(date +%s)
 T1="ios emoji target $STAMP"
 T2="ios question target $STAMP"
 T3="ios quoted guard $STAMP"
+T4="ios like target $STAMP"
 TS=$(( STAMP * 1000 ))
 
 cleanup() {
@@ -73,10 +74,10 @@ wait_reactions() { # body, expected
 }
 notice_stored() { sql "SELECT COUNT(*) FROM messages WHERE body='$1';" | tr -d '\r'; }
 
-info "Seed three target messages"
+info "Seed four target messages"
 cleanup
 sql "INSERT INTO conversations(address,name,snippet,timestamp,last_is_me) VALUES('$NUM','IosReactions','$T1',$TS,0);"
-for body in "$T1" "$T2" "$T3"; do
+for body in "$T1" "$T2" "$T3" "$T4"; do
     sql "INSERT INTO messages(conversation_id,body,timestamp,is_me,status,media_type) SELECT id,'$body',$TS,0,'received','text' FROM conversations WHERE address='$NUM';"
 done
 
@@ -97,6 +98,13 @@ info "Removed a question mark from <curly-quoted snippet>"
 inject_sms "Removed a question mark from “$T2”" || { bad "could not inject the removal"; exit 1; }
 if wait_reactions "$T2" ""; then ok "❓ removed from the quoted message"; else bad "❓ was not removed"; fi
 if [ "$(notice_stored "Removed a question mark from “$T2”")" = "0" ]; then ok "removal did not become a bubble"; else bad "removal was stored as a bubble"; fi
+
+info "Liked <curly-quoted snippet>, then Removed a like from it"
+inject_sms "Liked “$T4”" || { bad "could not inject the like"; exit 1; }
+if wait_reactions "$T4" "👍:1"; then ok "👍 applied to the quoted message"; else bad "👍 was not applied"; fi
+inject_sms "Removed a like from “$T4”" || { bad "could not inject the like removal"; exit 1; }
+if wait_reactions "$T4" ""; then ok "👍 removed from the quoted message"; else bad "👍 was not removed"; fi
+if [ "$(notice_stored "Removed a like from “$T4”")" = "0" ]; then ok "like removal did not become a bubble"; else bad "like removal was stored as a bubble"; fi
 
 info "Our own quote-free notice is still an ordinary message"
 inject_sms "Reacted 👍 to $T3" || { bad "could not inject our own notice"; exit 1; }
