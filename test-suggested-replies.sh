@@ -6,6 +6,9 @@
 # question offers Yes and No, thanks offers a welcome, an arrival offers a
 # position, and a plain statement offers nothing.
 #
+# The chips are opt-in, so the first check is that a build nobody has configured
+# shows none of them.
+#
 # Picking a chip fills the message box; it never sends on its own.
 #
 # Run: scripts/test-suggested-replies.sh   (emulator-5556)
@@ -109,11 +112,23 @@ CID=$(seed_thread "$QUESTION" "Old Friend" "Are we still on for dinner?")
 seed_thread "$PLAIN" "Quiet Friend" "I'll be at the office until six" >/dev/null
 pass "seeded a yes/no question and a plain statement"
 
-info "1. A yes/no question offers Yes and No"
+info "1. An install that never opted in shows no chips"
+launch || fail "the app did not come up"
+open_chat "$QUESTION"
+sleep 2
+dump_ui || true
+if grep -qF 'text="Yes"' "$TMP/ui.xml" || grep -qF 'text="Sounds good"' "$TMP/ui.xml"; then
+    fail "chips appeared without the switch being turned on"
+else
+    pass "the chips are opt-in: a fresh install suggests nothing"
+fi
+
+info "2. Turning the switch on offers Yes and No for a yes/no question"
+pref_bool suggested_replies_enabled true
 launch || fail "the app did not come up"
 open_chat "$QUESTION"
 if wait_text "Yes"; then
-    pass "the chips appear above the composer"
+    pass "the chips appear above the composer once enabled"
 else
     fail "no suggestion chips for an unanswered question"
 fi
@@ -123,7 +138,7 @@ else
     fail "the second answer is missing"
 fi
 
-info "2. Picking a chip fills the message box and sends nothing"
+info "3. Picking a chip fills the message box and sends nothing"
 C=$(center_of "Yes" || true)
 if [ -n "$C" ]; then
     adb_ shell input tap $C >/dev/null 2>&1
@@ -150,7 +165,8 @@ else
     fail "could not locate the Yes chip"
 fi
 
-info "3. A plain statement suggests nothing"
+info "4. A plain statement suggests nothing"
+launch || fail "the app did not come up"
 open_chat "$PLAIN"
 sleep 2
 dump_ui || true
@@ -160,7 +176,7 @@ else
     pass "no chips where there is nothing to answer"
 fi
 
-info "4. The switch removes them everywhere"
+info "5. The switch removes them everywhere again"
 pref_bool suggested_replies_enabled false
 launch || fail "the app did not come up"
 open_chat "$QUESTION"
@@ -171,7 +187,6 @@ if grep -qF 'text="Yes"' "$TMP/ui.xml"; then
 else
     pass "turning the setting off takes the chips away"
 fi
-pref_bool suggested_replies_enabled true
 
 echo
 echo "Result: $PASS passed, $FAIL failed"
