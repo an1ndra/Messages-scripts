@@ -61,9 +61,12 @@ message in curly quotes and sometimes names the reaction in words —
 `Removed a question mark from “…”`. The old parser demanded an unquoted emoji,
 so all three arrived as bubbles and no chip appeared.
 
-- `ReactionFallback.parse` now unwraps curly, straight and single quotes and
-  maps iOS's worded tapbacks (Liked / Loved / Disliked / Laughed at /
-  Questioned / Emphasized and their `Removed …` forms) to emoji.
+- `ReactionFallback.parse` now unwraps Apple's curly quotes and maps iOS's
+  worded tapbacks (Liked / Loved / Disliked / Laughed at / Questioned /
+  Emphasized and the six `Removed … from` forms: a heart, a like, a dislike, a
+  laugh, an exclamation, a question mark) to emoji. The worded forms require
+  curly quotes so a typed `Loved "Dune"` is not eaten; the
+  `Reacted <emoji> to …` form also accepts straight double quotes.
 - A quote-free notice — the format this app sends itself — is deliberately
   still left as an ordinary message, so the #188 decision is preserved while
   iOS notices work.
@@ -71,14 +74,15 @@ so all three arrived as bubbles and no chip appeared.
   Unicode notice over a `SMS_DELIVER` broadcast; `adb emu sms send` strips
   every non-ASCII character and cannot carry one.
 
-Tests: `ReactionFallbackTest` (+4 cases), `:app:testDebugUnitTest` green.
-New `test-ios-reactions.sh` **8/8** on `emulator-5556` with the fix installed;
-break-the-fix on the previous build was **1/7** (both quoted additions stored as
-bubbles, the quote-free notice wrongly consumed). Existing
-`test-reaction-roundtrip.sh` 5/5, `test-message-reactions.sh` 6/6,
-`test-reaction-cases.sh` 9/9, `test-album-reactions.sh` 6/6. Google Messages
-2024+ resources confirm the curly-quoted `Removed %1$s from “ %2$s ”` form; no
-physical iPhone was available, so the exact iOS wording is from the report.
+Tests: `ReactionFallbackTest` covers all six adds, all six removals and the
+`“ %s ”` spacing Google Messages uses; `:app:testDebugUnitTest` green.
+New `test-ios-reactions.sh` **11/11** on `emulator-5556` with the fix installed.
+Breaking only the removal wording (the earlier build guessed "Removed a thumbs
+up from") gives **8/11**, with the liked/removed-a-like pair stored as bubbles.
+Existing `test-reaction-roundtrip.sh` 5/5, `test-message-reactions.sh` 6/6,
+`test-reaction-cases.sh` 9/9, `test-album-reactions.sh` 6/6. Apple's wording is
+cross-checked against BlueBubbles' iMessage tapback table; no physical iPhone
+was available.
 
 ## #535: notification channels no longer share a system sound pointer (2026-11-28)
 
