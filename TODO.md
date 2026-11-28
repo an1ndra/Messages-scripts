@@ -29,6 +29,37 @@ for display, so the clipboard holds a usable number, not the bidi-wrapped
 - Red-green verified on `emulator-5556`: before the fix `2 passed / 1 failed`
   (clipboard held no number) and after it `4 passed / 0 failed`.
 
+## #531 a new message no longer restores deleted history (2026-11-28)
+
+The reporter deleted a conversation, then the sender sent a message and every
+deleted bubble came back. Reproduced on `emulator-5556`: trashed thread id 156
+returned with both old messages plus the new one.
+
+Compared three apps. Google Messages was tested live on the same emulator:
+after Delete, a new SMS from that sender opened a chat with only the new
+message. QKSMS source deletes the provider thread and its local messages in
+`deleteConversations`. Fossify Messages source deletes the provider SMS/MMS
+rows and local thread rows in `deleteConversation`. None of the three revives
+the deleted thread.
+
+This app keeps a Trash, so the fix is a fresh active thread while the deleted
+conversation stays in Trash. The user still restores old history explicitly.
+
+- `InboundIngest.mayReuseTrashedConversation` now allows only blocked and
+  blocked-number traffic to reuse a trashed row. Normal inbound messages,
+  scheduled sends and the new-chat picker look up active conversations only.
+- The auto-restore branch in `getOrCreateConversationBlocking` is gone; a new
+  message can no longer clear `deleted_at`.
+- JUnit: `InboundIngestTest` covers the three kinds;
+  `TrashRestoreClearsArchiveTest` pins the active-only lookup and the absence
+  of an un-trash write; `NewChatSkipsGroupTest` was updated for the new lookup
+  signature. Explicit Restore still clears the Archive flag.
+- `scripts/test-fresh-thread-after-delete.sh` seeds two old messages, deletes
+  the thread through long-press Delete, sends a new SMS, and asserts one fresh
+  active chat, the original thread still in Trash, old messages absent from the
+  active chat, and the new bubble visible. Red-green verified on
+  `emulator-5556`: pre-fix `7 passed / 4 failed`, fixed `11 passed / 0 failed`.
+
 ## #549 tapping a global-search result lets go of the keyboard (2026-11-28)
 
 The maintainer took only the keyboard part of the issue: per-conversation hit
