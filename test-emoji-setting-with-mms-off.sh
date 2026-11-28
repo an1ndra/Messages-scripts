@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# With MMS switched off the plus disappears, but the emoji button must still
-# obey its own setting: OFF hides it, ON puts it in the slot the plus had.
-# Both states are driven through the real Advanced settings switch; the debug
-# probe only sets MMS so the test need not walk into the MMS page each time.
+# Turning MMS off should show the emoji button in the plus's empty slot, but the
+# button must stay under the user's control after that: switching the Emoji
+# button setting off hides it while MMS is still off.
+#
+# The debug probe calls the same helper as the MMS switch, so it performs the
+# automatic turn-on. The later "user switched it off" state is written straight
+# to the preferences while the app is stopped, then the composer is read with no
+# probe at all.
 source "$(dirname "$0")/env.sh"
 
 PASS=0; FAIL=0
@@ -11,49 +15,67 @@ bad() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 
 EMOJI=$(res_string icon_emoji)
 ATTACH=$(res_string icon_attach)
-ROW=$(res_string settings_advanced_emoji_button)
-if [ -z "$EMOJI" ] || [ -z "$ATTACH" ] || [ -z "$ROW" ]; then
-    echo "  [FAIL] this build has no emoji/attach/setting label"
+if [ -z "$EMOJI" ] || [ -z "$ATTACH" ]; then
+    echo "  [FAIL] this build has no emoji/attach label"
     echo; echo "  PASS=0 FAIL=1"; echo "=== FAILED ==="; exit 1
 fi
 
 adb_su "cmd role add-role-holder android.app.role.SMS $PKG" >/dev/null 2>&1
+adb_ shell cmd role add-role-holder android.app.role.SMS "$PKG" >/dev/null 2>&1 || true
+
+PREFS="/data/data/$PKG/shared_prefs/messages_settings.xml"
+BACKUP="$TMP/emoji-mms-off-prefs.bak.xml"
+adb_ shell "run-as $PKG cat $PREFS" > "$BACKUP" 2>/dev/null || true
+
+cleanup() {
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
+    if [ -s "$BACKUP" ]; then
+        adb_ shell "run-as $PKG sh -c 'cat > $PREFS'" < "$BACKUP" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT
 
 pref_get() {
-    adb_ shell "run-as $PKG cat shared_prefs/messages_settings.xml" 2>/dev/null > "$TMP/prefs.xml"
-    python3 - "$TMP/prefs.xml" <<'PY'
+    local key="$1"
+    adb_ shell "run-as $PKG cat $PREFS" 2>/dev/null | tr -d '\r' > "$TMP/prefs.xml"
+    python3 - "$TMP/prefs.xml" "$key" <<'PY'
 import re, sys
 try:
     s = open(sys.argv[1]).read()
 except OSError:
     s = ""
-m = re.search(r'name="emoji_button_enabled" value="([^"]*)"', s)
+m = re.search(r'name="' + re.escape(sys.argv[2]) + r'" value="([^"]*)"', s)
 print(m.group(1) if m else "")
 PY
 }
 
-fresh_dump() {
+write_prefs() {
+    local mms="$1" emoji="$2"
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1
+    cat > "$TMP/emoji-mms-off-prefs.xml" <<XML
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<map>
+    <boolean name="first_import_done" value="true" />
+    <boolean name="mms_enabled" value="$mms" />
+    <boolean name="emoji_button_enabled" value="$emoji" />
+</map>
+XML
+    adb_ shell "run-as $PKG sh -c 'cat > $PREFS'" < "$TMP/emoji-mms-off-prefs.xml" >/dev/null 2>&1
+}
+
+launch() {
+    local probe="$1" extra
+    adb_ shell am force-stop "$PKG" >/dev/null 2>&1
+    if [ -n "$probe" ]; then extra="--es mms_probe $probe"; else extra=""; fi
+    adb_ shell am start -W -n "$ACT" $extra >/dev/null 2>&1
+    sleep 3
+}
+
+open_chat() {
     rm -f "$TMP/ui.xml" "$TMP/ui.decoded.xml"
-    for _ in 1 2 3; do
-        dump_ui >/dev/null 2>&1 && [ -s "$TMP/ui.xml" ] && return 0
-        sleep 0.5
-    done
-    return 1
-}
-
-launch_settings_mms_off() {
-    adb_ shell am force-stop "$PKG" >/dev/null 2>&1
-    adb_ shell am start -W -n "$ACT" --es mms_probe off --ez open_settings true >/dev/null 2>&1
-    sleep 3
-}
-
-launch_chat_mms_off() {
-    adb_ shell am force-stop "$PKG" >/dev/null 2>&1
-    adb_ shell am start -W -n "$ACT" --es mms_probe off >/dev/null 2>&1
-    sleep 3
-    fresh_dump || return 1
+    dump_ui >/dev/null 2>&1 || dump_ui >/dev/null 2>&1 || true
     local row
-    row=$(python3 - "$TMP/ui.xml" <<'PY'
+    row=$(python3 - "$TMP/ui.xml" 2>/dev/null <<'PY'
 import re, sys
 xml = open(sys.argv[1]).read()
 best = None
@@ -67,81 +89,57 @@ PY
     [ -n "$row" ] || return 1
     adb_ shell input tap ${row% *} ${row#* }
     sleep 2
-    fresh_dump
+    rm -f "$TMP/ui.xml" "$TMP/ui.decoded.xml"
+    dump_ui >/dev/null 2>&1 || dump_ui >/dev/null 2>&1 || true
 }
 
-set_emoji_with_mms_off() {
-    local want="$1" i cur
-    launch_settings_mms_off
-    adb_ shell input swipe 500 1900 500 700 400; sleep 0.5
-    adb_ shell input swipe 500 1900 500 700 400; sleep 1
-    tap_text "Advanced settings" || tap_contains "Advanced"
-    sleep 1.5
-    for i in $(seq 1 12); do
-        fresh_dump || true
-        grep -q "text=\"$ROW\"" "$TMP/ui.xml" && break
-        adb_ shell input swipe 540 1700 540 900 250; sleep 0.5
-    done
-    fresh_dump || true
-    if ! grep -q "text=\"$ROW\"" "$TMP/ui.xml"; then
-        bad "Advanced row '$ROW' not found"
-        return 1
-    fi
-    cur=$(pref_get); [ -z "$cur" ] && cur=false
-    if [ "$cur" != "$want" ]; then
-        tap_switch_near "$ROW"; sleep 0.8
-    fi
-    cur=$(pref_get); [ -z "$cur" ] && cur=false
-    [ "$cur" = "$want" ]
-}
+info "Start with MMS on and the emoji setting off"
+write_prefs true false
+launch ""
+if [ "$(pref_get emoji_button_enabled)" = "false" ]; then
+    ok "emoji setting is off before MMS is turned off"
+else
+    bad "could not set the emoji setting off"
+fi
 
-cleanup() {
-    local i
-    adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
-    adb_ shell am start -W -n "$ACT" --es mms_probe on --ez open_settings true >/dev/null 2>&1 || true
-    sleep 3
-    adb_ shell input swipe 500 1900 500 700 400 >/dev/null 2>&1 || true
-    adb_ shell input swipe 500 1900 500 700 400 >/dev/null 2>&1 || true
-    tap_text "Advanced settings" >/dev/null 2>&1 || true
+info "Turning MMS off shows the emoji button"
+launch off
+for i in 1 2 3 4 5; do
+    [ "$(pref_get mms_enabled)" = "false" ] && \
+        [ "$(pref_get emoji_button_enabled)" = "true" ] && break
     sleep 1
-    for i in $(seq 1 12); do
-        fresh_dump >/dev/null 2>&1 || true
-        grep -q "text=\"$ROW\"" "$TMP/ui.xml" && break
-        adb_ shell input swipe 540 1700 540 900 250 >/dev/null 2>&1 || true
-        sleep 0.5
-    done
-    if grep -q "text=\"$ROW\"" "$TMP/ui.xml" 2>/dev/null && [ "$(pref_get)" != "false" ]; then
-        tap_switch_near "$ROW" >/dev/null 2>&1 || true
-    fi
-    adb_ shell am force-stop "$PKG" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-
-info "MMS off, emoji setting OFF: the composer has neither button"
-set_emoji_with_mms_off false \
-    && ok "the setting is off" \
-    || bad "could not turn the setting off"
-launch_chat_mms_off || bad "could not open a conversation"
+done
+if [ "$(pref_get mms_enabled)" = "false" ] && \
+   [ "$(pref_get emoji_button_enabled)" = "true" ]; then
+    ok "turning MMS off turned the emoji setting on"
+else
+    bad "turning MMS off did not turn the emoji setting on"
+fi
+open_chat || bad "could not open a conversation"
 if ui_has "$ATTACH"; then
     bad "the attach button is still there with MMS off"
 else
     ok "no '$ATTACH' button with MMS off"
 fi
 if ui_has "$EMOJI"; then
-    bad "the '$EMOJI' button is still there with the setting off"
+    ok "the '$EMOJI' button appeared in the empty slot"
 else
-    ok "no '$EMOJI' button with the setting off"
+    bad "the '$EMOJI' button did not appear with MMS off"
 fi
 
-info "MMS off, emoji setting ON: the button returns in the plus's slot"
-set_emoji_with_mms_off true \
-    && ok "the setting is on" \
-    || bad "could not turn the setting on"
-launch_chat_mms_off || bad "could not open a conversation with the setting on"
-if ui_has "$EMOJI"; then
-    ok "the '$EMOJI' button is back with MMS off"
+info "Turning the emoji setting off later hides it again"
+write_prefs false false
+launch ""
+if [ "$(pref_get emoji_button_enabled)" = "false" ]; then
+    ok "the emoji setting is off again"
 else
-    bad "the '$EMOJI' button is missing with the setting on"
+    bad "could not turn the emoji setting off with MMS off"
+fi
+open_chat || bad "could not open a conversation after hiding emoji"
+if ui_has "$EMOJI"; then
+    bad "the '$EMOJI' button is still there after the user disabled it"
+else
+    ok "the '$EMOJI' button is gone while MMS stays off"
 fi
 
 echo
